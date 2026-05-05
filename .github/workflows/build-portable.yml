@@ -8,21 +8,27 @@ jobs:
     runs-on: windows-latest
 
     steps:
+    # 1. 取出程式碼 (升級至 v4)
     - name: Checkout Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
+    # 2. 設定 MSBuild 環境 (升級至 v2)
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.1
+      uses: microsoft/setup-msbuild@v2
 
+    # 3. 設定 NuGet 環境 (升級至 v2.0.0 以解決找不到版本的錯誤)
     - name: Setup NuGet
-      uses: NuGet/setup-nuget@v1.3.4
+      uses: nuget/setup-nuget@v2.0.0
 
+    # 4. 還原 NuGet 套件 (針對 SQLite, PdfSharp 等)
     - name: Restore NuGet Packages
       run: nuget restore DrawingApp.sln
 
+    # 5. 編譯應用程式 (指定 .NET Framework 4.7.2)
     - name: Build Application
       run: msbuild DrawingApp.sln /p:Configuration=Release /p:TargetFrameworkVersion=v4.7.2
 
+    # 6. 重新組織資料夾結構 (將 DLL 移至 Library 資料夾)
     - name: Reorganize Output (Move DLLs to Library)
       shell: pwsh
       run: |
@@ -41,8 +47,9 @@ jobs:
             Copy-Item -Path $_.FullName -Destination $libraryDir
         }
 
+    # 7. 上傳打包後的成品 (升級至 v4 以解決強制阻擋的錯誤)
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Portable_Drawing_App
         path: PublishOutput\
