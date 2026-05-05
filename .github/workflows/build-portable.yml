@@ -1,10 +1,12 @@
 name: Build and Package Drawing App
+
 on:
   workflow_dispatch: 
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -29,16 +31,20 @@ jobs:
         $libraryDir = "$publishDir\Library"
         $saveDir = "$publishDir\save"
         
+        # 建立必要資料夾
         New-Item -ItemType Directory -Force -Path $libraryDir
         New-Item -ItemType Directory -Force -Path $saveDir
         
+        # 複製執行檔與設定檔
         Copy-Item -Path "$releaseDir\DrawingApp.exe" -Destination $publishDir
         Copy-Item -Path "$releaseDir\DrawingApp.exe.config" -Destination $publishDir
         
+        # 移動所有 DLL 至 Library 資料夾
         Get-ChildItem -Path $releaseDir -Filter *.dll | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination $libraryDir
         }
         
+        # 處理 SQLite 的底層依賴庫 (x86/x64)
         if (Test-Path "$releaseDir\x86") { Copy-Item -Path "$releaseDir\x86" -Destination $publishDir -Recurse }
         if (Test-Path "$releaseDir\x64") { Copy-Item -Path "$releaseDir\x64" -Destination $publishDir -Recurse }
 
