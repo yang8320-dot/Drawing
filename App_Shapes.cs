@@ -8,7 +8,8 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Diamond, Triangle, TextNode, Text, Image }
+        // 包含所有基礎與進階圖形
+        public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image }
         public enum HandlePosition { None, NW, NE, SW, SE }
 
         public abstract class ShapeBase
@@ -16,7 +17,7 @@ namespace DrawingApp
             public RectangleF Bounds;
             public Color ShapeColor { get; set; }
             
-            // 新增專業外觀屬性
+            // 進階外框屬性
             public float StrokeWidth { get; set; } = 2f;
             public DashStyle StrokeDashStyle { get; set; } = DashStyle.Solid;
             
@@ -25,6 +26,7 @@ namespace DrawingApp
             
             public Guid Id { get; set; } = Guid.NewGuid();
 
+            // 萬用文字屬性
             public string Text { get; set; } = "";
             public string FontName { get; set; } = "Arial";
             public float FontSize { get; set; } = 12f;
@@ -128,15 +130,13 @@ namespace DrawingApp
             {
                 return new PointF[]
                 {
-                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Top),     // 上
-                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Bottom),  // 下
-                    new PointF(Bounds.Left, Bounds.Top + Bounds.Height/2),    // 左
-                    new PointF(Bounds.Right, Bounds.Top + Bounds.Height/2)    // 右
+                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Top),
+                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Bottom),
+                    new PointF(Bounds.Left, Bounds.Top + Bounds.Height/2),
+                    new PointF(Bounds.Right, Bounds.Top + Bounds.Height/2)
                 };
             }
         }
-
-        // --- 實體圖形 ---
 
         public class RectShape : ShapeBase
         { 
@@ -160,7 +160,21 @@ namespace DrawingApp
             }
         }
 
-        // 新增：菱形 (流程圖的判斷式)
+        // 恢復被遺漏的圓弧 (Arc)
+        public class ArcShape : ShapeBase
+        {
+            public ArcShape() { } 
+            public ArcShape(PointF start, Color color) : base(start, color) { }
+            public override void Draw(Graphics g)
+            {
+                if(Bounds.Width > 0 && Bounds.Height > 0)
+                {
+                    using (Pen p = CreatePen()) g.DrawArc(p, Bounds, 180, 180);
+                }
+                DrawText(g);
+            }
+        }
+
         public class DiamondShape : ShapeBase
         {
             public DiamondShape() { }
@@ -179,7 +193,6 @@ namespace DrawingApp
             }
         }
 
-        // 新增：三角形
         public class TriangleShape : ShapeBase
         {
             public TriangleShape() { }
@@ -251,7 +264,7 @@ namespace DrawingApp
             public PointF StartPt { get; set; }
             public PointF EndPt { get; set; }
             public bool HasArrow { get; set; }
-            public bool IsOrthogonal { get; set; } // 90度折線
+            public bool IsOrthogonal { get; set; }
 
             public ConnectorShape() { }
             public ConnectorShape(PointF start, Color color, bool arrow, bool orthogonal = false) : base(start, color)
@@ -260,7 +273,7 @@ namespace DrawingApp
             }
             
             public override void UpdateEndPoint(PointF pt) { EndPt = pt; }
-            public override bool HitTest(PointF pt) { return false; } // 線條不開放點選
+            public override bool HitTest(PointF pt) { return false; } 
             
             public void DrawDynamic(Graphics g, PointF p1, PointF p2)
             {
@@ -276,14 +289,12 @@ namespace DrawingApp
 
                     if (IsOrthogonal)
                     {
-                        // 畫 90 度折線 (找中點轉彎)
                         float midX = p1.X + (p2.X - p1.X) / 2;
                         PointF[] pts = new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
                         g.DrawLines(p, pts);
                     }
                     else
                     {
-                        // 畫直線
                         g.DrawLine(p, p1, p2);
                     }
                 }
@@ -302,6 +313,7 @@ namespace DrawingApp
                     case ShapeType.OrthogonalLine: return new ConnectorShape(start, color, true, true);
                     case ShapeType.Rectangle: return new RectShape(start, color);
                     case ShapeType.Circle: return new CircleShape(start, color);
+                    case ShapeType.Arc: return new ArcShape(start, color); // 恢復圓弧
                     case ShapeType.Diamond: return new DiamondShape(start, color);
                     case ShapeType.Triangle: return new TriangleShape(start, color);
                     case ShapeType.TextNode: return new TextNodeShape(start, color, false);
