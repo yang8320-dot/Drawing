@@ -1,6 +1,5 @@
-name: Manual Build Portable App Structure
+name: Build Portable Notification Center
 
-# 觸發條件：手動執行 (workflow_dispatch)
 on:
   workflow_dispatch:
 
@@ -10,43 +9,39 @@ jobs:
 
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4 # 已升級至 v4 以符合最新安全規範
 
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.1
+      uses: microsoft/setup-msbuild@v2 # 升級至 v2
 
     - name: Setup NuGet
-      uses: NuGet/setup-nuget@v1.1.1
+      uses: NuGet/setup-nuget@v2 # 升級至 v2
 
     - name: Restore NuGet Packages
-      run: nuget restore YourSolutionName.sln
+      # 請確保檔名與你的方案檔名一致
+      run: nuget restore NotificationCenter.sln 
 
     - name: Build Project
-      run: msbuild YourSolutionName.sln /p:Configuration=Release /p:Platform="Any CPU"
+      run: msbuild NotificationCenter.sln /p:Configuration=Release /p:Platform="Any CPU"
 
     - name: Organize Files and Folder Structure
       shell: powershell
       run: |
-        # 1. 建立輸出根目錄與 Library 子目錄
         $outDir = "PortableRelease"
         $libDir = "$outDir\Library"
         New-Item -ItemType Directory -Force -Path $libDir
         
-        # 請替換 YourProjectName 為實際專案名稱
-        $binDir = "YourProjectName\bin\Release"
+        # 請將 NotificationCenter 替換為實際的專案資料夾名稱
+        $binDir = "NotificationCenter\bin\Release"
         
-        # 2. 將主程式與設定檔移至根目錄
         Copy-Item "$binDir\*.exe" -Destination $outDir
         Copy-Item "$binDir\*.config" -Destination $outDir
-        
-        # 3. 將所有相依的 DLL 移至 Library 資料夾
         Copy-Item "$binDir\*.dll" -Destination $libDir
         
-        # 4. 打包成 ZIP 檔
-        Compress-Archive -Path "$outDir\*" -DestinationPath "DrawingApp_Portable.zip"
+        Compress-Archive -Path "$outDir\*" -DestinationPath "NotificationCenter_Portable.zip"
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4 # 已修正：升級至 v4，解決被拒絕的問題
       with:
-        name: Portable-Drawing-App
-        path: DrawingApp_Portable.zip
+        name: Portable-Notification-Center
+        path: NotificationCenter_Portable.zip
