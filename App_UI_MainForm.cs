@@ -52,11 +52,11 @@ namespace DrawingApp
                 Padding = new Padding(10) // 框內與文字間隔 10
             };
 
-            // 動態生成按鈕
-            _btnLine = CreateToolButton("Line", 10, e => _canvas.CurrentTool = App_Shapes.ShapeType.Line);
-            _btnRect = CreateToolButton("Rectangle", 100, e => _canvas.CurrentTool = App_Shapes.ShapeType.Rectangle);
-            _btnCircle = CreateToolButton("Circle", 190, e => _canvas.CurrentTool = App_Shapes.ShapeType.Circle);
-            _btnNode = CreateToolButton("Text Node", 280, e => _canvas.CurrentTool = App_Shapes.ShapeType.TextNode);
+            // 動態生成按鈕 (修正處：將 Lambda 參數改為 (s, e) 以符合 EventHandler 簽章)
+            _btnLine = CreateToolButton("Line", 10, (s, e) => _canvas.CurrentTool = App_Shapes.ShapeType.Line);
+            _btnRect = CreateToolButton("Rectangle", 100, (s, e) => _canvas.CurrentTool = App_Shapes.ShapeType.Rectangle);
+            _btnCircle = CreateToolButton("Circle", 190, (s, e) => _canvas.CurrentTool = App_Shapes.ShapeType.Circle);
+            _btnNode = CreateToolButton("Text Node", 280, (s, e) => _canvas.CurrentTool = App_Shapes.ShapeType.TextNode);
             
             _btnColor = CreateToolButton("Change Color", 390, btnColor_Click);
             _btnSavePNG = CreateToolButton("Export PNG", 500, btnSavePNG_Click);
@@ -76,7 +76,7 @@ namespace DrawingApp
             Panel canvasContainer = new Panel
             {
                 Dock = DockStyle.Fill,
-                Padding = new Padding(15, 15, 15, 15) // 與視窗邊緣保持距離
+                Padding = new Padding(15, 15, 15, 15) // 與視窗邊緣保持舒適距離
             };
             canvasContainer.Controls.Add(_canvas);
 
@@ -121,10 +121,10 @@ namespace DrawingApp
                     _btnSavePNG.Enabled = false;
                     Bitmap bmp = _canvas.GetTransparentCanvasRender();
                     
-                    // 執行耗時作業
+                    // 執行耗時作業 (非同步背景處理)
                     await App_Export.ExportToPngAsync(bmp, sfd.FileName);
                     
-                    // 執行緒安全的 UI 更新
+                    // 執行緒安全的 UI 更新 (確保不卡頓主執行緒)
                     this.Invoke((MethodInvoker)delegate {
                         MessageBox.Show("PNG Exported Successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         _btnSavePNG.Enabled = true;
@@ -158,7 +158,7 @@ namespace DrawingApp
         {
             _btnSaveDB.Enabled = false;
             
-            // 這裡簡單將數量轉為字串作為 Demo。實務上應使用 JSON 序列化 _canvas.Shapes 集合
+            // 將數量轉為字串作為基礎 Demo。實務上可串接 JSON 序列化模組
             string dummyJsonData = $"[{{\"ShapeCount\": {_canvas.Shapes.Count}}}]";
 
             await App_Database.SaveDrawingDataAsync("MainWorkspace", "App_CanvasControl", dummyJsonData);
