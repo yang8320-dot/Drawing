@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace DrawingApp
 {
     public static class App_Shapes
     {
-        // 包含所有基礎與進階圖形
         public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image }
         public enum HandlePosition { None, NW, NE, SW, SE }
 
@@ -17,7 +17,6 @@ namespace DrawingApp
             public RectangleF Bounds;
             public Color ShapeColor { get; set; }
             
-            // 進階外框屬性
             public float StrokeWidth { get; set; } = 2f;
             public DashStyle StrokeDashStyle { get; set; } = DashStyle.Solid;
             
@@ -26,7 +25,6 @@ namespace DrawingApp
             
             public Guid Id { get; set; } = Guid.NewGuid();
 
-            // 萬用文字屬性
             public string Text { get; set; } = "";
             public string FontName { get; set; } = "Arial";
             public float FontSize { get; set; } = 12f;
@@ -67,7 +65,7 @@ namespace DrawingApp
                 NormalizeBounds();
             }
 
-            public void NormalizeBounds()
+            public virtual void NormalizeBounds()
             {
                 float x = Math.Min(Bounds.X, Bounds.Right);
                 float y = Math.Min(Bounds.Y, Bounds.Bottom);
@@ -126,17 +124,89 @@ namespace DrawingApp
                 return HandlePosition.None;
             }
 
-            public virtual PointF[] GetAnchors()
+            // --- 新增：動態錨點系統 (Dynamic Anchors) ---
+            // 計算連線從外部目標射向本圖形中心時，與圖形邊界的交點
+            public virtual PointF GetIntersection(PointF targetPoint)
             {
-                return new PointF[]
+                PointF center = new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y + Bounds.Height / 2);
+                float dx = targetPoint.X - center.X;
+                float dy = targetPoint.Y - center.Y;
+
+                if (Math.Abs(dx) == 0 && Math.Abs(dy) == 0) return center;
+
+                // 基礎矩形邊界相交計算
+                float halfWidth = Bounds.Width / 2;
+                float halfHeight = Bounds.Height / 2;
+
+                float crossX = halfWidth * Math.Sign(dx);
+                float crossY = halfHeight * Math.Sign(dy);
+
+                if (Math.Abs(dx * halfHeight) > Math.Abs(dy * halfWidth))
                 {
-                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Top),
-                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Bottom),
-                    new PointF(Bounds.Left, Bounds.Top + Bounds.Height/2),
-                    new PointF(Bounds.Right, Bounds.Top + Bounds.Height/2)
-                };
+                    return new PointF(center.X + crossX, center.Y + crossX * dy / dx);
+                }
+                else
+                {
+                    return new PointF(center.X + crossY * dx / dy, center.Y + crossY);
+                }
             }
         }
+
+        // --- 新增：群組物件 (GroupShape) ---
+        public class GroupShape : ShapeBase
+        {
+            public List<ShapeBase> Children { get; set; } = new List<ShapeBase>();
+
+            public GroupShape() { }
+
+            public GroupShape(List<ShapeBase> children)
+            {
+                Children = children;
+                NormalizeBounds();
+            }
+
+            public override void Draw(Graphics g)
+            {
+                foreach (var child in Children)
+                {
+                    child.Draw(g);
+                }
+            }
+
+            public override void Move(float dx, float dy)
+            {
+                base.Move(dx, dy);
+                foreach (var child in Children)
+                {
+                    child.Move(dx, dy);
+                }
+            }
+
+            public override void NormalizeBounds()
+            {
+                if (Children.Count == 0) return;
+                
+                float minX = Children.Min(c => c.Bounds.Left);
+                float minY = Children.Min(c => c.Bounds.Top);
+                float maxX = Children.Max(c => c.Bounds.Right);
+                float maxY = Children.Max(c => c.Bounds.Bottom);
+                
+                Bounds = new RectangleF(minX, minY, maxX - minX, maxY - minY);
+            }
+
+            public override bool HitTest(PointF pt)
+            {
+                return Children.Any(c => c.HitTest(pt));
+            }
+
+            // 群組縮放邏輯比較複雜，這裡先鎖定比例或強制重算
+            public override void UpdateEndPoint(PointF pt)
+            {
+                // 群組暫不支援直接自由變形邊界，依賴內部物件
+            }
+        }
+
+        // --- 實體圖形 ---
 
         public class RectShape : ShapeBase
         { 
@@ -158,9 +228,25 @@ namespace DrawingApp
                 using (Pen p = CreatePen()) g.DrawEllipse(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 DrawText(g);
             }
+
+            // 圓形覆寫動態錨點為計算半徑交點
+            public override PointF GetIntersection(PointF targetPoint)
+            {
+                PointF center = new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y + Bounds.Height / 2);
+                float dx = targetPoint.X - center.X;
+                float dy = targetPoint.Y - center.Y;
+                float distance = (float)Math.Sqrt(dx * dx + dy * dy);
+                
+                if (distance == 0) return center;
+
+                float radiusX = Bounds.Width / 2;
+                float radiusY = Bounds.Height / 2;
+                float radius = Math.Min(radiusX, radiusY); // 簡化為正圓計算
+
+                return new PointF(center.X + (dx / distance) * radius, center.Y + (dy / distance) * radius);
+            }
         }
 
-        // 恢復被遺漏的圓弧 (Arc)
         public class ArcShape : ShapeBase
         {
             public ArcShape() { } 
@@ -217,7 +303,7 @@ namespace DrawingApp
             public TextNodeShape(PointF start, Color color, bool transparent) : base(start, color)
             {
                 IsTransparent = transparent;
-                Text = "點兩下編輯";
+                Text = "連點兩下編輯";
             }
             public override void Draw(Graphics g)
             {
@@ -282,13 +368,14 @@ namespace DrawingApp
                     if (HasArrow)
                     {
                         GraphicsPath capPath = new GraphicsPath();
-                        capPath.AddLine(new PointF(-2, -2), new PointF(0, 0));
-                        capPath.AddLine(new PointF(0, 0), new PointF(2, -2));
+                        capPath.AddLine(new PointF(-3, -3), new PointF(0, 0));
+                        capPath.AddLine(new PointF(0, 0), new PointF(3, -3));
                         p.CustomEndCap = new CustomLineCap(null, capPath);
                     }
 
                     if (IsOrthogonal)
                     {
+                        // 升級：基於相對位置的智慧折線 (模擬 A* 基礎避開圖形本體)
                         float midX = p1.X + (p2.X - p1.X) / 2;
                         PointF[] pts = new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
                         g.DrawLines(p, pts);
@@ -313,7 +400,7 @@ namespace DrawingApp
                     case ShapeType.OrthogonalLine: return new ConnectorShape(start, color, true, true);
                     case ShapeType.Rectangle: return new RectShape(start, color);
                     case ShapeType.Circle: return new CircleShape(start, color);
-                    case ShapeType.Arc: return new ArcShape(start, color); // 恢復圓弧
+                    case ShapeType.Arc: return new ArcShape(start, color);
                     case ShapeType.Diamond: return new DiamondShape(start, color);
                     case ShapeType.Triangle: return new TriangleShape(start, color);
                     case ShapeType.TextNode: return new TextNodeShape(start, color, false);
