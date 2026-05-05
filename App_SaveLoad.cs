@@ -8,22 +8,22 @@ namespace DrawingApp
 {
     public static class App_SaveLoad
     {
-        private static string SaveDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
+        private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
 
-        // Newtonsoft.Json 的神奇設定，能保留多型 (繼承關係)
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
         {
-            TypeNameHandling = TypeNameHandling.Auto,
+            TypeNameHandling = TypeNameHandling.All, // 確保複製和存檔多型正常
             Formatting = Formatting.Indented
         };
 
-        static App_SaveLoad()
+        private static void EnsureDirectory()
         {
             if (!Directory.Exists(SaveDirectory)) Directory.CreateDirectory(SaveDirectory);
         }
 
         public static void SaveAs(List<App_Shapes.ShapeBase> shapes)
         {
+            EnsureDirectory();
             using (SaveFileDialog sfd = new SaveFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
             {
                 if (sfd.ShowDialog() == DialogResult.OK)
@@ -37,6 +37,7 @@ namespace DrawingApp
 
         public static List<App_Shapes.ShapeBase> Load()
         {
+            EnsureDirectory();
             using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
             {
                 if (ofd.ShowDialog() == DialogResult.OK)
@@ -46,6 +47,13 @@ namespace DrawingApp
                 }
             }
             return null;
+        }
+
+        // 用於複製貼上的深拷貝
+        public static List<App_Shapes.ShapeBase> CloneShapes(List<App_Shapes.ShapeBase> shapes)
+        {
+            string json = JsonConvert.SerializeObject(shapes, jsonSettings);
+            return JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
         }
     }
 }
