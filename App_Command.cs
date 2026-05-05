@@ -4,14 +4,12 @@ using System.Linq;
 
 namespace DrawingApp
 {
-    // 命令介面
     public interface ICommand
     {
         void Execute();
         void Undo();
     }
 
-    // 歷史紀錄管理員
     public class CommandManager
     {
         private Stack<ICommand> _undoStack = new Stack<ICommand>();
@@ -23,7 +21,7 @@ namespace DrawingApp
         {
             command.Execute();
             _undoStack.Push(command);
-            _redoStack.Clear(); // 執行新指令後，清除重做紀錄
+            _redoStack.Clear(); 
             OnStateChanged?.Invoke();
         }
 
@@ -53,8 +51,6 @@ namespace DrawingApp
         public bool CanRedo => _redoStack.Count > 0;
     }
 
-    // --- 具體的命令實作 ---
-
     public class AddShapeCommand : ICommand
     {
         private List<App_Shapes.ShapeBase> _canvasShapes;
@@ -81,8 +77,14 @@ namespace DrawingApp
             _shapesToRemove = shapesToRemove.ToList();
         }
 
-        public void Execute() { foreach (var s in _shapesToRemove) _canvasShapes.Remove(s); }
-        public void Undo() { foreach (var s in _shapesToRemove) _canvasShapes.Add(s); }
+        public void Execute() 
+        { 
+            foreach (var s in _shapesToRemove) _canvasShapes.Remove(s); 
+        }
+        public void Undo() 
+        { 
+            foreach (var s in _shapesToRemove) _canvasShapes.Add(s); 
+        }
     }
 
     public class MoveShapesCommand : ICommand
@@ -98,7 +100,67 @@ namespace DrawingApp
             _dy = dy;
         }
 
-        public void Execute() { foreach (var s in _shapes) s.Move(_dx, _dy); }
-        public void Undo() { foreach (var s in _shapes) s.Move(-_dx, -_dy); }
+        public void Execute() 
+        { 
+            foreach (var s in _shapes) s.Move(_dx, _dy); 
+        }
+        public void Undo() 
+        { 
+            foreach (var s in _shapes) s.Move(-_dx, -_dy); 
+        }
+    }
+
+    // 新增：群組指令
+    public class GroupCommand : ICommand
+    {
+        private List<App_Shapes.ShapeBase> _canvasShapes;
+        private List<App_Shapes.ShapeBase> _shapesToGroup;
+        private App_Shapes.GroupShape _groupShape;
+
+        public GroupCommand(List<App_Shapes.ShapeBase> canvasShapes, List<App_Shapes.ShapeBase> shapesToGroup, App_Shapes.GroupShape groupShape)
+        {
+            _canvasShapes = canvasShapes;
+            _shapesToGroup = shapesToGroup.ToList();
+            _groupShape = groupShape;
+        }
+
+        public void Execute()
+        {
+            foreach (var s in _shapesToGroup) _canvasShapes.Remove(s);
+            _canvasShapes.Add(_groupShape);
+        }
+
+        public void Undo()
+        {
+            _canvasShapes.Remove(_groupShape);
+            foreach (var s in _shapesToGroup) _canvasShapes.Add(s);
+        }
+    }
+
+    // 新增：解除群組指令
+    public class UngroupCommand : ICommand
+    {
+        private List<App_Shapes.ShapeBase> _canvasShapes;
+        private App_Shapes.GroupShape _groupShape;
+        private List<App_Shapes.ShapeBase> _children;
+
+        public UngroupCommand(List<App_Shapes.ShapeBase> canvasShapes, App_Shapes.GroupShape groupShape)
+        {
+            _canvasShapes = canvasShapes;
+            _groupShape = groupShape;
+            _children = groupShape.Children.ToList();
+        }
+
+        public void Execute()
+        {
+            _canvasShapes.Remove(_groupShape);
+            foreach (var s in _children) _canvasShapes.Add(s);
+        }
+
+        public void Undo()
+        {
+            foreach (var s in _children) _canvasShapes.Remove(s);
+            _canvasShapes.Add(_groupShape);
+        }
     }
 }
