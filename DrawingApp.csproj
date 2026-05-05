@@ -21,7 +21,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
-  <!-- 需求6: 自動整理輸出目錄 -->
+  <!-- 自動整理輸出目錄 -->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="if not exist &quot;$(TargetDir)Library&quot; mkdir &quot;$(TargetDir)Library&quot;&#xD;&#xA;if not exist &quot;$(TargetDir)save&quot; mkdir &quot;$(TargetDir)save&quot;&#xD;&#xA;move /y &quot;$(TargetDir)*.dll&quot; &quot;$(TargetDir)Library\&quot;" />
   </Target>
