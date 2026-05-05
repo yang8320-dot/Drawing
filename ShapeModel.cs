@@ -1,5 +1,5 @@
 // ==========================================
-// 檔案功能：定義繪圖物件的資料結構與縮放邏輯
+// 程式功能：定義繪圖物件的資料結構與邏輯屬性
 // 對應選單：全域使用
 // 對應資料庫：DrawingApp.db
 // 對應資料表：App_CanvasEngine
@@ -14,22 +14,19 @@ namespace PortableDrawingApp
     public class ShapeModel
     {
         public string Id { get; set; } = Guid.NewGuid().ToString();
-        public string ParentId { get; set; } = ""; // 用於心智圖/組織圖連線
+        public string ParentId { get; set; } = ""; 
         public string TypeStr { get; set; } = ShapeType.Rectangle.ToString();
         
         public float X { get; set; }
         public float Y { get; set; }
         public float Width { get; set; }
         public float Height { get; set; }
-        
-        // 儲存 ARGB 字串以便 SQLite 儲存
         public string BorderColorHex { get; set; } = Color.Black.ToArgb().ToString();
         public string Content { get; set; } = "";
         
-        // 強制轉換為一致的日期格式：yyyy-MM-dd HH:mm:ss
+        // 嚴格規範日期格式：寫入與讀取皆統一為 yyyy-MM-dd HH:mm:ss
         public string CreatedAt { get; set; } = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-        // 忽略屬性 (不在資料庫中存取)
         public ShapeType Type 
         { 
             get => (ShapeType)Enum.Parse(typeof(ShapeType), TypeStr); 
@@ -48,10 +45,10 @@ namespace PortableDrawingApp
         {
             float size = 8;
             return new RectangleF[] {
-                new RectangleF(X - size/2, Y - size/2, size, size),                 // 左上
-                new RectangleF(X + Width - size/2, Y - size/2, size, size),         // 右上
-                new RectangleF(X - size/2, Y + Height - size/2, size, size),        // 左下
-                new RectangleF(X + Width - size/2, Y + Height - size/2, size, size) // 右下
+                new RectangleF(X - size/2, Y - size/2, size, size),
+                new RectangleF(X + Width - size/2, Y - size/2, size, size),
+                new RectangleF(X - size/2, Y + Height - size/2, size, size),
+                new RectangleF(X + Width - size/2, Y + Height - size/2, size, size)
             };
         }
     }
