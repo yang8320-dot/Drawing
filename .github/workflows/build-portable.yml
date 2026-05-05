@@ -1,0 +1,52 @@
+name: Manual Build Portable App Structure
+
+# 觸發條件：手動執行 (workflow_dispatch)
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v1.1
+
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v1.1.1
+
+    - name: Restore NuGet Packages
+      run: nuget restore YourSolutionName.sln
+
+    - name: Build Project
+      run: msbuild YourSolutionName.sln /p:Configuration=Release /p:Platform="Any CPU"
+
+    - name: Organize Files and Folder Structure
+      shell: powershell
+      run: |
+        # 1. 建立輸出根目錄與 Library 子目錄
+        $outDir = "PortableRelease"
+        $libDir = "$outDir\Library"
+        New-Item -ItemType Directory -Force -Path $libDir
+        
+        # 請替換 YourProjectName 為實際專案名稱
+        $binDir = "YourProjectName\bin\Release"
+        
+        # 2. 將主程式與設定檔移至根目錄
+        Copy-Item "$binDir\*.exe" -Destination $outDir
+        Copy-Item "$binDir\*.config" -Destination $outDir
+        
+        # 3. 將所有相依的 DLL 移至 Library 資料夾
+        Copy-Item "$binDir\*.dll" -Destination $libDir
+        
+        # 4. 打包成 ZIP 檔
+        Compress-Archive -Path "$outDir\*" -DestinationPath "DrawingApp_Portable.zip"
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: Portable-Drawing-App
+        path: DrawingApp_Portable.zip
