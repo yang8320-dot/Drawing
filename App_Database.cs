@@ -5,6 +5,7 @@
  * 資料表名稱：動態生成 (依 CS 檔名)
  */
 using System;
+using System.Collections.Generic;
 using System.Data.SQLite;
 using System.IO;
 using System.Threading.Tasks;
@@ -14,11 +15,18 @@ namespace DrawingApp
     public static class App_Database
     {
         private const string DATE_FORMAT = "yyyy-MM-dd HH:mm:ss";
+        private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
+
+        private static void EnsureDirectory()
+        {
+            if (!Directory.Exists(SaveDirectory)) Directory.CreateDirectory(SaveDirectory);
+        }
 
         // 非同步初始化資料庫與資料表
         public static async Task InitializeDatabaseAsync(string menuName, string csFileName)
         {
-            string dbName = $"{menuName}.sqlite";
+            EnsureDirectory();
+            string dbName = Path.Combine(SaveDirectory, $"{menuName}.sqlite");
             string connectionString = $"Data Source={dbName};Version=3;";
 
             await Task.Run(() =>
@@ -45,7 +53,6 @@ namespace DrawingApp
             });
         }
 
-        // 取得標準化時間字串
         public static string GetFormattedDate(DateTime date)
         {
             return date.ToString(DATE_FORMAT);
@@ -54,7 +61,9 @@ namespace DrawingApp
         // 非同步寫入繪圖資料 (將形狀序列化後存入)
         public static async Task SaveDrawingDataAsync(string menuName, string csFileName, string jsonData)
         {
-            string dbName = $"{menuName}.sqlite";
+            await InitializeDatabaseAsync(menuName, csFileName);
+            
+            string dbName = Path.Combine(SaveDirectory, $"{menuName}.sqlite");
             string connectionString = $"Data Source={dbName};Version=3;";
 
             await Task.Run(() =>
@@ -71,6 +80,34 @@ namespace DrawingApp
                     }
                 }
             });
+        }
+
+        // 新增：從資料庫讀取最新的一筆紀錄
+        public static async Task<string> LoadLatestDrawingDataAsync(string menuName, string csFileName)
+        {
+            await InitializeDatabaseAsync(menuName, csFileName);
+
+            string dbName = Path.Combine(SaveDirectory, $"{menuName}.sqlite");
+            string connectionString = $"Data Source={dbName};Version=3;";
+            string result = null;
+
+            await Task.Run(() =>
+            {
+                using (var conn = new SQLiteConnection(connectionString))
+                {
+                    conn.Open();
+                    string selectQuery = $"SELECT ShapeData FROM {csFileName} ORDER BY Id DESC LIMIT 1";
+                    using (var cmd = new SQLiteCommand(selectQuery, conn))
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            result = reader["ShapeData"].ToString();
+                        }
+                    }
+                }
+            });
+            return result;
         }
     }
 }
