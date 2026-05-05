@@ -1,7 +1,7 @@
-name: Build Portable Notification Center
+name: Build and Package Drawing App
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: # 支援手動觸發
 
 jobs:
   build:
@@ -9,62 +9,40 @@ jobs:
 
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v3
 
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
+      uses: microsoft/setup-msbuild@v1.1
 
     - name: Setup NuGet
-      uses: NuGet/setup-nuget@v2
+      uses: NuGet/setup-nuget@v1.3.4
 
-    - name: Restore NuGet Packages (Dynamic Solution Find)
-      shell: powershell
-      run: |
-        # 動態尋找儲存庫中所有的 .sln 檔案並還原套件
-        $slnFiles = Get-ChildItem -Filter *.sln -Recurse
-        if ($slnFiles.Count -eq 0) {
-            Write-Error "Cannot find any .sln file in the repository!"
-            exit 1
-        }
-        foreach ($sln in $slnFiles) {
-            Write-Host "Restoring packages for: $($sln.FullName)"
-            nuget restore $sln.FullName
-        }
+    - name: Restore NuGet Packages
+      run: nuget restore DrawingApp.sln
 
-    - name: Build Project (Dynamic Solution Find)
-      shell: powershell
-      run: |
-        $sln = Get-ChildItem -Filter *.sln -Recurse | Select-Object -First 1
-        Write-Host "Building solution: $($sln.FullName)"
-        msbuild $sln.FullName /p:Configuration=Release /p:Platform="Any CPU"
+    - name: Build Application
+      run: msbuild DrawingApp.sln /p:Configuration=Release /p:TargetFrameworkVersion=v4.7.2
 
-    - name: Organize Files and Folder Structure
-      shell: powershell
+    - name: Reorganize Output (Move DLLs to Library)
+      shell: pwsh
       run: |
-        # 建立 Portable 輸出結構
-        $outDir = "PortableRelease"
-        $libDir = "$outDir\Library"
-        New-Item -ItemType Directory -Force -Path $libDir
+        $releaseDir = "DrawingApp\bin\Release"
+        $publishDir = "PublishOutput"
+        $libraryDir = "$publishDir\Library"
         
-        # 動態尋找編譯出的 .exe 檔案以定位 Release 目錄
-        $exeFile = Get-ChildItem -Path . -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "\\bin\\Release\\" } | Select-Object -First 1
-        if (-not $exeFile) {
-            Write-Error "Cannot find compiled .exe file in bin\Release!"
-            exit 1
+        New-Item -ItemType Directory -Force -Path $libraryDir
+        
+        # 複製主程式與設定檔到根目錄
+        Copy-Item -Path "$releaseDir\*.exe" -Destination $publishDir
+        Copy-Item -Path "$releaseDir\*.exe.config" -Destination $publishDir
+        
+        # 複製所有依賴套件 (DLL) 到 Library 資料夾
+        Get-ChildItem -Path $releaseDir -Filter *.dll | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $libraryDir
         }
-        $binDir = $exeFile.Directory.FullName
-        Write-Host "Found build output directory: $binDir"
-        
-        # 搬移檔案：主程式與設定檔放根目錄，元件庫放 Library
-        Copy-Item "$binDir\*.exe" -Destination $outDir
-        Copy-Item "$binDir\*.config" -Destination $outDir
-        Copy-Item "$binDir\*.dll" -Destination $libDir
-        
-        # 壓縮打包
-        Compress-Archive -Path "$outDir\*" -DestinationPath "NotificationCenter_Portable.zip"
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
-        name: Portable-Notification-Center
-        path: NotificationCenter_Portable.zip
+        name: Portable_Drawing_App
+        path: PublishOutput\
