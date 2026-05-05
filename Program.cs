@@ -1,13 +1,13 @@
-// ==========================================
-// 程式功能：程式啟動進入點、全域執行緒安全與異常處理
-// 對應選單：系統啟動
-// 對應資料庫：無
-// 對應資料表：無
-// ==========================================
+/*
+ * 檔案功能：應用程式進入點與全域例外處理
+ * 對應選單：系統啟動
+ * 對應資料庫：無
+ * 資料表名稱：無
+ */
 using System;
 using System.Windows.Forms;
 
-namespace PortableDrawingApp
+namespace DrawingApp
 {
     static class Program
     {
@@ -17,17 +17,13 @@ namespace PortableDrawingApp
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             
-            // 實作全域執行緒安全 (Thread-Safety)，防止背景資料庫讀寫導致 UI 崩潰
+            // 確保 UI 執行緒安全，攔截未處理的例外
             Application.ThreadException += (sender, args) =>
             {
-                MessageBox.Show($"UI Thread Error: {args.Exception.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            };
-            AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
-            {
-                MessageBox.Show($"Background Thread Error: {((Exception)args.ExceptionObject).Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Application Error: {args.Exception.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             };
 
-            Application.Run(new MainForm());
+            Application.Run(new App_UI_MainForm());
         }
     }
 }
