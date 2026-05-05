@@ -10,12 +10,21 @@ namespace DrawingApp
     public class App_CanvasControl : Panel
     {
         public List<App_Shapes.ShapeBase> Shapes { get; set; } = new List<App_Shapes.ShapeBase>();
-        
-        // 預設 A4 尺寸 (等比放大 10 倍，方便在螢幕繪製)
         public SizeF PageSize { get; set; } = new SizeF(2100, 2970);
         
+        // 核心管理員
+        public CommandManager CmdManager { get; } = new CommandManager();
+
+        // 視角與縮放 (Camera System)
+        public float ZoomFactor { get; private set; } = 1.0f;
+        private PointF _cameraOffset = new PointF(0, 0);
+        private bool _isPanning = false;
         private Point _lastMousePos;
         
+        // 拖曳狀態紀錄 (供 Undo 使用)
+        private float _dragTotalDx = 0;
+        private float _dragTotalDy = 0;
+
         private enum InteractionState { Idle, Drawing, Moving, Resizing, Connecting, BoxSelecting }
         private InteractionState _currentState = InteractionState.Idle;
 
@@ -38,110 +47,85 @@ namespace DrawingApp
         {
             this.DoubleBuffered = true;
             this.BackColor = Color.White;
-            this.AutoScroll = true; // 啟用無限畫布
-            this.ContextMenuStrip = CreateContextMenu();
             
             this.MouseDown += Canvas_MouseDown;
             this.MouseMove += Canvas_MouseMove;
             this.MouseUp += Canvas_MouseUp;
+            this.MouseWheel += Canvas_MouseWheel;
             this.DoubleClick += Canvas_DoubleClick;
+
+            CmdManager.OnStateChanged += () => this.Invalidate();
         }
 
         private void Canvas_DoubleClick(object sender, EventArgs e)
         {
-            if (SelectedShapes.Count == 1)
-            {
-                OnShapeDoubleClicked?.Invoke(SelectedShapes[0]);
-            }
+            if (SelectedShapes.Count == 1) OnShapeDoubleClicked?.Invoke(SelectedShapes[0]);
         }
 
-        private ContextMenuStrip CreateContextMenu()
+        // --- 視角與座標系統 ---
+        
+        public void SetZoom(float zoom)
         {
-            var menu = new ContextMenuStrip();
-            menu.Items.Add("複製 (Ctrl+C)", null, (s, e) => Copy());
-            menu.Items.Add("貼上 (Ctrl+V)", null, (s, e) => Paste());
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("移到最上層", null, (s, e) => ChangeZIndex(0));
-            menu.Items.Add("移到最下層", null, (s, e) => ChangeZIndex(-99));
-            return menu;
-        }
-
-        private void ChangeZIndex(int direction)
-        {
-            if (SelectedShapes.Count == 0) return;
-            
-            foreach (var s in SelectedShapes)
-            {
-                int index = Shapes.IndexOf(s);
-                if (index == -1) continue;
-                
-                Shapes.RemoveAt(index);
-                
-                if (direction == 0)
-                {
-                    Shapes.Add(s); // 最上層
-                }
-                else if (direction == -99)
-                {
-                    Shapes.Insert(0, s); // 最下層
-                }
-            }
+            ZoomFactor = Math.Max(0.2f, Math.Min(zoom, 5.0f));
             this.Invalidate();
         }
 
-        // 捕捉全域按鍵 (支援 ESC、Delete、Ctrl+C、Ctrl+V)
+        private void Canvas_MouseWheel(object sender, MouseEventArgs e)
+        {
+            if (Control.ModifierKeys == Keys.Control)
+            {
+                // 以游標為中心進行縮放
+                float oldZoom = ZoomFactor;
+                float zoomDelta = e.Delta > 0 ? 1.1f : 0.9f;
+                ZoomFactor = Math.Max(0.2f, Math.Min(ZoomFactor * zoomDelta, 5.0f));
+
+                // 修正攝影機偏移，確保滑鼠所在位置在縮放後不變
+                _cameraOffset.X = e.X - (e.X - _cameraOffset.X) * (ZoomFactor / oldZoom);
+                _cameraOffset.Y = e.Y - (e.Y - _cameraOffset.Y) * (ZoomFactor / oldZoom);
+                
+                this.Invalidate();
+            }
+        }
+
+        private PointF GetRealPoint(Point screenPt)
+        {
+            return new PointF((screenPt.X - _cameraOffset.X) / ZoomFactor, (screenPt.Y - _cameraOffset.Y) / ZoomFactor);
+        }
+
+        // --- 網格吸附功能 (Snap to Grid) ---
+        private float Snap(float value, float gridSize = 20f)
+        {
+            return (float)Math.Round(value / gridSize) * gridSize;
+        }
+
+        // --- 快捷鍵整合 Undo/Redo ---
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            if (keyData == Keys.Escape)
-            {
-                OnToolResetRequested?.Invoke();
-                return true;
-            }
+            if (keyData == Keys.Escape) { OnToolResetRequested?.Invoke(); return true; }
             
+            if (keyData == (Keys.Control | Keys.Z)) { CmdManager.Undo(); return true; }
+            if (keyData == (Keys.Control | Keys.Y)) { CmdManager.Redo(); return true; }
+
             if (keyData == Keys.Delete && SelectedShapes.Count > 0)
             {
                 var toRemove = new List<App_Shapes.ShapeBase>(SelectedShapes);
                 foreach (var s in SelectedShapes)
                 {
-                    var connectedLines = Shapes.OfType<App_Shapes.ConnectorShape>()
-                                               .Where(c => c.SourceId == s.Id || c.TargetId == s.Id);
-                    toRemove.AddRange(connectedLines);
+                    toRemove.AddRange(Shapes.OfType<App_Shapes.ConnectorShape>().Where(c => c.SourceId == s.Id || c.TargetId == s.Id));
                 }
-                
-                Shapes.RemoveAll(x => toRemove.Contains(x));
+                CmdManager.ExecuteCommand(new RemoveShapesCommand(Shapes, toRemove));
                 SelectedShapes.Clear();
-                UpdateScrollSize();
-                this.Invalidate();
                 return true;
             }
-            
-            if (keyData == (Keys.Control | Keys.C))
-            {
-                Copy();
-                return true;
-            }
-            
-            if (keyData == (Keys.Control | Keys.V))
-            {
-                Paste();
-                return true;
-            }
-            
+            if (keyData == (Keys.Control | Keys.C)) { Copy(); return true; }
+            if (keyData == (Keys.Control | Keys.V)) { Paste(); return true; }
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private void Copy()
-        {
-            if (SelectedShapes.Count > 0)
-            {
-                _clipboard = App_SaveLoad.CloneShapes(SelectedShapes);
-            }
-        }
-
+        private void Copy() { if (SelectedShapes.Count > 0) _clipboard = App_SaveLoad.CloneShapes(SelectedShapes); }
         private void Paste()
         {
             if (_clipboard.Count == 0) return;
-            
             SelectedShapes.ForEach(s => s.IsSelected = false);
             SelectedShapes.Clear();
             
@@ -149,35 +133,11 @@ namespace DrawingApp
             foreach (var s in newClones)
             {
                 s.Id = Guid.NewGuid();
-                s.Move(20, 20); // 貼上的偏移量
+                s.Move(20, 20);
                 s.IsSelected = true;
-                Shapes.Add(s);
+                CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, s));
                 SelectedShapes.Add(s);
             }
-            
-            UpdateScrollSize();
-            this.Invalidate();
-        }
-
-        // 螢幕座標轉為虛擬捲軸座標
-        private PointF GetRealPoint(Point pt)
-        {
-            return new PointF(pt.X - this.AutoScrollPosition.X, pt.Y - this.AutoScrollPosition.Y);
-        }
-
-        // 依據圖形邊界更新可捲動範圍
-        private void UpdateScrollSize()
-        {
-            float maxX = PageSize.Width;
-            float maxY = PageSize.Height;
-            
-            foreach (var s in Shapes)
-            {
-                if (s.Bounds.Right > maxX) maxX = s.Bounds.Right;
-                if (s.Bounds.Bottom > maxY) maxY = s.Bounds.Bottom;
-            }
-            
-            this.AutoScrollMinSize = new Size((int)maxX + 200, (int)maxY + 200);
         }
 
         private void Canvas_MouseDown(object sender, MouseEventArgs e)
@@ -185,6 +145,14 @@ namespace DrawingApp
             this.Focus();
             PointF realPt = GetRealPoint(e.Location);
             _lastMousePos = e.Location;
+
+            // 中鍵平移畫布 (Panning)
+            if (e.Button == MouseButtons.Middle || (e.Button == MouseButtons.Left && Control.ModifierKeys == Keys.Space))
+            {
+                _isPanning = true;
+                this.Cursor = Cursors.SizeAll;
+                return;
+            }
 
             if (e.Button == MouseButtons.Left)
             {
@@ -209,11 +177,11 @@ namespace DrawingApp
                             SelectedShapes.ForEach(s => s.IsSelected = false);
                             SelectedShapes.Clear();
                         }
-                        
                         hit.IsSelected = true;
                         if (!SelectedShapes.Contains(hit)) SelectedShapes.Add(hit);
                         
                         _currentState = InteractionState.Moving;
+                        _dragTotalDx = 0; _dragTotalDy = 0; // 重置拖曳紀錄
                     }
                     else
                     {
@@ -223,17 +191,15 @@ namespace DrawingApp
                         _boxSelectRect = new RectangleF(realPt.X, realPt.Y, 0, 0);
                     }
                 }
-                else if (CurrentTool == App_Shapes.ShapeType.ArrowLine || CurrentTool == App_Shapes.ShapeType.StraightLine)
+                else if (CurrentTool == App_Shapes.ShapeType.ArrowLine || CurrentTool == App_Shapes.ShapeType.StraightLine || CurrentTool == App_Shapes.ShapeType.OrthogonalLine)
                 {
                     _currentState = InteractionState.Connecting;
-                    bool isArrow = CurrentTool == App_Shapes.ShapeType.ArrowLine;
+                    bool isArrow = (CurrentTool == App_Shapes.ShapeType.ArrowLine || CurrentTool == App_Shapes.ShapeType.OrthogonalLine);
+                    bool isOrtho = (CurrentTool == App_Shapes.ShapeType.OrthogonalLine);
                     
-                    _tempShape = new App_Shapes.ConnectorShape(realPt, CurrentColor, isArrow);
-                    var sourceShape = Shapes.LastOrDefault(s => s.HitTest(realPt));
-                    if (sourceShape != null)
-                    {
-                        ((App_Shapes.ConnectorShape)_tempShape).SourceId = sourceShape.Id;
-                    }
+                    _tempShape = new App_Shapes.ConnectorShape(realPt, CurrentColor, isArrow, isOrtho);
+                    var srcShape = Shapes.LastOrDefault(s => s.HitTest(realPt));
+                    if (srcShape != null) ((App_Shapes.ConnectorShape)_tempShape).SourceId = srcShape.Id;
                 }
                 else if (CurrentTool == App_Shapes.ShapeType.Image)
                 {
@@ -243,7 +209,9 @@ namespace DrawingApp
                 else
                 {
                     _currentState = InteractionState.Drawing;
-                    _tempShape = App_Shapes.ShapeFactory.CreateShape(CurrentTool, realPt, CurrentColor);
+                    // 吸附網格點開始繪製
+                    PointF snapPt = new PointF(Snap(realPt.X), Snap(realPt.Y));
+                    _tempShape = App_Shapes.ShapeFactory.CreateShape(CurrentTool, snapPt, CurrentColor);
                 }
                 this.Invalidate();
             }
@@ -252,18 +220,26 @@ namespace DrawingApp
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
             PointF realPt = GetRealPoint(e.Location);
+
+            if (_isPanning)
+            {
+                _cameraOffset.X += e.X - _lastMousePos.X;
+                _cameraOffset.Y += e.Y - _lastMousePos.Y;
+                _lastMousePos = e.Location;
+                this.Invalidate();
+                return;
+            }
             
             if (e.Button == MouseButtons.Left)
             {
-                float dx = e.X - _lastMousePos.X;
-                float dy = e.Y - _lastMousePos.Y;
+                float dx = (e.X - _lastMousePos.X) / ZoomFactor;
+                float dy = (e.Y - _lastMousePos.Y) / ZoomFactor;
 
                 if (_currentState == InteractionState.Moving)
                 {
-                    foreach (var s in SelectedShapes)
-                    {
-                        s.Move(dx, dy);
-                    }
+                    _dragTotalDx += dx;
+                    _dragTotalDy += dy;
+                    foreach (var s in SelectedShapes) s.Move(dx, dy);
                 }
                 else if (_currentState == InteractionState.BoxSelecting)
                 {
@@ -273,7 +249,6 @@ namespace DrawingApp
                         Math.Abs(realPt.X - _boxSelectRect.X),
                         Math.Abs(realPt.Y - _boxSelectRect.Y)
                     );
-                    
                     SelectedShapes.ForEach(s => s.IsSelected = false);
                     SelectedShapes = Shapes.Where(s => _boxSelectRect.IntersectsWith(s.Bounds)).ToList();
                     SelectedShapes.ForEach(s => s.IsSelected = true);
@@ -286,14 +261,12 @@ namespace DrawingApp
                         case App_Shapes.HandlePosition.NW: b = new RectangleF(b.X + dx, b.Y + dy, b.Width - dx, b.Height - dy); break;
                         case App_Shapes.HandlePosition.SE: b = new RectangleF(b.X, b.Y, b.Width + dx, b.Height + dy); break;
                     }
-                    if (b.Width > 5 && b.Height > 5)
-                    {
-                        SelectedShapes[0].Bounds = b;
-                    }
+                    if (b.Width > 5 && b.Height > 5) SelectedShapes[0].Bounds = b;
                 }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
-                    _tempShape.UpdateEndPoint(realPt);
+                    // 繪製時長寬自動吸附網格
+                    _tempShape.UpdateEndPoint(new PointF(Snap(realPt.X), Snap(realPt.Y)));
                 }
                 else if (_currentState == InteractionState.Connecting && _tempShape is App_Shapes.ConnectorShape c)
                 {
@@ -308,37 +281,39 @@ namespace DrawingApp
 
         private void Canvas_MouseUp(object sender, MouseEventArgs e)
         {
+            if (_isPanning)
+            {
+                _isPanning = false;
+                this.Cursor = Cursors.Default;
+            }
+
             if (e.Button == MouseButtons.Left)
             {
-                if (_currentState == InteractionState.Drawing && _tempShape != null)
+                if (_currentState == InteractionState.Moving && SelectedShapes.Count > 0 && (_dragTotalDx != 0 || _dragTotalDy != 0))
+                {
+                    // 拖曳結束，記錄為一次 Undo Command (先復原假動作，再透過 Command 正式執行)
+                    foreach (var s in SelectedShapes) s.Move(-_dragTotalDx, -_dragTotalDy);
+                    CmdManager.ExecuteCommand(new MoveShapesCommand(SelectedShapes, _dragTotalDx, _dragTotalDy));
+                }
+                else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
                     _tempShape.NormalizeBounds();
                     if (_tempShape.Bounds.Width > 5 && _tempShape.Bounds.Height > 5)
                     {
-                        Shapes.Add(_tempShape);
+                        CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, _tempShape));
                     }
-                    
-                    // 畫完文字相關圖框後，自動重設為游標 (需求3)
-                    if (_tempShape is App_Shapes.TextNodeShape)
-                    {
-                        OnToolResetRequested?.Invoke();
-                    }
+                    if (_tempShape is App_Shapes.TextNodeShape) OnToolResetRequested?.Invoke();
                 }
                 else if (_currentState == InteractionState.Connecting && _tempShape is App_Shapes.ConnectorShape c)
                 {
-                    if (_hoveredShapeForConnection != null)
-                    {
-                        c.TargetId = _hoveredShapeForConnection.Id;
-                    }
-                    Shapes.Add(c);
-                    OnToolResetRequested?.Invoke(); // 畫完線自動回歸指標
+                    if (_hoveredShapeForConnection != null) c.TargetId = _hoveredShapeForConnection.Id;
+                    CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, c));
+                    OnToolResetRequested?.Invoke();
                 }
 
                 _tempShape = null;
                 _hoveredShapeForConnection = null;
                 _currentState = InteractionState.Idle;
-                
-                UpdateScrollSize();
                 this.Invalidate();
             }
         }
@@ -349,77 +324,36 @@ namespace DrawingApp
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             
-            // 將畫布依照 Scroll 偏移量移動
-            g.TranslateTransform(this.AutoScrollPosition.X, this.AutoScrollPosition.Y);
+            // 套用攝影機矩陣 (Zoom & Pan)
+            g.TranslateTransform(_cameraOffset.X, _cameraOffset.Y);
+            g.ScaleTransform(ZoomFactor, ZoomFactor);
 
-            // 繪製虛擬頁面邊界 (需求8)
+            // 畫網格背景 (固定間距)
+            DrawGrid(g);
+
+            // 畫虛擬邊界
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
-            {
                 g.DrawRectangle(pPage, 0, 0, PageSize.Width, PageSize.Height);
-            }
 
-            // 1. 繪製所有一般圖形
-            foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape)))
-            {
-                shape.Draw(g);
-            }
+            // 畫實體圖形
+            foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape))) shape.Draw(g);
 
-            // 2. 繪製連線，並偵測交錯繪製跳線 (需求7)
-            List<LineSegment> drawnLines = new List<LineSegment>();
-            
+            // 畫連線
             foreach (var shape in Shapes.OfType<App_Shapes.ConnectorShape>())
             {
                 var src = Shapes.FirstOrDefault(x => x.Id == shape.SourceId);
                 var tgt = Shapes.FirstOrDefault(x => x.Id == shape.TargetId);
-                
                 PointF p1 = src != null ? GetClosestAnchor(src, tgt != null ? GetCenter(tgt.Bounds) : shape.EndPt) : shape.StartPt;
                 PointF p2 = tgt != null ? GetClosestAnchor(tgt, p1) : shape.EndPt;
-                
-                // 檢查跳線 (與已經畫過的線是否垂直交錯)
-                foreach (var oldLine in drawnLines)
-                {
-                    if (Math.Abs(p1.X - p2.X) < 10 && Math.Abs(oldLine.P1.Y - oldLine.P2.Y) < 10)
-                    {
-                        // 判斷十字交集
-                        float minX = Math.Min(oldLine.P1.X, oldLine.P2.X);
-                        float maxX = Math.Max(oldLine.P1.X, oldLine.P2.X);
-                        float minY = Math.Min(p1.Y, p2.Y);
-                        float maxY = Math.Max(p1.Y, p2.Y);
-                        
-                        if (p1.X > minX && p1.X < maxX && oldLine.P1.Y > minY && oldLine.P1.Y < maxY)
-                        {
-                            float intersectX = p1.X;
-                            float intersectY = oldLine.P1.Y;
-                            
-                            // 用背景色挖空，再畫半圓弧
-                            g.FillEllipse(Brushes.White, intersectX - 8, intersectY - 8, 16, 16);
-                            using (Pen arcPen = new Pen(shape.ShapeColor, 2))
-                            {
-                                g.DrawArc(arcPen, intersectX - 8, intersectY - 8, 16, 16, 180, 180);
-                            }
-                        }
-                    }
-                }
-                
                 shape.DrawDynamic(g, p1, p2);
-                drawnLines.Add(new LineSegment(p1, p2));
             }
 
-            // 3. 繪製互動中的暫存圖形
-            if (_tempShape != null)
-            {
-                _tempShape.Draw(g);
-                if (_tempShape is App_Shapes.ConnectorShape tc)
-                {
-                    tc.DrawDynamic(g, tc.StartPt, tc.EndPt);
-                }
-            }
+            // 畫暫存
+            _tempShape?.Draw(g);
+            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt);
             
-            // 4. 繪製選取框
-            foreach (var s in SelectedShapes)
-            {
-                s.DrawSelection(g);
-            }
+            // 畫選取框
+            foreach (var s in SelectedShapes) s.DrawSelection(g);
             
             if (_currentState == InteractionState.BoxSelecting)
             {
@@ -430,35 +364,39 @@ namespace DrawingApp
                     g.DrawRectangle(p, Rectangle.Round(_boxSelectRect));
                 }
             }
-            
             g.ResetTransform();
         }
 
-        // 用於紀錄線段以利跳線偵測的內部類別
-        private class LineSegment
+        private void DrawGrid(Graphics g)
         {
-            public PointF P1 { get; }
-            public PointF P2 { get; }
-            public LineSegment(PointF p1, PointF p2) { P1 = p1; P2 = p2; }
+            int gridSize = 20;
+            RectangleF viewRect = new RectangleF(
+                -_cameraOffset.X / ZoomFactor, 
+                -_cameraOffset.Y / ZoomFactor, 
+                this.Width / ZoomFactor, 
+                this.Height / ZoomFactor);
+
+            int startX = (int)(Math.Floor(viewRect.Left / gridSize) * gridSize);
+            int startY = (int)(Math.Floor(viewRect.Top / gridSize) * gridSize);
+
+            using (Pen gridPen = new Pen(Color.FromArgb(230, 230, 230)))
+            {
+                for (float x = startX; x < viewRect.Right; x += gridSize)
+                    g.DrawLine(gridPen, x, viewRect.Top, x, viewRect.Bottom);
+                for (float y = startY; y < viewRect.Bottom; y += gridSize)
+                    g.DrawLine(gridPen, viewRect.Left, y, viewRect.Right, y);
+            }
         }
 
-        private PointF GetCenter(RectangleF r)
-        {
-            return new PointF(r.X + r.Width / 2, r.Y + r.Height / 2);
-        }
+        private PointF GetCenter(RectangleF r) => new PointF(r.X + r.Width / 2, r.Y + r.Height / 2);
 
         private PointF GetClosestAnchor(App_Shapes.ShapeBase shape, PointF target)
         {
-            PointF best = new PointF();
-            float min = float.MaxValue;
-            foreach (var anchor in shape.GetAnchors())
+            PointF best = new PointF(); float min = float.MaxValue;
+            foreach (var a in shape.GetAnchors())
             {
-                float d = (anchor.X - target.X) * (anchor.X - target.X) + (anchor.Y - target.Y) * (anchor.Y - target.Y);
-                if (d < min)
-                {
-                    min = d;
-                    best = anchor;
-                }
+                float d = (a.X - target.X) * (a.X - target.X) + (a.Y - target.Y) * (a.Y - target.Y);
+                if (d < min) { min = d; best = a; }
             }
             return best;
         }
@@ -468,18 +406,11 @@ namespace DrawingApp
             SelectedShapes.ForEach(s => s.IsSelected = false);
             float maxX = Shapes.Count > 0 ? Shapes.Max(s => s.Bounds.Right) : PageSize.Width;
             float maxY = Shapes.Count > 0 ? Shapes.Max(s => s.Bounds.Bottom) : PageSize.Height;
-            
             Bitmap bmp = new Bitmap(Math.Max((int)maxX + 50, (int)PageSize.Width), Math.Max((int)maxY + 50, (int)PageSize.Height)); 
-            
             using (Graphics g = Graphics.FromImage(bmp))
             {
-                g.Clear(Color.Transparent);
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                
-                foreach (var s in Shapes)
-                {
-                    s.Draw(g);
-                }
+                g.Clear(Color.Transparent); g.SmoothingMode = SmoothingMode.AntiAlias;
+                foreach (var s in Shapes) s.Draw(g);
             }
             return bmp;
         }
