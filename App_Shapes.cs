@@ -1,29 +1,24 @@
-/*
- * 檔案功能：定義具備選取、縮放、移動與連線附著功能之圖形物件
- * 對應選單：無
- * 對應資料庫：無
- * 資料表名稱：無
- */
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using Newtonsoft.Json;
 
 namespace DrawingApp
 {
     public static class App_Shapes
     {
-        public enum ShapeType { Pointer, Line, Rectangle, Circle, TextNode }
+        public enum ShapeType { Pointer, ArrowLine, StraightLine, Rectangle, Circle, Arc, TextNode, Text, Image }
         public enum HandlePosition { None, NW, NE, SW, SE }
 
-        // 基礎圖形抽象類別
         public abstract class ShapeBase
         {
             public RectangleF Bounds;
             public Color ShapeColor { get; set; }
-            public bool IsSelected { get; set; }
-            public Guid Id { get; private set; } = Guid.NewGuid();
+            [JsonIgnore] public bool IsSelected { get; set; }
+            public Guid Id { get; set; } = Guid.NewGuid();
 
+            public ShapeBase() { } // 給 Json 反序列化用
             public ShapeBase(PointF start, Color color)
             {
                 Bounds = new RectangleF(start.X, start.Y, 0, 0);
@@ -32,14 +27,8 @@ namespace DrawingApp
 
             public abstract void Draw(Graphics g);
 
-            // 更新建立時的終點
             public virtual void UpdateEndPoint(PointF pt)
             {
-                float x = Math.Min(Bounds.X, pt.X);
-                float y = Math.Min(Bounds.Y, pt.Y);
-                float w = Math.Abs(Bounds.X - pt.X);
-                float h = Math.Abs(Bounds.Y - pt.Y);
-                // 保持起始錨點不動，只更新寬高與座標
                 Bounds = new RectangleF(Bounds.X, Bounds.Y, pt.X - Bounds.X, pt.Y - Bounds.Y);
                 NormalizeBounds();
             }
@@ -53,22 +42,15 @@ namespace DrawingApp
                 Bounds = new RectangleF(x, y, w, h);
             }
 
-            // 移動圖形
-            public virtual void Move(float dx, float dy)
-            {
-                Bounds.Offset(dx, dy);
-            }
+            public virtual void Move(float dx, float dy) { Bounds.Offset(dx, dy); }
 
-            // 碰撞偵測 (滑鼠是否點中圖形)
             public virtual bool HitTest(PointF pt)
             {
-                // 增加一點容錯率
                 RectangleF hitBounds = Bounds;
                 hitBounds.Inflate(5, 5);
                 return hitBounds.Contains(pt);
             }
 
-            // 繪製選取框與縮放控制點
             public void DrawSelection(Graphics g)
             {
                 if (!IsSelected) return;
@@ -76,7 +58,6 @@ namespace DrawingApp
                 {
                     g.DrawRectangle(p, Rectangle.Round(Bounds));
                 }
-                // 繪製四個角落的控制點
                 foreach (var handle in GetHandles())
                 {
                     g.FillRectangle(Brushes.White, handle.Value);
@@ -84,10 +65,9 @@ namespace DrawingApp
                 }
             }
 
-            // 取得四個角落縮放控制點
             public Dictionary<HandlePosition, RectangleF> GetHandles()
             {
-                float s = 6; // 控制點大小
+                float s = 6;
                 return new Dictionary<HandlePosition, RectangleF>
                 {
                     { HandlePosition.NW, new RectangleF(Bounds.Left - s/2, Bounds.Top - s/2, s, s) },
@@ -97,18 +77,14 @@ namespace DrawingApp
                 };
             }
 
-            // 偵測是否點中縮放控制點
             public HandlePosition HitTestHandle(PointF pt)
             {
                 if (!IsSelected) return HandlePosition.None;
                 foreach (var handle in GetHandles())
-                {
                     if (handle.Value.Contains(pt)) return handle.Key;
-                }
                 return HandlePosition.None;
             }
 
-            // 取得四個方向的連線錨點 (上下左右中心)
             public virtual PointF[] GetAnchors()
             {
                 return new PointF[]
@@ -121,34 +97,42 @@ namespace DrawingApp
             }
         }
 
-        // --- 具體圖形實作 ---
-
+        // --- 具體形狀實作 ---
         public class RectShape : ShapeBase
         {
+            public RectShape() { }
             public RectShape(PointF start, Color color) : base(start, color) { }
-            public override void Draw(Graphics g)
-            {
-                using (Pen p = new Pen(ShapeColor, 2)) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
-            }
+            public override void Draw(Graphics g) { using (Pen p = new Pen(ShapeColor, 2)) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height); }
         }
 
         public class CircleShape : ShapeBase
         {
+            public CircleShape() { }
             public CircleShape(PointF start, Color color) : base(start, color) { }
-            public override void Draw(Graphics g)
-            {
-                using (Pen p = new Pen(ShapeColor, 2)) g.DrawEllipse(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
-            }
+            public override void Draw(Graphics g) { using (Pen p = new Pen(ShapeColor, 2)) g.DrawEllipse(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height); }
+        }
+
+        // 新增：三點圓線 (用外接矩形模擬圓弧)
+        public class ArcShape : ShapeBase
+        {
+            public ArcShape() { }
+            public ArcShape(PointF start, Color color) : base(start, color) { }
+            public override void Draw(Graphics g) { if(Bounds.Width > 0 && Bounds.Height > 0) using (Pen p = new Pen(ShapeColor, 2)) g.DrawArc(p, Bounds, 180, 180); }
         }
 
         public class TextNodeShape : ShapeBase
         {
-            public string Text { get; set; } = "Node";
-            public TextNodeShape(PointF start, Color color) : base(start, color) { }
+            public string Text { get; set; } = "連點兩下編輯";
+            public string FontName { get; set; } = "Arial";
+            public float FontSize { get; set; } = 12f;
+            public bool IsTransparent { get; set; } = false; // 區分 TextNode 和純 Text
+
+            public TextNodeShape() { }
+            public TextNodeShape(PointF start, Color color, bool transparent) : base(start, color) { IsTransparent = transparent; }
             public override void Draw(Graphics g)
             {
-                using (Pen p = new Pen(ShapeColor, 2)) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
-                using (Font font = new Font("Arial", 12))
+                if (!IsTransparent) using (Pen p = new Pen(ShapeColor, 2)) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
+                using (Font font = new Font(FontName, FontSize))
                 using (Brush b = new SolidBrush(ShapeColor))
                 using (StringFormat sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
                 {
@@ -157,69 +141,80 @@ namespace DrawingApp
             }
         }
 
-        // 智慧連線實作 (兩端可附著於圖形錨點)
-        public class ConnectorShape : ShapeBase
+        // 新增：圖片形狀
+        public class ImageShape : ShapeBase
         {
-            public ShapeBase SourceShape { get; set; }
-            public ShapeBase TargetShape { get; set; }
-            private PointF _startPt, _endPt;
+            public string Base64Image { get; set; }
+            [JsonIgnore] private Bitmap _imgCache;
 
-            public ConnectorShape(PointF start, Color color) : base(start, color)
+            public ImageShape() { }
+            public ImageShape(PointF start, Bitmap img) : base(start, Color.Black)
             {
-                _startPt = start; _endPt = start;
-            }
-
-            public override void UpdateEndPoint(PointF pt) { _endPt = pt; }
-            public override void Move(float dx, float dy) { /* 連線由附著點決定位置，手動移動無效 */ }
-            public override PointF[] GetAnchors() { return new PointF[0]; } // 線條本身不提供錨點
-
-            public override bool HitTest(PointF pt)
-            {
-                // 簡單的線段距離碰撞偵測
-                PointF p1 = SourceShape != null ? GetClosestAnchor(SourceShape, _endPt) : _startPt;
-                PointF p2 = TargetShape != null ? GetClosestAnchor(TargetShape, p1) : _endPt;
-                float distance = Math.Abs((p2.Y - p1.Y) * pt.X - (p2.X - p1.X) * pt.Y + p2.X * p1.Y - p2.Y * p1.X) /
-                                 (float)Math.Sqrt(Math.Pow(p2.Y - p1.Y, 2) + Math.Pow(p2.X - p1.X, 2));
-                return distance < 5.0f;
-            }
-
-            private PointF GetClosestAnchor(ShapeBase shape, PointF target)
-            {
-                if (shape == null) return target;
-                PointF bestAnchor = new PointF(0,0);
-                float minDist = float.MaxValue;
-                foreach (var anchor in shape.GetAnchors())
+                _imgCache = img;
+                using (var ms = new System.IO.MemoryStream())
                 {
-                    float d = (anchor.X - target.X) * (anchor.X - target.X) + (anchor.Y - target.Y) * (anchor.Y - target.Y);
-                    if (d < minDist) { minDist = d; bestAnchor = anchor; }
+                    img.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
+                    Base64Image = Convert.ToBase64String(ms.ToArray());
                 }
-                return bestAnchor;
+                Bounds.Width = img.Width; Bounds.Height = img.Height;
             }
 
             public override void Draw(Graphics g)
             {
-                PointF p1 = SourceShape != null ? GetClosestAnchor(SourceShape, _endPt) : _startPt;
-                PointF p2 = TargetShape != null ? GetClosestAnchor(TargetShape, p1) : _endPt;
+                if (_imgCache == null && !string.IsNullOrEmpty(Base64Image))
+                {
+                    byte[] bytes = Convert.FromBase64String(Base64Image);
+                    using (var ms = new System.IO.MemoryStream(bytes)) _imgCache = new Bitmap(ms);
+                }
+                if (_imgCache != null) g.DrawImage(_imgCache, Bounds);
+            }
+        }
 
-                // 畫箭頭
+        public class ConnectorShape : ShapeBase
+        {
+            public Guid SourceId { get; set; }
+            public Guid TargetId { get; set; }
+            public PointF StartPt { get; set; }
+            public PointF EndPt { get; set; }
+            public bool HasArrow { get; set; }
+
+            public ConnectorShape() { }
+            public ConnectorShape(PointF start, Color color, bool arrow) : base(start, color)
+            {
+                StartPt = start; EndPt = start; HasArrow = arrow;
+            }
+
+            public override void UpdateEndPoint(PointF pt) { EndPt = pt; }
+            public override void Move(float dx, float dy) { /* 連線由附著點決定 */ }
+            public override PointF[] GetAnchors() { return new PointF[0]; }
+
+            public override bool HitTest(PointF pt) { return false; /* 簡化: 線條暫不支援單獨點選移動，跟隨物件 */ }
+
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2)
+            {
                 using (Pen p = new Pen(ShapeColor, 2))
                 {
-                    p.CustomEndCap = new CustomLineCap(null, new GraphicsPath(new[] { new PointF(-2, -2), new PointF(0, 0), new PointF(2, -2) }, new[] { (byte)PathPointType.Start, (byte)PathPointType.Line, (byte)PathPointType.Line }));
+                    if (HasArrow) p.CustomEndCap = new CustomLineCap(null, new GraphicsPath(new[] { new PointF(-2, -2), new PointF(0, 0), new PointF(2, -2) }, new[] { (byte)PathPointType.Start, (byte)PathPointType.Line, (byte)PathPointType.Line }));
                     g.DrawLine(p, p1, p2);
                 }
             }
+            public override void Draw(Graphics g) { /* 在 Canvas 中會計算位置後呼叫 DrawDynamic */ }
         }
 
         public static class ShapeFactory
         {
-            public static ShapeBase CreateShape(ShapeType type, PointF start, Color color)
+            public static ShapeBase CreateShape(ShapeType type, PointF start, Color color, Bitmap img = null)
             {
                 switch (type)
                 {
-                    case ShapeType.Line: return new ConnectorShape(start, color);
+                    case ShapeType.ArrowLine: return new ConnectorShape(start, color, true);
+                    case ShapeType.StraightLine: return new ConnectorShape(start, color, false);
                     case ShapeType.Rectangle: return new RectShape(start, color);
                     case ShapeType.Circle: return new CircleShape(start, color);
-                    case ShapeType.TextNode: return new TextNodeShape(start, color);
+                    case ShapeType.Arc: return new ArcShape(start, color);
+                    case ShapeType.TextNode: return new TextNodeShape(start, color, false);
+                    case ShapeType.Text: return new TextNodeShape(start, color, true);
+                    case ShapeType.Image: return new ImageShape(start, img);
                     default: return null;
                 }
             }
