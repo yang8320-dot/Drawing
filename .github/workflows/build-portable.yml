@@ -1,12 +1,10 @@
 name: Build and Package Drawing App
-
 on:
-  workflow_dispatch: # 支援手動觸發
+  workflow_dispatch: 
 
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
@@ -17,35 +15,30 @@ jobs:
     - name: Setup NuGet
       uses: nuget/setup-nuget@v2.0.0
 
-    # 使用 MSBuild 針對 csproj 進行還原 (取代原本尋找 sln 的動作)
     - name: Restore NuGet Packages
       run: msbuild DrawingApp.csproj -t:restore /p:Configuration=Release
 
-    # 編譯專案檔
     - name: Build Application
       run: msbuild DrawingApp.csproj /p:Configuration=Release /p:TargetFramework=net472
 
-    # 重新組織資料夾結構 (核心邏輯：Exe 在外，DLL 在 Library)
     - name: Reorganize Output
       shell: pwsh
       run: |
-        # SDK-Style 的預設輸出路徑
         $releaseDir = "bin\Release\net472"
         $publishDir = "PublishOutput"
         $libraryDir = "$publishDir\Library"
+        $saveDir = "$publishDir\save"
         
         New-Item -ItemType Directory -Force -Path $libraryDir
+        New-Item -ItemType Directory -Force -Path $saveDir
         
-        # 1. 複製主程式與 App.config 探查設定檔到根目錄
         Copy-Item -Path "$releaseDir\DrawingApp.exe" -Destination $publishDir
         Copy-Item -Path "$releaseDir\DrawingApp.exe.config" -Destination $publishDir
         
-        # 2. 複製所有 Managed DLL 到 Library 資料夾
         Get-ChildItem -Path $releaseDir -Filter *.dll | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination $libraryDir
         }
         
-        # 3. 確保 SQLite 的非受管核心 (Interop) 被正確搬移至主目錄下
         if (Test-Path "$releaseDir\x86") { Copy-Item -Path "$releaseDir\x86" -Destination $publishDir -Recurse }
         if (Test-Path "$releaseDir\x64") { Copy-Item -Path "$releaseDir\x64" -Destination $publishDir -Recurse }
 
