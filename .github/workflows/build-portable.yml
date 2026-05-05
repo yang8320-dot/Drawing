@@ -9,39 +9,62 @@ jobs:
 
     steps:
     - name: Checkout Code
-      uses: actions/checkout@v4 # 已升級至 v4 以符合最新安全規範
+      uses: actions/checkout@v4
 
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2 # 升級至 v2
+      uses: microsoft/setup-msbuild@v2
 
     - name: Setup NuGet
-      uses: NuGet/setup-nuget@v2 # 升級至 v2
+      uses: NuGet/setup-nuget@v2
 
-    - name: Restore NuGet Packages
-      # 請確保檔名與你的方案檔名一致
-      run: nuget restore NotificationCenter.sln 
+    - name: Restore NuGet Packages (Dynamic Solution Find)
+      shell: powershell
+      run: |
+        # 動態尋找儲存庫中所有的 .sln 檔案並還原套件
+        $slnFiles = Get-ChildItem -Filter *.sln -Recurse
+        if ($slnFiles.Count -eq 0) {
+            Write-Error "Cannot find any .sln file in the repository!"
+            exit 1
+        }
+        foreach ($sln in $slnFiles) {
+            Write-Host "Restoring packages for: $($sln.FullName)"
+            nuget restore $sln.FullName
+        }
 
-    - name: Build Project
-      run: msbuild NotificationCenter.sln /p:Configuration=Release /p:Platform="Any CPU"
+    - name: Build Project (Dynamic Solution Find)
+      shell: powershell
+      run: |
+        $sln = Get-ChildItem -Filter *.sln -Recurse | Select-Object -First 1
+        Write-Host "Building solution: $($sln.FullName)"
+        msbuild $sln.FullName /p:Configuration=Release /p:Platform="Any CPU"
 
     - name: Organize Files and Folder Structure
       shell: powershell
       run: |
+        # 建立 Portable 輸出結構
         $outDir = "PortableRelease"
         $libDir = "$outDir\Library"
         New-Item -ItemType Directory -Force -Path $libDir
         
-        # 請將 NotificationCenter 替換為實際的專案資料夾名稱
-        $binDir = "NotificationCenter\bin\Release"
+        # 動態尋找編譯出的 .exe 檔案以定位 Release 目錄
+        $exeFile = Get-ChildItem -Path . -Filter "*.exe" -Recurse | Where-Object { $_.FullName -match "\\bin\\Release\\" } | Select-Object -First 1
+        if (-not $exeFile) {
+            Write-Error "Cannot find compiled .exe file in bin\Release!"
+            exit 1
+        }
+        $binDir = $exeFile.Directory.FullName
+        Write-Host "Found build output directory: $binDir"
         
+        # 搬移檔案：主程式與設定檔放根目錄，元件庫放 Library
         Copy-Item "$binDir\*.exe" -Destination $outDir
         Copy-Item "$binDir\*.config" -Destination $outDir
         Copy-Item "$binDir\*.dll" -Destination $libDir
         
+        # 壓縮打包
         Compress-Archive -Path "$outDir\*" -DestinationPath "NotificationCenter_Portable.zip"
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4 # 已修正：升級至 v4，解決被拒絕的問題
+      uses: actions/upload-artifact@v4
       with:
         name: Portable-Notification-Center
         path: NotificationCenter_Portable.zip
