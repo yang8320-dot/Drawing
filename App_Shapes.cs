@@ -8,7 +8,7 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        public enum ShapeType { Pointer, ArrowLine, StraightLine, Rectangle, Circle, Arc, TextNode, Text, Image }
+        public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Diamond, Triangle, TextNode, Text, Image }
         public enum HandlePosition { None, NW, NE, SW, SE }
 
         public abstract class ShapeBase
@@ -16,12 +16,15 @@ namespace DrawingApp
             public RectangleF Bounds;
             public Color ShapeColor { get; set; }
             
+            // 新增專業外觀屬性
+            public float StrokeWidth { get; set; } = 2f;
+            public DashStyle StrokeDashStyle { get; set; } = DashStyle.Solid;
+            
             [JsonIgnore] 
             public bool IsSelected { get; set; }
             
             public Guid Id { get; set; } = Guid.NewGuid();
 
-            // 支援所有圖形皆可加文字 (需求6)
             public string Text { get; set; } = "";
             public string FontName { get; set; } = "Arial";
             public float FontSize { get; set; } = 12f;
@@ -37,7 +40,11 @@ namespace DrawingApp
 
             public abstract void Draw(Graphics g);
 
-            // 共同的文字繪製邏輯
+            protected Pen CreatePen()
+            {
+                return new Pen(ShapeColor, StrokeWidth) { DashStyle = StrokeDashStyle };
+            }
+
             protected void DrawText(Graphics g)
             {
                 if (string.IsNullOrEmpty(Text)) return;
@@ -121,25 +128,23 @@ namespace DrawingApp
             {
                 return new PointF[]
                 {
-                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Top),
-                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Bottom),
-                    new PointF(Bounds.Left, Bounds.Top + Bounds.Height/2),
-                    new PointF(Bounds.Right, Bounds.Top + Bounds.Height/2)
+                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Top),     // 上
+                    new PointF(Bounds.Left + Bounds.Width/2, Bounds.Bottom),  // 下
+                    new PointF(Bounds.Left, Bounds.Top + Bounds.Height/2),    // 左
+                    new PointF(Bounds.Right, Bounds.Top + Bounds.Height/2)    // 右
                 };
             }
         }
+
+        // --- 實體圖形 ---
 
         public class RectShape : ShapeBase
         { 
             public RectShape() { } 
             public RectShape(PointF start, Color color) : base(start, color) { }
-            
             public override void Draw(Graphics g)
             {
-                using (Pen p = new Pen(ShapeColor, 2))
-                {
-                    g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
-                }
+                using (Pen p = CreatePen()) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 DrawText(g);
             }
         }
@@ -148,31 +153,46 @@ namespace DrawingApp
         {
             public CircleShape() { } 
             public CircleShape(PointF start, Color color) : base(start, color) { }
-            
             public override void Draw(Graphics g)
             {
-                using (Pen p = new Pen(ShapeColor, 2))
-                {
-                    g.DrawEllipse(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
-                }
+                using (Pen p = CreatePen()) g.DrawEllipse(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 DrawText(g);
             }
         }
 
-        public class ArcShape : ShapeBase
+        // 新增：菱形 (流程圖的判斷式)
+        public class DiamondShape : ShapeBase
         {
-            public ArcShape() { } 
-            public ArcShape(PointF start, Color color) : base(start, color) { }
-            
+            public DiamondShape() { }
+            public DiamondShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
-                if(Bounds.Width > 0 && Bounds.Height > 0)
+                PointF[] pts = new PointF[]
                 {
-                    using (Pen p = new Pen(ShapeColor, 2))
-                    {
-                        g.DrawArc(p, Bounds, 180, 180);
-                    }
-                }
+                    new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y),
+                    new PointF(Bounds.Right, Bounds.Y + Bounds.Height / 2),
+                    new PointF(Bounds.X + Bounds.Width / 2, Bounds.Bottom),
+                    new PointF(Bounds.X, Bounds.Y + Bounds.Height / 2)
+                };
+                using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
+                DrawText(g);
+            }
+        }
+
+        // 新增：三角形
+        public class TriangleShape : ShapeBase
+        {
+            public TriangleShape() { }
+            public TriangleShape(PointF start, Color color) : base(start, color) { }
+            public override void Draw(Graphics g)
+            {
+                PointF[] pts = new PointF[]
+                {
+                    new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y),
+                    new PointF(Bounds.Right, Bounds.Bottom),
+                    new PointF(Bounds.X, Bounds.Bottom)
+                };
+                using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
             }
         }
@@ -180,23 +200,17 @@ namespace DrawingApp
         public class TextNodeShape : ShapeBase
         {
             public bool IsTransparent { get; set; } = false;
-            
             public TextNodeShape() { } 
-            
             public TextNodeShape(PointF start, Color color, bool transparent) : base(start, color)
             {
                 IsTransparent = transparent;
                 Text = "點兩下編輯";
             }
-            
             public override void Draw(Graphics g)
             {
                 if (!IsTransparent)
                 {
-                    using (Pen p = new Pen(ShapeColor, 2))
-                    {
-                        g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
-                    }
+                    using (Pen p = CreatePen()) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 }
                 DrawText(g);
             }
@@ -205,12 +219,9 @@ namespace DrawingApp
         public class ImageShape : ShapeBase
         {
             public string Base64Image { get; set; }
-            
-            [JsonIgnore] 
-            private Bitmap _imgCache;
+            [JsonIgnore] private Bitmap _imgCache;
             
             public ImageShape() { }
-            
             public ImageShape(PointF start, Bitmap img) : base(start, Color.Black)
             {
                 _imgCache = img;
@@ -219,24 +230,16 @@ namespace DrawingApp
                     img.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                     Base64Image = Convert.ToBase64String(ms.ToArray());
                 }
-                Bounds.Width = img.Width;
-                Bounds.Height = img.Height;
+                Bounds.Width = img.Width; Bounds.Height = img.Height;
             }
-            
             public override void Draw(Graphics g)
             {
                 if (_imgCache == null && !string.IsNullOrEmpty(Base64Image))
                 {
-                    byte[] bytes = Convert.FromBase64String(Base64Image);
-                    using (var ms = new System.IO.MemoryStream(bytes))
-                    {
+                    using (var ms = new System.IO.MemoryStream(Convert.FromBase64String(Base64Image)))
                         _imgCache = new Bitmap(ms);
-                    }
                 }
-                if (_imgCache != null)
-                {
-                    g.DrawImage(_imgCache, Bounds);
-                }
+                if (_imgCache != null) g.DrawImage(_imgCache, Bounds);
                 DrawText(g);
             }
         }
@@ -248,30 +251,20 @@ namespace DrawingApp
             public PointF StartPt { get; set; }
             public PointF EndPt { get; set; }
             public bool HasArrow { get; set; }
+            public bool IsOrthogonal { get; set; } // 90度折線
 
             public ConnectorShape() { }
-            
-            public ConnectorShape(PointF start, Color color, bool arrow) : base(start, color)
+            public ConnectorShape(PointF start, Color color, bool arrow, bool orthogonal = false) : base(start, color)
             {
-                StartPt = start;
-                EndPt = start;
-                HasArrow = arrow;
+                StartPt = start; EndPt = start; HasArrow = arrow; IsOrthogonal = orthogonal;
             }
             
-            public override void UpdateEndPoint(PointF pt)
-            {
-                EndPt = pt;
-            }
-            
-            public override bool HitTest(PointF pt)
-            {
-                // 線條由端點決定，不直接開放點選範圍，以免干擾選取
-                return false;
-            }
+            public override void UpdateEndPoint(PointF pt) { EndPt = pt; }
+            public override bool HitTest(PointF pt) { return false; } // 線條不開放點選
             
             public void DrawDynamic(Graphics g, PointF p1, PointF p2)
             {
-                using (Pen p = new Pen(ShapeColor, 2))
+                using (Pen p = CreatePen())
                 {
                     if (HasArrow)
                     {
@@ -280,10 +273,21 @@ namespace DrawingApp
                         capPath.AddLine(new PointF(0, 0), new PointF(2, -2));
                         p.CustomEndCap = new CustomLineCap(null, capPath);
                     }
-                    g.DrawLine(p, p1, p2);
+
+                    if (IsOrthogonal)
+                    {
+                        // 畫 90 度折線 (找中點轉彎)
+                        float midX = p1.X + (p2.X - p1.X) / 2;
+                        PointF[] pts = new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
+                        g.DrawLines(p, pts);
+                    }
+                    else
+                    {
+                        // 畫直線
+                        g.DrawLine(p, p1, p2);
+                    }
                 }
             }
-            
             public override void Draw(Graphics g) { }
         }
 
@@ -293,11 +297,13 @@ namespace DrawingApp
             {
                 switch (type)
                 {
-                    case ShapeType.ArrowLine: return new ConnectorShape(start, color, true);
-                    case ShapeType.StraightLine: return new ConnectorShape(start, color, false);
+                    case ShapeType.ArrowLine: return new ConnectorShape(start, color, true, false);
+                    case ShapeType.StraightLine: return new ConnectorShape(start, color, false, false);
+                    case ShapeType.OrthogonalLine: return new ConnectorShape(start, color, true, true);
                     case ShapeType.Rectangle: return new RectShape(start, color);
                     case ShapeType.Circle: return new CircleShape(start, color);
-                    case ShapeType.Arc: return new ArcShape(start, color);
+                    case ShapeType.Diamond: return new DiamondShape(start, color);
+                    case ShapeType.Triangle: return new TriangleShape(start, color);
                     case ShapeType.TextNode: return new TextNodeShape(start, color, false);
                     case ShapeType.Text: return new TextNodeShape(start, color, true);
                     case ShapeType.Image: return new ImageShape(start, img);
