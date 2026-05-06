@@ -6,7 +6,7 @@ using Newtonsoft.Json;
 
 namespace DrawingApp
 {
-    // --- 5. 升級：支援多畫布分頁的資料結構 ---
+    // 支援多畫布分頁的資料結構
     public class DrawProject
     {
         public List<DrawPage> Pages { get; set; } = new List<DrawPage>();
@@ -33,55 +33,82 @@ namespace DrawingApp
             if (!Directory.Exists(SaveDirectory)) Directory.CreateDirectory(SaveDirectory);
         }
 
-        // 存檔改為接收整個 Project
+        // 存檔
         public static void SaveProject(DrawProject project)
         {
-            EnsureDirectory();
-            using (SaveFileDialog sfd = new SaveFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
+            try
             {
-                if (sfd.ShowDialog() == DialogResult.OK)
+                EnsureDirectory();
+                using (SaveFileDialog sfd = new SaveFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
-                    string json = JsonConvert.SerializeObject(project, jsonSettings);
-                    File.WriteAllText(sfd.FileName, json);
-                    MessageBox.Show("專案存檔成功！", "系統通知");
+                    if (sfd.ShowDialog() == DialogResult.OK)
+                    {
+                        string json = JsonConvert.SerializeObject(project, jsonSettings);
+                        File.WriteAllText(sfd.FileName, json);
+                        MessageBox.Show("專案存檔成功！", "系統通知", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"存檔時發生錯誤: {ex.Message}", "存檔失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        // 讀檔回傳整個 Project
+        // 讀檔
         public static DrawProject LoadProject()
         {
-            EnsureDirectory();
-            using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
+            try
             {
-                if (ofd.ShowDialog() == DialogResult.OK)
+                EnsureDirectory();
+                using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
-                    string json = File.ReadAllText(ofd.FileName);
-                    
-                    // 為了相容舊版的單頁存檔，做個防呆嘗試
-                    try 
+                    if (ofd.ShowDialog() == DialogResult.OK)
                     {
-                        var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
-                        if (project != null && project.Pages != null) return project;
-                    }
-                    catch { /* 忽略錯誤，嘗試用舊版格式讀取 */ }
+                        string json = File.ReadAllText(ofd.FileName);
+                        
+                        // 為了相容舊版的單頁存檔，做個防呆嘗試
+                        try 
+                        {
+                            var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
+                            if (project != null && project.Pages != null) return project;
+                        }
+                        catch { /* 忽略錯誤，嘗試用舊版格式讀取 */ }
 
-                    try
-                    {
-                        var oldShapes = JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
-                        return new DrawProject { Pages = new List<DrawPage> { new DrawPage { Title = "舊版畫布", Shapes = oldShapes } } };
+                        try
+                        {
+                            var oldShapes = JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
+                            return new DrawProject { Pages = new List<DrawPage> { new DrawPage { Title = "舊版畫布", Shapes = oldShapes } } };
+                        }
+                        catch 
+                        { 
+                            MessageBox.Show("檔案格式錯誤或已損毀！", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); 
+                        }
                     }
-                    catch { MessageBox.Show("檔案格式錯誤或已損毀！", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 }
             }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"讀取檔案時發生錯誤: {ex.Message}", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            
             return null;
         }
 
         // 用於複製貼上的深拷貝
         public static List<App_Shapes.ShapeBase> CloneShapes(List<App_Shapes.ShapeBase> shapes)
         {
-            string json = JsonConvert.SerializeObject(shapes, jsonSettings);
-            return JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
+            try
+            {
+                if (shapes == null || shapes.Count == 0) return new List<App_Shapes.ShapeBase>();
+                string json = JsonConvert.SerializeObject(shapes, jsonSettings);
+                return JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings) ?? new List<App_Shapes.ShapeBase>();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"複製圖形失敗: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return new List<App_Shapes.ShapeBase>();
+            }
         }
     }
 }
