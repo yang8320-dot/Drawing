@@ -13,14 +13,14 @@ namespace DrawingApp
         private FlowLayoutPanel _leftPanel;
         private Panel _rightPanel;
         
-        // --- 核心升級：畫布容器改為 TabControl ---
+        // 畫布容器改為 TabControl
         private TabControl _tabControl;
         
         // 動態取得「目前正在顯示」的畫布
         private App_CanvasControl CurrentCanvas => _tabControl.SelectedTab?.Controls.OfType<App_CanvasControl>().FirstOrDefault();
 
         private Button _activeToolBtn;
-        private Button _btnPointer; // 儲存指標按鈕，用於重設狀態
+        private Button _btnPointer; 
 
         // 右側面板控制項
         private ComboBox _cbFont;
@@ -30,6 +30,9 @@ namespace DrawingApp
         private Button _btnShapeColor;
         private Button _btnFontColor;
         
+        // 用於雙擊編輯畫布標籤名稱的文字框
+        private TextBox _tabEditBox;
+
         private bool _isUpdatingUI = false;
         private int _tabCounter = 1;
 
@@ -43,15 +46,24 @@ namespace DrawingApp
 
         private void InitializeUI()
         {
-            this.Text = "商業級繪圖系統 (支援多分頁、防多開、連線節點調整)";
+            this.Text = "商業級繪圖系統 (支援多分頁、防多開、連線節點調整、自訂畫布名稱)";
             this.Size = new Size(1600, 900);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.KeyPreview = true; 
 
-            // --- 1. 初始化分頁容器 ---
+            // --- 1. 初始化分頁容器與雙擊編輯功能 ---
             _tabControl = new TabControl();
             _tabControl.Dock = DockStyle.Fill;
             _tabControl.SelectedIndexChanged += (s, e) => RefreshPropertyPanel();
+            _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
+
+            // 初始化分頁名稱編輯器
+            _tabEditBox = new TextBox();
+            _tabEditBox.Visible = false;
+            _tabEditBox.BorderStyle = BorderStyle.FixedSingle;
+            _tabEditBox.Leave += TabEditBox_Leave;
+            _tabEditBox.KeyDown += TabEditBox_KeyDown;
+            _tabControl.Controls.Add(_tabEditBox);
 
             // --- 2. 頂部系統工具列 ---
             _topBar = new Panel() { Dock = DockStyle.Top, Height = 60, BackColor = Color.FromArgb(245, 245, 245) };
@@ -81,7 +93,6 @@ namespace DrawingApp
             };
             _topBar.Controls.Add(chkSnap); currentX += 90;
 
-            // --- 修復存檔與讀取按鈕 ---
             CreateTextButton(_topBar, "存檔", currentX, 50, (s, e) => SaveAllTabs()); currentX += 55;
             CreateTextButton(_topBar, "讀取", currentX, 50, (s, e) => LoadTabs()); currentX += 65;
 
@@ -99,7 +110,7 @@ namespace DrawingApp
                 if (CurrentCanvas != null) ShowPdfExportDialog();
             });
 
-            // --- 3. 左側圖形庫 (Stencil Library) ---
+            // --- 3. 左側圖形庫 ---
             _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 60, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5) };
             
             _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n(可框選、旋轉、縮放)");
@@ -117,7 +128,7 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
 
-            // --- 4. 右側屬性面板 (Property Panel) ---
+            // --- 4. 右側屬性面板 ---
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
             BuildPropertyPanel();
 
@@ -131,10 +142,64 @@ namespace DrawingApp
             this.Controls.Add(_topBar);
         }
 
+        // --- 畫布名稱雙擊編輯邏輯 ---
+        private void TabControl_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            for (int i = 0; i < _tabControl.TabCount; i++)
+            {
+                Rectangle rect = _tabControl.GetTabRect(i);
+                if (rect.Contains(e.Location))
+                {
+                    _tabEditBox.Text = _tabControl.TabPages[i].Text;
+                    // 將輸入框顯示在該分頁標籤的位置上方
+                    _tabEditBox.Bounds = new Rectangle(rect.X + 2, rect.Y + 2, rect.Width - 4, rect.Height - 4);
+                    _tabEditBox.Tag = _tabControl.TabPages[i]; // 紀錄正在編輯哪個分頁
+                    _tabEditBox.Visible = true;
+                    _tabEditBox.BringToFront();
+                    _tabEditBox.Focus();
+                    _tabEditBox.SelectAll();
+                    break;
+                }
+            }
+        }
+
+        private void TabEditBox_Leave(object sender, EventArgs e)
+        {
+            CommitTabRename();
+        }
+
+        private void TabEditBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                CommitTabRename();
+            }
+            else if (e.KeyCode == Keys.Escape)
+            {
+                _tabEditBox.Visible = false;
+            }
+        }
+
+        private void CommitTabRename()
+        {
+            if (_tabEditBox.Visible && _tabEditBox.Tag is TabPage page)
+            {
+                if (!string.IsNullOrWhiteSpace(_tabEditBox.Text))
+                {
+                    page.Text = _tabEditBox.Text.Trim();
+                }
+                _tabEditBox.Visible = false;
+            }
+        }
+
         // --- 多畫布核心邏輯 ---
         private void AddNewTab(string title, List<App_Shapes.ShapeBase> shapes = null)
         {
             TabPage page = new TabPage(title);
+            page.ToolTipText = "雙擊標籤可修改名稱";
+            _tabControl.ShowToolTips = true;
+
             var canvas = new App_CanvasControl();
             canvas.Dock = DockStyle.Fill;
             if (shapes != null) canvas.Shapes = shapes;
