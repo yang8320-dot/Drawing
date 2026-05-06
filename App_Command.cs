@@ -111,7 +111,6 @@ namespace DrawingApp
         }
     }
 
-    // 新增：形變指令 (包含 8 點縮放)
     public class ResizeShapeCommand : ICommand
     {
         private App_Shapes.ShapeBase _shape;
@@ -129,7 +128,6 @@ namespace DrawingApp
         public void Undo() { _shape.SetBounds(_oldBounds); }
     }
 
-    // 新增：旋轉指令
     public class RotateShapeCommand : ICommand
     {
         private App_Shapes.ShapeBase _shape;
@@ -145,6 +143,39 @@ namespace DrawingApp
 
         public void Execute() { _shape.RotationAngle = _newAngle; }
         public void Undo() { _shape.RotationAngle = _oldAngle; }
+    }
+
+    // --- 新增：調整連線端點指令 ---
+    public class AdjustConnectorCommand : ICommand
+    {
+        private App_Shapes.ConnectorShape _conn;
+        private Guid _oldSrcId, _oldTgtId, _newSrcId, _newTgtId;
+        private App_Shapes.AnchorPosition _oldSA, _oldTA, _newSA, _newTA;
+        private PointF _oldStart, _oldEnd, _newStart, _newEnd;
+
+        public AdjustConnectorCommand(
+            App_Shapes.ConnectorShape conn,
+            Guid oldSrcId, Guid oldTgtId, App_Shapes.AnchorPosition oldSA, App_Shapes.AnchorPosition oldTA, PointF oldStart, PointF oldEnd,
+            Guid newSrcId, Guid newTgtId, App_Shapes.AnchorPosition newSA, App_Shapes.AnchorPosition newTA, PointF newStart, PointF newEnd)
+        {
+            _conn = conn;
+            _oldSrcId = oldSrcId; _oldTgtId = oldTgtId; _oldSA = oldSA; _oldTA = oldTA; _oldStart = oldStart; _oldEnd = oldEnd;
+            _newSrcId = newSrcId; _newTgtId = newTgtId; _newSA = newSA; _newTA = newTA; _newStart = newStart; _newEnd = newEnd;
+        }
+
+        public void Execute()
+        {
+            _conn.SourceId = _newSrcId; _conn.TargetId = _newTgtId;
+            _conn.SourceAnchor = _newSA; _conn.TargetAnchor = _newTA;
+            _conn.StartPt = _newStart; _conn.EndPt = _newEnd;
+        }
+
+        public void Undo()
+        {
+            _conn.SourceId = _oldSrcId; _conn.TargetId = _oldTgtId;
+            _conn.SourceAnchor = _oldSA; _conn.TargetAnchor = _oldTA;
+            _conn.StartPt = _oldStart; _conn.EndPt = _oldEnd;
+        }
     }
 
     public class GroupCommand : ICommand
