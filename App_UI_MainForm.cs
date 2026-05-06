@@ -27,8 +27,15 @@ namespace DrawingApp
         private Button _btnShapeColor;
         private Button _btnFontColor;
         
-        // --- 新增：對齊面板的容器 ---
+        // --- 新增：字體樣式切換按鈕 ---
+        private Button _btnBold;
+        private Button _btnItalic;
+        private Button _btnUnderline;
+
         private FlowLayoutPanel _alignmentPanel;
+        
+        // --- 新增：階層排序按鈕 ---
+        private FlowLayoutPanel _zIndexPanel;
 
         private TextBox _tabEditBox;
 
@@ -36,14 +43,46 @@ namespace DrawingApp
         private int _tabCounter = 1;
 
         private bool _isDirty = false;
+        
+        // --- 新增：自動存檔計時器 ---
+        private Timer _autoSaveTimer;
 
         public App_UI_MainForm()
         {
             InitializeUI();
             
-            AddNewTab($"畫布 {_tabCounter++}");
+            // --- 啟動時先檢查有沒有不正常的自動存檔備份 ---
+            var recoveredProject = App_SaveLoad.CheckAndLoadAutoSave();
+            if (recoveredProject != null && recoveredProject.Pages.Count > 0)
+            {
+                foreach (var page in recoveredProject.Pages) AddNewTab(page.Title, page.Shapes);
+            }
+            else
+            {
+                AddNewTab($"畫布 {_tabCounter++}");
+            }
 
             this.FormClosing += App_UI_MainForm_FormClosing;
+            
+            // --- 初始化並啟動自動存檔計時器 (5分鐘 = 300,000毫秒) ---
+            _autoSaveTimer = new Timer();
+            _autoSaveTimer.Interval = 300000; 
+            _autoSaveTimer.Tick += AutoSaveTimer_Tick;
+            _autoSaveTimer.Start();
+        }
+
+        private void AutoSaveTimer_Tick(object sender, EventArgs e)
+        {
+            if (_isDirty) // 只有畫面有變更時才需要背景存檔
+            {
+                var project = new DrawProject();
+                foreach (TabPage tab in _tabControl.TabPages)
+                {
+                    if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl canvas)
+                        project.Pages.Add(new DrawPage { Title = tab.Text, Shapes = canvas.Shapes });
+                }
+                App_SaveLoad.PerformAutoSave(project);
+            }
         }
 
         private void InitializeUI()
@@ -178,6 +217,17 @@ namespace DrawingApp
                 {
                     e.Cancel = true;
                 }
+                
+                // 如果選擇「否」，我們也一併把自動存檔刪掉，避免下次打開干擾
+                if (result == DialogResult.No)
+                {
+                    App_SaveLoad.DeleteAutoSave();
+                }
+            }
+            else
+            {
+                // 正常關閉，刪除垃圾備份
+                App_SaveLoad.DeleteAutoSave();
             }
         }
 
@@ -298,7 +348,6 @@ namespace DrawingApp
                 UpdateWindowTitle();
             };
 
-            // 當多選狀態改變時，更新屬性與對齊面板
             canvas.OnSelectionChanged += () => RefreshPropertyPanel();
             
             canvas.OnToolResetRequested += () => { 
@@ -365,7 +414,25 @@ namespace DrawingApp
             _cbFont = new ComboBox() { Location = new Point(60, startY-3), Width = 140, DropDownStyle = ComboBoxStyle.DropDownList };
             _cbFont.Items.AddRange(new string[] { "Arial", "標楷體", "微軟正黑體", "Times New Roman" });
             _cbFont.SelectedIndexChanged += PropertyChanged;
-            _rightPanel.Controls.Add(_cbFont); startY += 40;
+            _rightPanel.Controls.Add(_cbFont); startY += 35;
+
+            // --- 新增：B / I / U 樣式按鈕 ---
+            FlowLayoutPanel fontStylePanel = new FlowLayoutPanel() { Location = new Point(60, startY), Width = 140, Height = 35 };
+            
+            _btnBold = new Button() { Text = "B", Font = new Font("Arial", 9, FontStyle.Bold), Size = new Size(30, 25), FlatStyle = FlatStyle.Flat, BackColor = Color.White };
+            _btnItalic = new Button() { Text = "I", Font = new Font("Arial", 9, FontStyle.Italic), Size = new Size(30, 25), FlatStyle = FlatStyle.Flat, BackColor = Color.White };
+            _btnUnderline = new Button() { Text = "U", Font = new Font("Arial", 9, FontStyle.Underline), Size = new Size(30, 25), FlatStyle = FlatStyle.Flat, BackColor = Color.White };
+            
+            _btnBold.FlatAppearance.BorderColor = Color.Gray; _btnItalic.FlatAppearance.BorderColor = Color.Gray; _btnUnderline.FlatAppearance.BorderColor = Color.Gray;
+
+            _btnBold.Click += (s, e) => ToggleFontStyle("Bold");
+            _btnItalic.Click += (s, e) => ToggleFontStyle("Italic");
+            _btnUnderline.Click += (s, e) => ToggleFontStyle("Underline");
+
+            fontStylePanel.Controls.Add(_btnBold);
+            fontStylePanel.Controls.Add(_btnItalic);
+            fontStylePanel.Controls.Add(_btnUnderline);
+            _rightPanel.Controls.Add(fontStylePanel); startY += 40;
 
             _rightPanel.Controls.Add(new Label() { Text = "字號:", Location = new Point(10, startY), AutoSize = true });
             _nudFontSize = new NumericUpDown() { Location = new Point(60, startY-3), Width = 140, Minimum = 8, Maximum = 72 };
@@ -393,7 +460,6 @@ namespace DrawingApp
             _btnFontColor.Click += (s, e) => ChangeColor(false);
             _rightPanel.Controls.Add(_btnFontColor); startY += 50;
 
-            // --- 優化：一鍵對齊工具列 ---
             Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
             _rightPanel.Controls.Add(alignTitle); startY += 30;
 
@@ -408,10 +474,20 @@ namespace DrawingApp
             _alignmentPanel.Controls.Add(CreateAlignButton("水平均分", (s, e) => DistributeShapes("Horizontal")));
             _alignmentPanel.Controls.Add(CreateAlignButton("垂直均分", (s, e) => DistributeShapes("Vertical")));
 
-            _rightPanel.Controls.Add(_alignmentPanel);
-            
+            _rightPanel.Controls.Add(_alignmentPanel); startY += 90;
+
+            // --- 新增：階層排序面板 ---
+            Label zIndexTitle = new Label() { Text = "圖層順序", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
+            _rightPanel.Controls.Add(zIndexTitle); startY += 30;
+
+            _zIndexPanel = new FlowLayoutPanel() { Location = new Point(10, startY), Width = 190, Height = 40, WrapContents = true };
+            _zIndexPanel.Controls.Add(CreateAlignButton("移到最上層", (s, e) => CurrentCanvas?.ChangeZIndex(0)));
+            _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => CurrentCanvas?.ChangeZIndex(-99)));
+            _rightPanel.Controls.Add(_zIndexPanel);
+
             _rightPanel.Enabled = false; 
             _alignmentPanel.Enabled = false;
+            _zIndexPanel.Enabled = false;
         }
 
         private Button CreateAlignButton(string text, EventHandler onClick)
@@ -419,7 +495,7 @@ namespace DrawingApp
             Button btn = new Button()
             {
                 Text = text,
-                Size = new Size(58, 28),
+                Size = new Size(88, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White,
                 Cursor = Cursors.Hand,
@@ -430,7 +506,22 @@ namespace DrawingApp
             return btn;
         }
 
-        // --- 優化：實作對齊邏輯 ---
+        // --- 新增：切換字體樣式的邏輯 ---
+        private void ToggleFontStyle(string style)
+        {
+            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count != 1) return;
+            var shape = CurrentCanvas.SelectedShapes[0];
+
+            if (style == "Bold") shape.FontBold = !shape.FontBold;
+            else if (style == "Italic") shape.FontItalic = !shape.FontItalic;
+            else if (style == "Underline") shape.FontUnderline = !shape.FontUnderline;
+
+            CurrentCanvas.Invalidate();
+            _isDirty = true;
+            UpdateWindowTitle();
+            RefreshPropertyPanel(); // 刷新按鈕高亮狀態
+        }
+
         private void AlignShapes(string type)
         {
             if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count < 2) return;
@@ -475,7 +566,6 @@ namespace DrawingApp
             CurrentCanvas.Invalidate();
         }
 
-        // --- 優化：實作等距均分邏輯 ---
         private void DistributeShapes(string type)
         {
             if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count < 3) return;
@@ -515,7 +605,6 @@ namespace DrawingApp
                 }
             }
 
-            // 要對應原本順序以正確寫入 Command
             var orderedNewBounds = new List<RectangleF>();
             var originalShapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
             for (int i = 0; i < originalShapes.Count; i++)
@@ -580,7 +669,6 @@ namespace DrawingApp
             {
                 int selCount = CurrentCanvas.SelectedShapes.Count;
                 
-                // 只有選取單一圖形時開放屬性編輯
                 if (selCount == 1)
                 {
                     _isUpdatingUI = true;
@@ -596,6 +684,11 @@ namespace DrawingApp
                     _btnFontColor.BackColor = shape.FontColor;
                     _btnFontColor.ForeColor = GetContrastColor(shape.FontColor);
 
+                    // 同步字體樣式按鈕的高亮狀態
+                    _btnBold.BackColor = shape.FontBold ? Color.LightSkyBlue : Color.White;
+                    _btnItalic.BackColor = shape.FontItalic ? Color.LightSkyBlue : Color.White;
+                    _btnUnderline.BackColor = shape.FontUnderline ? Color.LightSkyBlue : Color.White;
+
                     _rightPanel.Enabled = true;
                     _isUpdatingUI = false;
                 }
@@ -604,16 +697,16 @@ namespace DrawingApp
                     _rightPanel.Enabled = false;
                 }
 
-                // 只有選取兩個以上時開放對齊按鈕
                 _alignmentPanel.Enabled = selCount > 1;
+                _zIndexPanel.Enabled = selCount > 0;
 
-                // 為了讓右側面板在 Enable 變化時視覺刷新
                 _rightPanel.Enabled = (selCount > 0);
             }
             else
             {
                 _rightPanel.Enabled = false;
                 _alignmentPanel.Enabled = false;
+                _zIndexPanel.Enabled = false;
             }
         }
 
