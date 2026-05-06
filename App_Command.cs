@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 
 namespace DrawingApp
@@ -110,7 +111,42 @@ namespace DrawingApp
         }
     }
 
-    // 新增：群組指令
+    // 新增：形變指令 (包含 8 點縮放)
+    public class ResizeShapeCommand : ICommand
+    {
+        private App_Shapes.ShapeBase _shape;
+        private RectangleF _oldBounds;
+        private RectangleF _newBounds;
+
+        public ResizeShapeCommand(App_Shapes.ShapeBase shape, RectangleF oldBounds, RectangleF newBounds)
+        {
+            _shape = shape;
+            _oldBounds = oldBounds;
+            _newBounds = newBounds;
+        }
+
+        public void Execute() { _shape.SetBounds(_newBounds); }
+        public void Undo() { _shape.SetBounds(_oldBounds); }
+    }
+
+    // 新增：旋轉指令
+    public class RotateShapeCommand : ICommand
+    {
+        private App_Shapes.ShapeBase _shape;
+        private float _oldAngle;
+        private float _newAngle;
+
+        public RotateShapeCommand(App_Shapes.ShapeBase shape, float oldAngle, float newAngle)
+        {
+            _shape = shape;
+            _oldAngle = oldAngle;
+            _newAngle = newAngle;
+        }
+
+        public void Execute() { _shape.RotationAngle = _newAngle; }
+        public void Undo() { _shape.RotationAngle = _oldAngle; }
+    }
+
     public class GroupCommand : ICommand
     {
         private List<App_Shapes.ShapeBase> _canvasShapes;
@@ -137,7 +173,6 @@ namespace DrawingApp
         }
     }
 
-    // 新增：解除群組指令
     public class UngroupCommand : ICommand
     {
         private List<App_Shapes.ShapeBase> _canvasShapes;
