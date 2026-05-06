@@ -10,9 +10,7 @@ namespace DrawingApp
     public static class App_Shapes
     {
         public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image }
-        // 升級：擴充為 8 個縮放點與 1 個旋轉控制點
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate }
-        // 新增：固定連線錨點
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
         public abstract class ShapeBase
@@ -23,7 +21,6 @@ namespace DrawingApp
             public float StrokeWidth { get; set; } = 2f;
             public DashStyle StrokeDashStyle { get; set; } = DashStyle.Solid;
             
-            // 新增：旋轉角度
             public float RotationAngle { get; set; } = 0f;
             
             [JsonIgnore] 
@@ -44,7 +41,6 @@ namespace DrawingApp
                 ShapeColor = color;
             }
 
-            // 新增：畫布轉換處理 (處理旋轉)
             public void DrawWithTransform(Graphics g)
             {
                 Matrix oldMatrix = g.Transform;
@@ -85,7 +81,6 @@ namespace DrawingApp
                 NormalizeBounds();
             }
 
-            // 支援 8 點縮放的新版邊界更新
             public virtual void SetBounds(RectangleF newBounds)
             {
                 Bounds = newBounds;
@@ -111,7 +106,6 @@ namespace DrawingApp
                 return new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y + Bounds.Height / 2);
             }
 
-            // 新增：處理旋轉後的碰撞偵測
             public virtual bool HitTest(PointF pt)
             {
                 PointF rotatedPt = RotatePoint(pt, GetCenter(), -RotationAngle);
@@ -120,8 +114,7 @@ namespace DrawingApp
                 return hitBounds.Contains(rotatedPt);
             }
             
-            // 升級：繪製 8 個縮放點與旋轉點
-            public void DrawSelection(Graphics g)
+            public virtual void DrawSelection(Graphics g)
             {
                 if (!IsSelected) return;
 
@@ -155,7 +148,6 @@ namespace DrawingApp
                     g.DrawRectangle(Pens.DodgerBlue, pt.X - s/2, pt.Y - s/2, s, s);
                 }
 
-                // 旋轉控制點
                 PointF rotatePt = new PointF(center.X, Bounds.Top - 25);
                 g.DrawLine(Pens.DodgerBlue, center.X, Bounds.Top, rotatePt.X, rotatePt.Y);
                 g.FillEllipse(Brushes.LightGreen, rotatePt.X - 5, rotatePt.Y - 5, 10, 10);
@@ -172,10 +164,8 @@ namespace DrawingApp
                 PointF rotatedPt = RotatePoint(pt, center, -RotationAngle);
 
                 float s = 10;
-                // 旋轉點
                 if (new RectangleF(center.X - s, Bounds.Top - 25 - s, s * 2, s * 2).Contains(rotatedPt)) return HandlePosition.Rotate;
 
-                // 8 個縮放點
                 if (new RectangleF(Bounds.Left - s/2, Bounds.Top - s/2, s, s).Contains(rotatedPt)) return HandlePosition.NW;
                 if (new RectangleF(center.X - s/2, Bounds.Top - s/2, s, s).Contains(rotatedPt)) return HandlePosition.N;
                 if (new RectangleF(Bounds.Right - s/2, Bounds.Top - s/2, s, s).Contains(rotatedPt)) return HandlePosition.NE;
@@ -188,7 +178,6 @@ namespace DrawingApp
                 return HandlePosition.None;
             }
 
-            // 新增：獲取固定錨點位置
             public PointF GetAnchorPoint(AnchorPosition pos)
             {
                 PointF pt = GetCenter();
@@ -243,7 +232,6 @@ namespace DrawingApp
             }
         }
 
-        // 升級：支援等比例縮放的群組
         public class GroupShape : ShapeBase
         {
             public List<ShapeBase> Children { get; set; } = new List<ShapeBase>();
@@ -273,7 +261,6 @@ namespace DrawingApp
                 }
             }
 
-            // 群組縮放核心邏輯
             public override void SetBounds(RectangleF newBounds)
             {
                 if (Bounds.Width == 0 || Bounds.Height == 0) return;
@@ -309,8 +296,6 @@ namespace DrawingApp
                 return Children.Any(c => c.HitTest(pt));
             }
         }
-
-        // --- 實體圖形 ---
 
         public class RectShape : ShapeBase
         { 
@@ -446,11 +431,11 @@ namespace DrawingApp
             }
         }
 
+        // --- 核心修正的 ConnectorShape ---
         public class ConnectorShape : ShapeBase
         {
             public Guid SourceId { get; set; }
             public Guid TargetId { get; set; }
-            // 新增：綁定特定的錨點
             public AnchorPosition SourceAnchor { get; set; } = AnchorPosition.Auto;
             public AnchorPosition TargetAnchor { get; set; } = AnchorPosition.Auto;
 
@@ -459,6 +444,8 @@ namespace DrawingApp
             public bool HasArrow { get; set; }
             public bool IsOrthogonal { get; set; }
 
+            [JsonIgnore] private PointF[] _cachedPath;
+
             public ConnectorShape() { }
             public ConnectorShape(PointF start, Color color, bool arrow, bool orthogonal = false) : base(start, color)
             {
@@ -466,7 +453,27 @@ namespace DrawingApp
             }
             
             public override void UpdateEndPoint(PointF pt) { EndPt = pt; }
-            public override bool HitTest(PointF pt) { return false; } 
+            
+            // 修正：計算滑鼠是否點擊在線段上
+            public override bool HitTest(PointF pt) 
+            { 
+                if (_cachedPath == null || _cachedPath.Length < 2) return false;
+                
+                for (int i = 0; i < _cachedPath.Length - 1; i++)
+                {
+                    if (DistancePointToSegment(pt, _cachedPath[i], _cachedPath[i+1]) < 8f) return true;
+                }
+                return false; 
+            } 
+
+            private float DistancePointToSegment(PointF pt, PointF p1, PointF p2)
+            {
+                float l2 = (p1.X - p2.X)*(p1.X - p2.X) + (p1.Y - p2.Y)*(p1.Y - p2.Y);
+                if (l2 == 0) return (float)Math.Sqrt(Math.Pow(pt.X - p1.X, 2) + Math.Pow(pt.Y - p1.Y, 2));
+                float t = Math.Max(0, Math.Min(1, ((pt.X - p1.X) * (p2.X - p1.X) + (pt.Y - p1.Y) * (p2.Y - p1.Y)) / l2));
+                PointF projection = new PointF(p1.X + t * (p2.X - p1.X), p1.Y + t * (p2.Y - p1.Y));
+                return (float)Math.Sqrt(Math.Pow(pt.X - projection.X, 2) + Math.Pow(pt.Y - projection.Y, 2));
+            }
             
             public void DrawDynamic(Graphics g, PointF p1, PointF p2)
             {
@@ -482,28 +489,38 @@ namespace DrawingApp
 
                     if (IsOrthogonal)
                     {
-                        // 改進的智慧折線 (中點分段法)
                         float midX = p1.X + (p2.X - p1.X) / 2;
                         float midY = p1.Y + (p2.Y - p1.Y) / 2;
                         
                         PointF[] pts;
                         if (Math.Abs(p2.X - p1.X) > Math.Abs(p2.Y - p1.Y))
-                        {
                             pts = new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
-                        }
                         else
-                        {
                             pts = new PointF[] { p1, new PointF(p1.X, midY), new PointF(p2.X, midY), p2 };
-                        }
+                        
+                        _cachedPath = pts; 
                         g.DrawLines(p, pts);
                     }
                     else
                     {
+                        _cachedPath = new PointF[] { p1, p2 }; 
                         g.DrawLine(p, p1, p2);
                     }
                 }
             }
+
             public override void Draw(Graphics g) { }
+
+            // 修正：當連線被選取時，畫出控制點
+            public override void DrawSelection(Graphics g)
+            {
+                if (!IsSelected || _cachedPath == null) return;
+                foreach (var pt in _cachedPath)
+                {
+                    g.FillRectangle(Brushes.White, pt.X - 4, pt.Y - 4, 8, 8);
+                    g.DrawRectangle(Pens.DodgerBlue, pt.X - 4, pt.Y - 4, 8, 8);
+                }
+            }
         }
 
         public static class ShapeFactory
