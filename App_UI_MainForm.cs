@@ -9,21 +9,17 @@ namespace DrawingApp
 {
     public class App_UI_MainForm : Form
     {
-        // 改為 FlowLayoutPanel 實現完美自動排版
         private FlowLayoutPanel _topBar;
         private FlowLayoutPanel _leftPanel;
         private Panel _rightPanel;
         
-        // 畫布容器
         private TabControl _tabControl;
         
-        // 動態取得「目前正在顯示」的畫布
         private App_CanvasControl CurrentCanvas => _tabControl.SelectedTab?.Controls.OfType<App_CanvasControl>().FirstOrDefault();
 
         private Button _activeToolBtn;
         private Button _btnPointer; 
 
-        // 右側面板控制項
         private ComboBox _cbFont;
         private NumericUpDown _nudFontSize;
         private NumericUpDown _nudStroke;
@@ -31,18 +27,22 @@ namespace DrawingApp
         private Button _btnShapeColor;
         private Button _btnFontColor;
         
-        // 用於雙擊編輯畫布標籤名稱的文字框
         private TextBox _tabEditBox;
 
         private bool _isUpdatingUI = false;
         private int _tabCounter = 1;
 
+        // --- 優化：加入 Dirty Flag 變數 ---
+        private bool _isDirty = false;
+
         public App_UI_MainForm()
         {
             InitializeUI();
             
-            // 啟動時預設建立第一張畫布
             AddNewTab($"畫布 {_tabCounter++}");
+
+            // --- 優化：攔截視窗關閉事件 ---
+            this.FormClosing += App_UI_MainForm_FormClosing;
         }
 
         private void InitializeUI()
@@ -52,11 +52,12 @@ namespace DrawingApp
             this.StartPosition = FormStartPosition.CenterScreen;
             this.KeyPreview = true; 
 
-            // --- 1. 初始化分頁容器與雙擊編輯功能 ---
             _tabControl = new TabControl();
             _tabControl.Dock = DockStyle.Fill;
             _tabControl.SelectedIndexChanged += (s, e) => RefreshPropertyPanel();
             _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
+            // --- 優化：加入 Tab 的滑鼠右鍵點擊事件 (關閉分頁) ---
+            _tabControl.MouseClick += TabControl_MouseClick;
 
             _tabEditBox = new TextBox();
             _tabEditBox.Visible = false;
@@ -64,7 +65,6 @@ namespace DrawingApp
             _tabEditBox.Leave += TabEditBox_Leave;
             _tabEditBox.KeyDown += TabEditBox_KeyDown;
 
-            // --- 2. 頂部系統工具列 (重構：完美對齊的流式佈局) ---
             _topBar = new FlowLayoutPanel() 
             { 
                 Dock = DockStyle.Top, 
@@ -74,24 +74,27 @@ namespace DrawingApp
                 WrapContents = false 
             };
 
-            // 【畫布區】
             _topBar.Controls.Add(CreateTextButton("➕ 新增畫布", 100, (s, e) => AddNewTab($"畫布 {_tabCounter++}")));
             
             ComboBox cbPageSize = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100, Margin = new Padding(0, 7, 8, 0) };
             cbPageSize.Items.AddRange(new string[] { "A4 直式", "A4 橫式", "A3 直式", "A3 橫式", "A2 直式", "A2 橫式", "A1 直式", "A1 橫式" });
             cbPageSize.SelectedIndex = 0;
-            cbPageSize.SelectedIndexChanged += (s, e) => { if (CurrentCanvas != null) { UpdatePageSize(cbPageSize.Text); } };
+            cbPageSize.SelectedIndexChanged += (s, e) => { 
+                if (CurrentCanvas != null) { 
+                    UpdatePageSize(cbPageSize.Text); 
+                    _isDirty = true; // 頁面大小改變視為未存檔
+                    UpdateWindowTitle();
+                } 
+            };
             _topBar.Controls.Add(cbPageSize);
 
             _topBar.Controls.Add(CreateDivider());
 
-            // 【編輯區】
             _topBar.Controls.Add(CreateTextButton("復原", 60, (s, e) => CurrentCanvas?.CmdManager.Undo()));
             _topBar.Controls.Add(CreateTextButton("重做", 60, (s, e) => CurrentCanvas?.CmdManager.Redo()));
 
             _topBar.Controls.Add(CreateDivider());
 
-            // 【視圖區】
             _topBar.Controls.Add(CreateTextButton("放大 +", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor + 0.2f); }));
             _topBar.Controls.Add(CreateTextButton("縮小 -", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }));
             _topBar.Controls.Add(CreateTextButton("100%", 60, (s, e) => CurrentCanvas?.SetZoom(1.0f)));
@@ -107,13 +110,11 @@ namespace DrawingApp
 
             _topBar.Controls.Add(CreateDivider());
 
-            // 【檔案存取區】
             _topBar.Controls.Add(CreateTextButton("存檔", 60, (s, e) => SaveAllTabs()));
             _topBar.Controls.Add(CreateTextButton("讀取", 60, (s, e) => LoadTabs()));
 
             _topBar.Controls.Add(CreateDivider());
 
-            // 【匯出區】
             _topBar.Controls.Add(CreateTextButton("匯出 PNG", 90, async (s, e) => {
                 if (CurrentCanvas == null) return;
                 using (var sfd = new SaveFileDialog() { Filter = "PNG 圖片|*.png" })
@@ -128,7 +129,6 @@ namespace DrawingApp
                 if (CurrentCanvas != null) ShowPdfExportDialog();
             }));
 
-            // --- 3. 左側圖形庫 ---
             _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 60, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5) };
             
             _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n(可框選、旋轉、縮放)");
@@ -146,11 +146,9 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
 
-            // --- 4. 右側屬性面板 ---
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
             BuildPropertyPanel();
 
-            // --- 5. 組裝畫面 ---
             Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
             centerContainer.Controls.Add(_tabControl);
             centerContainer.Controls.Add(_tabEditBox); 
@@ -162,7 +160,34 @@ namespace DrawingApp
             this.Controls.Add(_topBar);
         }
 
-        // --- 產生頂部按鈕的標準化方法 ---
+        // --- 優化：關閉軟體時的防呆攔截 ---
+        private void App_UI_MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (_isDirty)
+            {
+                var result = MessageBox.Show("您有未儲存的變更，是否要先存檔再離開？\n\n按「是」進行存檔，\n按「否」不存檔直接離開，\n按「取消」回到程式。", "尚未存檔", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Warning);
+                
+                if (result == DialogResult.Yes)
+                {
+                    SaveAllTabs();
+                    if (_isDirty) // 如果存檔失敗或被取消，就阻止關閉
+                    {
+                        e.Cancel = true;
+                    }
+                }
+                else if (result == DialogResult.Cancel)
+                {
+                    e.Cancel = true;
+                }
+            }
+        }
+
+        private void UpdateWindowTitle()
+        {
+            string baseTitle = "商業級繪圖系統 (支援多分頁、防多開、連線節點調整、自訂畫布名稱)";
+            this.Text = _isDirty ? baseTitle + " [未存檔 *]" : baseTitle;
+        }
+
         private Button CreateTextButton(string text, int width, EventHandler onClick)
         {
             Button btn = new Button() 
@@ -175,18 +200,47 @@ namespace DrawingApp
                 Margin = new Padding(0, 0, 8, 0)
             };
             btn.FlatAppearance.BorderColor = Color.FromArgb(210, 210, 210);
-            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 238, 255); // 滑鼠懸停的高亮色
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 238, 255); 
             btn.Click += onClick;
             return btn;
         }
 
-        // --- 產生垂直分隔線 ---
         private Panel CreateDivider()
         {
             return new Panel() { Width = 1, Height = 35, BackColor = Color.FromArgb(200, 200, 200), Margin = new Padding(4, 0, 12, 0) };
         }
 
-        // --- 畫布名稱雙擊編輯邏輯 ---
+        // --- 優化：在 Tab 上點擊右鍵跳出關閉選單 ---
+        private void TabControl_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Right)
+            {
+                for (int i = 0; i < _tabControl.TabCount; i++)
+                {
+                    if (_tabControl.GetTabRect(i).Contains(e.Location))
+                    {
+                        var tabToClose = _tabControl.TabPages[i];
+                        ContextMenuStrip closeMenu = new ContextMenuStrip();
+                        closeMenu.Items.Add("關閉此畫布", null, (s, ev) => 
+                        {
+                            if (_tabControl.TabCount > 1)
+                            {
+                                _tabControl.TabPages.Remove(tabToClose);
+                                _isDirty = true;
+                                UpdateWindowTitle();
+                            }
+                            else
+                            {
+                                MessageBox.Show("至少需要保留一張畫布。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            }
+                        });
+                        closeMenu.Show(_tabControl, e.Location);
+                        break;
+                    }
+                }
+            }
+        }
+
         private void TabControl_MouseDoubleClick(object sender, MouseEventArgs e)
         {
             for (int i = 0; i < _tabControl.TabCount; i++)
@@ -218,16 +272,20 @@ namespace DrawingApp
         {
             if (_tabEditBox.Visible && _tabEditBox.Tag is TabPage page)
             {
-                if (!string.IsNullOrWhiteSpace(_tabEditBox.Text)) page.Text = _tabEditBox.Text.Trim();
+                if (!string.IsNullOrWhiteSpace(_tabEditBox.Text)) 
+                {
+                    page.Text = _tabEditBox.Text.Trim();
+                    _isDirty = true;
+                    UpdateWindowTitle();
+                }
                 _tabEditBox.Visible = false;
             }
         }
 
-        // --- 多畫布核心邏輯 ---
         private void AddNewTab(string title, List<App_Shapes.ShapeBase> shapes = null)
         {
             TabPage page = new TabPage(title);
-            page.ToolTipText = "雙擊標籤可修改名稱";
+            page.ToolTipText = "雙擊標籤可修改名稱，右鍵點擊可關閉畫布";
             _tabControl.ShowToolTips = true;
 
             var canvas = new App_CanvasControl();
@@ -235,7 +293,13 @@ namespace DrawingApp
             if (shapes != null) canvas.Shapes = shapes;
 
             canvas.MouseUp += (s, e) => RefreshPropertyPanel();
-            canvas.CmdManager.OnStateChanged += () => RefreshPropertyPanel();
+            
+            // --- 優化：當 Canvas 的 CommandManager 狀態改變時，觸發 Dirty Flag ---
+            canvas.CmdManager.OnStateChanged += () => {
+                RefreshPropertyPanel();
+                _isDirty = true;
+                UpdateWindowTitle();
+            };
             
             canvas.OnToolResetRequested += () => { 
                 if (CurrentCanvas != null) CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer; 
@@ -247,6 +311,13 @@ namespace DrawingApp
             page.Controls.Add(canvas);
             _tabControl.TabPages.Add(page);
             _tabControl.SelectedTab = page; 
+
+            // 如果是使用者點擊新增按鈕，標記為未存檔
+            if (shapes == null)
+            {
+                _isDirty = true;
+                UpdateWindowTitle();
+            }
         }
 
         private void SaveAllTabs()
@@ -257,20 +328,34 @@ namespace DrawingApp
                 if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl canvas)
                     project.Pages.Add(new DrawPage { Title = tab.Text, Shapes = canvas.Shapes });
             }
-            App_SaveLoad.SaveProject(project);
+            
+            bool success = App_SaveLoad.SaveProject(project);
+            if (success)
+            {
+                _isDirty = false;
+                UpdateWindowTitle();
+            }
         }
 
         private void LoadTabs()
         {
+            if (_isDirty)
+            {
+                var result = MessageBox.Show("您有未儲存的變更，如果讀取新檔案將會遺失當前進度。\n確定要繼續讀取嗎？", "警告", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (result == DialogResult.No) return;
+            }
+
             var project = App_SaveLoad.LoadProject();
             if (project != null && project.Pages.Count > 0)
             {
                 _tabControl.TabPages.Clear();
                 foreach (var page in project.Pages) AddNewTab(page.Title, page.Shapes);
+                
+                _isDirty = false;
+                UpdateWindowTitle();
             }
         }
 
-        // --- 右側屬性面板邏輯 ---
         private void BuildPropertyPanel()
         {
             int startY = 20;
@@ -322,7 +407,10 @@ namespace DrawingApp
             shape.StrokeWidth = (float)_nudStroke.Value;
             shape.StrokeDashStyle = (DashStyle)_cbDash.SelectedItem;
             
+            // 觸發重新繪製並標記為髒狀態
             CurrentCanvas.Invalidate();
+            _isDirty = true;
+            UpdateWindowTitle();
         }
 
         private void ChangeColor(bool isShapeColor)
@@ -348,6 +436,8 @@ namespace DrawingApp
                         _btnFontColor.ForeColor = GetContrastColor(cd.Color);
                     }
                     CurrentCanvas.Invalidate();
+                    _isDirty = true;
+                    UpdateWindowTitle();
                 }
             }
         }
