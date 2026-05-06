@@ -7,8 +7,6 @@
     <AssemblyName>DrawingApp</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    
-    <!-- 【關鍵修正】強制將 NuGet 參考的 DLL 複製到輸出目錄，否則 PostBuild 會找不到檔案 -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
@@ -23,10 +21,5 @@
     <PackageReference Include="System.Data.SQLite.Core" Version="1.0.118.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
-
-  <!-- 需求6: 自動整理輸出目錄 -->
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Exec Command="if not exist &quot;$(TargetDir)Library&quot; mkdir &quot;$(TargetDir)Library&quot;&#xD;&#xA;if not exist &quot;$(TargetDir)save&quot; mkdir &quot;$(TargetDir)save&quot;&#xD;&#xA;move /y &quot;$(TargetDir)*.dll&quot; &quot;$(TargetDir)Library\&quot;" />
-  </Target>
 
 </Project>
