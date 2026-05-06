@@ -299,6 +299,26 @@ namespace DrawingApp
             if (keyData == (Keys.Control | Keys.G)) { GroupSelected(); return true; }
             if (keyData == (Keys.Control | Keys.U)) { UngroupSelected(); return true; }
 
+            // --- 新增：方向鍵微調 (Nudge) 功能 ---
+            Keys baseKey = keyData & ~Keys.Modifiers;
+            if (SelectedShapes.Count > 0 && 
+               (baseKey == Keys.Up || baseKey == Keys.Down || baseKey == Keys.Left || baseKey == Keys.Right))
+            {
+                bool isShift = (Control.ModifierKeys & Keys.Shift) == Keys.Shift;
+                float nudgeAmount = isShift ? 10f : 1f;
+                float dx = 0, dy = 0;
+
+                if (baseKey == Keys.Up) dy = -nudgeAmount;
+                if (baseKey == Keys.Down) dy = nudgeAmount;
+                if (baseKey == Keys.Left) dx = -nudgeAmount;
+                if (baseKey == Keys.Right) dx = nudgeAmount;
+
+                // 透過 Command 觸發移動，保證支援 Undo/Redo
+                CmdManager.ExecuteCommand(new MoveShapesCommand(SelectedShapes, dx, dy));
+                this.Invalidate();
+                return true;
+            }
+
             if (keyData == Keys.Delete && SelectedShapes.Count > 0)
             {
                 var toRemove = new List<App_Shapes.ShapeBase>(SelectedShapes);
@@ -367,7 +387,6 @@ namespace DrawingApp
                             _currentState = InteractionState.Resizing;
                             _resizingHandle = handle;
                             
-                            // --- 新增：紀錄連線被拖曳前的狀態 ---
                             if (SelectedShapes[0] is App_Shapes.ConnectorShape conn)
                             {
                                 _oldSrcId = conn.SourceId; _oldTgtId = conn.TargetId;
@@ -531,7 +550,6 @@ namespace DrawingApp
                 {
                     var shape = SelectedShapes[0];
 
-                    // --- 新增：處理連線的端點拖曳 ---
                     if (shape is App_Shapes.ConnectorShape conn)
                     {
                         _hoveredShapeForConnection = null;
@@ -548,7 +566,6 @@ namespace DrawingApp
                             conn.TargetId = Guid.Empty; // 拖曳時先切斷綁定
                         }
 
-                        // 動態偵測滑過的新圖形並吸附
                         for (int i = Shapes.Count - 1; i >= 0; i--)
                         {
                             if (Shapes[i] != conn && Shapes[i].HitTest(realPt))
@@ -570,7 +587,7 @@ namespace DrawingApp
                             }
                         }
                     }
-                    else // 一般圖形的 8 點縮放
+                    else 
                     {
                         PointF center = shape.GetCenter();
                         PointF lastLocal = App_Shapes.ShapeBase.RotatePoint(GetRealPoint(_lastMousePos), center, -shape.RotationAngle);
@@ -763,7 +780,6 @@ namespace DrawingApp
             _tempShape?.DrawWithTransform(g);
             if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt);
             
-            // 繪製紅點感應提示 (包含重拉線條時)
             if ((_currentState == InteractionState.Connecting || _currentState == InteractionState.Resizing) && _hoveredShapeForConnection != null)
             {
                 PointF anchorPt = _hoveredAnchor == App_Shapes.AnchorPosition.Auto 
