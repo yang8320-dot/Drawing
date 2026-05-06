@@ -6,13 +6,25 @@ using Newtonsoft.Json;
 
 namespace DrawingApp
 {
+    // --- 5. 升級：支援多畫布分頁的資料結構 ---
+    public class DrawProject
+    {
+        public List<DrawPage> Pages { get; set; } = new List<DrawPage>();
+    }
+
+    public class DrawPage
+    {
+        public string Title { get; set; }
+        public List<App_Shapes.ShapeBase> Shapes { get; set; } = new List<App_Shapes.ShapeBase>();
+    }
+
     public static class App_SaveLoad
     {
         private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
 
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
         {
-            TypeNameHandling = TypeNameHandling.All, // 確保複製和存檔多型正常
+            TypeNameHandling = TypeNameHandling.All, 
             Formatting = Formatting.Indented
         };
 
@@ -21,21 +33,23 @@ namespace DrawingApp
             if (!Directory.Exists(SaveDirectory)) Directory.CreateDirectory(SaveDirectory);
         }
 
-        public static void SaveAs(List<App_Shapes.ShapeBase> shapes)
+        // 存檔改為接收整個 Project
+        public static void SaveProject(DrawProject project)
         {
             EnsureDirectory();
             using (SaveFileDialog sfd = new SaveFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
             {
                 if (sfd.ShowDialog() == DialogResult.OK)
                 {
-                    string json = JsonConvert.SerializeObject(shapes, jsonSettings);
+                    string json = JsonConvert.SerializeObject(project, jsonSettings);
                     File.WriteAllText(sfd.FileName, json);
-                    MessageBox.Show("存檔成功！", "系統通知");
+                    MessageBox.Show("專案存檔成功！", "系統通知");
                 }
             }
         }
 
-        public static List<App_Shapes.ShapeBase> Load()
+        // 讀檔回傳整個 Project
+        public static DrawProject LoadProject()
         {
             EnsureDirectory();
             using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
@@ -43,7 +57,21 @@ namespace DrawingApp
                 if (ofd.ShowDialog() == DialogResult.OK)
                 {
                     string json = File.ReadAllText(ofd.FileName);
-                    return JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
+                    
+                    // 為了相容舊版的單頁存檔，做個防呆嘗試
+                    try 
+                    {
+                        var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
+                        if (project != null && project.Pages != null) return project;
+                    }
+                    catch { /* 忽略錯誤，嘗試用舊版格式讀取 */ }
+
+                    try
+                    {
+                        var oldShapes = JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
+                        return new DrawProject { Pages = new List<DrawPage> { new DrawPage { Title = "舊版畫布", Shapes = oldShapes } } };
+                    }
+                    catch { MessageBox.Show("檔案格式錯誤或已損毀！", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); }
                 }
             }
             return null;
