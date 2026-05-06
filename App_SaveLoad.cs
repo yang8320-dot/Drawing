@@ -36,7 +36,8 @@ namespace DrawingApp
             }
         }
 
-        public static void SaveProject(DrawProject project)
+        // --- 優化：變更回傳型態為 bool，讓外部可以判斷是否存檔成功以解除 Dirty Flag ---
+        public static bool SaveProject(DrawProject project)
         {
             try
             {
@@ -48,6 +49,7 @@ namespace DrawingApp
                         string json = JsonConvert.SerializeObject(project, jsonSettings);
                         File.WriteAllText(sfd.FileName, json);
                         MessageBox.Show("專案存檔成功！", "系統通知", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        return true;
                     }
                 }
             }
@@ -55,6 +57,7 @@ namespace DrawingApp
             {
                 MessageBox.Show($"存檔時發生錯誤: {ex.Message}", "存檔失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+            return false;
         }
 
         public static DrawProject LoadProject()
