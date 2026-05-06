@@ -25,6 +25,11 @@ namespace DrawingApp
         private RectangleF _initialBounds;
         private float _initialAngle;
 
+        // --- 紀錄連線拖曳前的狀態 ---
+        private Guid _oldSrcId, _oldTgtId;
+        private App_Shapes.AnchorPosition _oldSA, _oldTA;
+        private PointF _oldStart, _oldEnd;
+
         private enum InteractionState { Idle, Drawing, Moving, Resizing, Rotating, Connecting, BoxSelecting }
         private InteractionState _currentState = InteractionState.Idle;
 
@@ -273,21 +278,19 @@ namespace DrawingApp
             return (float)Math.Round(value / GridSize) * GridSize;
         }
 
-        // --- 修正：完美處理 ESC 中斷畫圖狀態 ---
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (_inlineTextBox.Focused) return base.ProcessCmdKey(ref msg, keyData);
 
             if (keyData == Keys.Escape) 
             { 
-                // 清理所有正在畫一半的暫存物件與狀態
                 _tempShape = null;
                 _hoveredShapeForConnection = null;
                 _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
                 _currentState = InteractionState.Idle;
                 this.Invalidate();
                 
-                OnToolResetRequested?.Invoke(); // 觸發主畫面切換回 Pointer
+                OnToolResetRequested?.Invoke();
                 return true; 
             }
 
@@ -363,7 +366,18 @@ namespace DrawingApp
                         {
                             _currentState = InteractionState.Resizing;
                             _resizingHandle = handle;
-                            _initialBounds = SelectedShapes[0].Bounds;
+                            
+                            // --- 新增：紀錄連線被拖曳前的狀態 ---
+                            if (SelectedShapes[0] is App_Shapes.ConnectorShape conn)
+                            {
+                                _oldSrcId = conn.SourceId; _oldTgtId = conn.TargetId;
+                                _oldSA = conn.SourceAnchor; _oldTA = conn.TargetAnchor;
+                                _oldStart = conn.StartPt; _oldEnd = conn.EndPt;
+                            }
+                            else
+                            {
+                                _initialBounds = SelectedShapes[0].Bounds;
+                            }
                             return;
                         }
                     }
@@ -516,27 +530,69 @@ namespace DrawingApp
                 else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1)
                 {
                     var shape = SelectedShapes[0];
-                    PointF center = shape.GetCenter();
-                    
-                    PointF lastLocal = App_Shapes.ShapeBase.RotatePoint(GetRealPoint(_lastMousePos), center, -shape.RotationAngle);
-                    PointF currentLocal = App_Shapes.ShapeBase.RotatePoint(realPt, center, -shape.RotationAngle);
-                    
-                    float ldx = currentLocal.X - lastLocal.X;
-                    float ldy = currentLocal.Y - lastLocal.Y;
 
-                    RectangleF b = shape.Bounds;
-                    switch (_resizingHandle)
+                    // --- 新增：處理連線的端點拖曳 ---
+                    if (shape is App_Shapes.ConnectorShape conn)
                     {
-                        case App_Shapes.HandlePosition.NW: b = new RectangleF(b.X + ldx, b.Y + ldy, b.Width - ldx, b.Height - ldy); break;
-                        case App_Shapes.HandlePosition.N:  b = new RectangleF(b.X, b.Y + ldy, b.Width, b.Height - ldy); break;
-                        case App_Shapes.HandlePosition.NE: b = new RectangleF(b.X, b.Y + ldy, b.Width + ldx, b.Height - ldy); break;
-                        case App_Shapes.HandlePosition.E:  b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height); break;
-                        case App_Shapes.HandlePosition.SE: b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height + ldy); break;
-                        case App_Shapes.HandlePosition.S:  b = new RectangleF(b.X, b.Y, b.Width, b.Height + ldy); break;
-                        case App_Shapes.HandlePosition.SW: b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height + ldy); break;
-                        case App_Shapes.HandlePosition.W:  b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height); break;
+                        _hoveredShapeForConnection = null;
+                        _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
+
+                        if (_resizingHandle == App_Shapes.HandlePosition.StartPoint)
+                        {
+                            conn.StartPt = realPt;
+                            conn.SourceId = Guid.Empty; // 拖曳時先切斷綁定
+                        }
+                        else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint)
+                        {
+                            conn.EndPt = realPt;
+                            conn.TargetId = Guid.Empty; // 拖曳時先切斷綁定
+                        }
+
+                        // 動態偵測滑過的新圖形並吸附
+                        for (int i = Shapes.Count - 1; i >= 0; i--)
+                        {
+                            if (Shapes[i] != conn && Shapes[i].HitTest(realPt))
+                            {
+                                _hoveredShapeForConnection = Shapes[i];
+                                _hoveredAnchor = DetectAnchor(Shapes[i], realPt);
+
+                                if (_resizingHandle == App_Shapes.HandlePosition.StartPoint)
+                                {
+                                    conn.SourceId = Shapes[i].Id;
+                                    conn.SourceAnchor = _hoveredAnchor;
+                                }
+                                else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint)
+                                {
+                                    conn.TargetId = Shapes[i].Id;
+                                    conn.TargetAnchor = _hoveredAnchor;
+                                }
+                                break;
+                            }
+                        }
                     }
-                    if (b.Width > 5 && b.Height > 5) shape.SetBounds(b);
+                    else // 一般圖形的 8 點縮放
+                    {
+                        PointF center = shape.GetCenter();
+                        PointF lastLocal = App_Shapes.ShapeBase.RotatePoint(GetRealPoint(_lastMousePos), center, -shape.RotationAngle);
+                        PointF currentLocal = App_Shapes.ShapeBase.RotatePoint(realPt, center, -shape.RotationAngle);
+                        
+                        float ldx = currentLocal.X - lastLocal.X;
+                        float ldy = currentLocal.Y - lastLocal.Y;
+
+                        RectangleF b = shape.Bounds;
+                        switch (_resizingHandle)
+                        {
+                            case App_Shapes.HandlePosition.NW: b = new RectangleF(b.X + ldx, b.Y + ldy, b.Width - ldx, b.Height - ldy); break;
+                            case App_Shapes.HandlePosition.N:  b = new RectangleF(b.X, b.Y + ldy, b.Width, b.Height - ldy); break;
+                            case App_Shapes.HandlePosition.NE: b = new RectangleF(b.X, b.Y + ldy, b.Width + ldx, b.Height - ldy); break;
+                            case App_Shapes.HandlePosition.E:  b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height); break;
+                            case App_Shapes.HandlePosition.SE: b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height + ldy); break;
+                            case App_Shapes.HandlePosition.S:  b = new RectangleF(b.X, b.Y, b.Width, b.Height + ldy); break;
+                            case App_Shapes.HandlePosition.SW: b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height + ldy); break;
+                            case App_Shapes.HandlePosition.W:  b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height); break;
+                        }
+                        if (b.Width > 5 && b.Height > 5) shape.SetBounds(b);
+                    }
                 }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
@@ -589,7 +645,17 @@ namespace DrawingApp
                 }
                 else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1)
                 {
-                    CmdManager.ExecuteCommand(new ResizeShapeCommand(SelectedShapes[0], _initialBounds, SelectedShapes[0].Bounds));
+                    if (SelectedShapes[0] is App_Shapes.ConnectorShape conn)
+                    {
+                        CmdManager.ExecuteCommand(new AdjustConnectorCommand(
+                            conn, 
+                            _oldSrcId, _oldTgtId, _oldSA, _oldTA, _oldStart, _oldEnd,
+                            conn.SourceId, conn.TargetId, conn.SourceAnchor, conn.TargetAnchor, conn.StartPt, conn.EndPt));
+                    }
+                    else
+                    {
+                        CmdManager.ExecuteCommand(new ResizeShapeCommand(SelectedShapes[0], _initialBounds, SelectedShapes[0].Bounds));
+                    }
                 }
                 else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1)
                 {
@@ -697,7 +763,8 @@ namespace DrawingApp
             _tempShape?.DrawWithTransform(g);
             if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt);
             
-            if (_currentState == InteractionState.Connecting && _hoveredShapeForConnection != null)
+            // 繪製紅點感應提示 (包含重拉線條時)
+            if ((_currentState == InteractionState.Connecting || _currentState == InteractionState.Resizing) && _hoveredShapeForConnection != null)
             {
                 PointF anchorPt = _hoveredAnchor == App_Shapes.AnchorPosition.Auto 
                     ? _hoveredShapeForConnection.GetIntersection(GetRealPoint(_lastMousePos)) 
