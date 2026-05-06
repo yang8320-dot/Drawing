@@ -26,7 +26,6 @@ namespace DrawingApp
             [JsonIgnore] 
             public bool IsSelected { get; set; }
 
-            // --- 優化：加入 IsLocked 屬性，防止圖形被移動或縮放 ---
             public bool IsLocked { get; set; } = false;
             
             public Guid Id { get; set; } = Guid.NewGuid();
@@ -35,6 +34,11 @@ namespace DrawingApp
             public string FontName { get; set; } = "Arial";
             public float FontSize { get; set; } = 12f;
             public Color FontColor { get; set; } = Color.Black;
+
+            // --- 新增：文字樣式擴充 ---
+            public bool FontBold { get; set; } = false;
+            public bool FontItalic { get; set; } = false;
+            public bool FontUnderline { get; set; } = false;
 
             public ShapeBase() { }
 
@@ -68,7 +72,13 @@ namespace DrawingApp
             {
                 if (string.IsNullOrEmpty(Text)) return;
                 
-                using (Font font = new Font(FontName, FontSize))
+                // --- 優化：套用文字樣式 ---
+                FontStyle style = FontStyle.Regular;
+                if (FontBold) style |= FontStyle.Bold;
+                if (FontItalic) style |= FontStyle.Italic;
+                if (FontUnderline) style |= FontStyle.Underline;
+
+                using (Font font = new Font(FontName, FontSize, style))
                 using (Brush b = new SolidBrush(FontColor))
                 using (StringFormat sf = new StringFormat())
                 {
@@ -130,7 +140,6 @@ namespace DrawingApp
                 g.RotateTransform(RotationAngle);
                 g.TranslateTransform(-center.X, -center.Y);
 
-                // --- 優化：鎖定狀態下繪製灰色虛線框與灰色控制點 ---
                 Color outlineColor = IsLocked ? Color.Gray : Color.DodgerBlue;
                 using (Pen p = new Pen(outlineColor, 1.5f) { DashStyle = DashStyle.Dash })
                 {
