@@ -11,41 +11,44 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: '7.0.x' 
 
-    - name: Setup NuGet
-      uses: nuget/setup-nuget@v2.0.0
+    - name: Publish Application
+      # 確保所有依賴都會被完整的提取出來
+      run: dotnet publish DrawingApp.csproj -c Release -f net472 -o ./PublishTemp
 
-    - name: Restore NuGet Packages
-      run: msbuild DrawingApp.csproj -t:restore /p:Configuration=Release
-
-    - name: Build Application
-      run: msbuild DrawingApp.csproj /p:Configuration=Release /p:TargetFramework=net472
-
-    - name: Reorganize Output (Clean Root Structure)
+    - name: Reorganize Output (Absolute Precision)
       shell: pwsh
       run: |
-        $releaseDir = "bin\Release\net472"
+        $tempDir = "PublishTemp"
         $publishDir = "PublishOutput"
         $libraryDir = "$publishDir\Library"
         
-        # 建立外層與 Library 資料夾 (save 資料夾由程式執行時動態建立)
+        # 1. 建立空資料夾
         New-Item -ItemType Directory -Force -Path $publishDir
         New-Item -ItemType Directory -Force -Path $libraryDir
         
-        # 1. 僅保留主程式與設定檔在最外層
-        Copy-Item -Path "$releaseDir\DrawingApp.exe" -Destination $publishDir
-        Copy-Item -Path "$releaseDir\DrawingApp.exe.config" -Destination $publishDir
-        
-        # 2. 將所有的 .dll 元件移動到 Library 資料夾
-        Get-ChildItem -Path $releaseDir -Filter *.dll | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination $libraryDir
+        # 2. 將主程式與設定檔留在根目錄
+        Move-Item -Path "$tempDir\DrawingApp.exe" -Destination "$publishDir\DrawingApp.exe" -Force
+        if (Test-Path "$tempDir\DrawingApp.exe.config") {
+            Move-Item -Path "$tempDir\DrawingApp.exe.config" -Destination "$publishDir\DrawingApp.exe.config" -Force
         }
         
-        # 3. 【關鍵修正】將 SQLite 底層組件 (x86/x64) 正確移動到 Library 資料夾內！
-        if (Test-Path "$releaseDir\x86") { Copy-Item -Path "$releaseDir\x86" -Destination $libraryDir -Recurse }
-        if (Test-Path "$releaseDir\x64") { Copy-Item -Path "$releaseDir\x64" -Destination $libraryDir -Recurse }
+        # 3. 搬移所有的 .dll 到 Library 內部
+        Get-ChildItem -Path $tempDir -Filter *.dll | ForEach-Object {
+            Move-Item -Path $_.FullName -Destination "$libraryDir\" -Force
+        }
+        
+        # 4. 【確保 x86/x64 進到 Library 中】明確指定目標資料夾名稱
+        if (Test-Path "$tempDir\x86") {
+            Move-Item -Path "$tempDir\x86" -Destination "$libraryDir\x86" -Force
+        }
+        if (Test-Path "$tempDir\x64") {
+            Move-Item -Path "$tempDir\x64" -Destination "$libraryDir\x64" -Force
+        }
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
