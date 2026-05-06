@@ -128,7 +128,6 @@ namespace DrawingApp
         public void Undo() { _shape.SetBounds(_oldBounds); }
     }
 
-    // --- 優化：新增批量變形指令，用於支援「一鍵對齊」的復原/重做 ---
     public class TransformShapesCommand : ICommand
     {
         private List<App_Shapes.ShapeBase> _shapes;
@@ -251,6 +250,53 @@ namespace DrawingApp
         {
             foreach (var s in _children) _canvasShapes.Remove(s);
             _canvasShapes.Add(_groupShape);
+        }
+    }
+
+    // --- 新增：紀錄階層調整的指令 ---
+    public class ChangeZIndexCommand : ICommand
+    {
+        private List<App_Shapes.ShapeBase> _canvasShapes;
+        private List<App_Shapes.ShapeBase> _targetShapes;
+        private List<int> _oldIndices;
+        private int _direction; // 0 = 頂層, -99 = 底層
+
+        public ChangeZIndexCommand(List<App_Shapes.ShapeBase> canvasShapes, List<App_Shapes.ShapeBase> targetShapes, int direction)
+        {
+            _canvasShapes = canvasShapes;
+            _targetShapes = targetShapes.ToList();
+            _direction = direction;
+            
+            _oldIndices = new List<int>();
+            foreach (var s in _targetShapes)
+            {
+                _oldIndices.Add(_canvasShapes.IndexOf(s));
+            }
+        }
+
+        public void Execute()
+        {
+            foreach (var s in _targetShapes)
+            {
+                _canvasShapes.Remove(s);
+                if (_direction == 0) _canvasShapes.Add(s); // 移到最後 (最上層)
+                else if (_direction == -99) _canvasShapes.Insert(0, s); // 移到最前 (最下層)
+            }
+        }
+
+        public void Undo()
+        {
+            foreach (var s in _targetShapes) _canvasShapes.Remove(s);
+            
+            // 根據原本的索引重新插入，確保順序從大到小插入避免跑位
+            var restoreList = _targetShapes.Zip(_oldIndices, (shape, index) => new { shape, index }).OrderBy(x => x.index).ToList();
+            foreach (var item in restoreList)
+            {
+                if (item.index >= 0 && item.index <= _canvasShapes.Count)
+                    _canvasShapes.Insert(item.index, item.shape);
+                else
+                    _canvasShapes.Add(item.shape);
+            }
         }
     }
 }
