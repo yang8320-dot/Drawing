@@ -128,6 +128,31 @@ namespace DrawingApp
         public void Undo() { _shape.SetBounds(_oldBounds); }
     }
 
+    // --- 優化：新增批量變形指令，用於支援「一鍵對齊」的復原/重做 ---
+    public class TransformShapesCommand : ICommand
+    {
+        private List<App_Shapes.ShapeBase> _shapes;
+        private List<RectangleF> _oldBounds;
+        private List<RectangleF> _newBounds;
+
+        public TransformShapesCommand(List<App_Shapes.ShapeBase> shapes, List<RectangleF> oldBounds, List<RectangleF> newBounds)
+        {
+            _shapes = shapes.ToList();
+            _oldBounds = oldBounds.ToList();
+            _newBounds = newBounds.ToList();
+        }
+
+        public void Execute()
+        {
+            for (int i = 0; i < _shapes.Count; i++) _shapes[i].SetBounds(_newBounds[i]);
+        }
+
+        public void Undo()
+        {
+            for (int i = 0; i < _shapes.Count; i++) _shapes[i].SetBounds(_oldBounds[i]);
+        }
+    }
+
     public class RotateShapeCommand : ICommand
     {
         private App_Shapes.ShapeBase _shape;
@@ -145,7 +170,6 @@ namespace DrawingApp
         public void Undo() { _shape.RotationAngle = _oldAngle; }
     }
 
-    // --- 新增：調整連線端點指令 ---
     public class AdjustConnectorCommand : ICommand
     {
         private App_Shapes.ConnectorShape _conn;
