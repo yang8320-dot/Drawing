@@ -14,7 +14,6 @@ namespace DrawingApp
         
         public CommandManager CmdManager { get; } = new CommandManager();
 
-        // 縮放與平移攝影機
         public float ZoomFactor { get; private set; } = 1.0f;
         private PointF _cameraOffset = new PointF(0, 0);
         private bool _isPanning = false;
@@ -23,18 +22,15 @@ namespace DrawingApp
         private float _dragTotalDx = 0;
         private float _dragTotalDy = 0;
 
-        // 新增：旋轉與縮放的初始狀態記錄 (用於 Undo/Redo)
         private RectangleF _initialBounds;
         private float _initialAngle;
 
-        // 升級狀態機，加入 Rotating
         private enum InteractionState { Idle, Drawing, Moving, Resizing, Rotating, Connecting, BoxSelecting }
         private InteractionState _currentState = InteractionState.Idle;
 
         public App_Shapes.ShapeType CurrentTool { get; set; } = App_Shapes.ShapeType.Pointer;
         public Color CurrentColor { get; set; } = Color.Black;
         
-        // 新增：網格對齊開關
         public bool SnapToGrid { get; set; } = true;
         public float GridSize { get; set; } = 20f;
 
@@ -45,7 +41,7 @@ namespace DrawingApp
         private List<App_Shapes.ShapeBase> _clipboard = new List<App_Shapes.ShapeBase>();
         private App_Shapes.HandlePosition _resizingHandle = App_Shapes.HandlePosition.None;
         private App_Shapes.ShapeBase _hoveredShapeForConnection = null;
-        private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto; // 新增：懸停的固定錨點
+        private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
 
         private TextBox _inlineTextBox;
         private App_Shapes.ShapeBase _editingShape = null;
@@ -61,7 +57,6 @@ namespace DrawingApp
             this.DoubleBuffered = true;
             this.BackColor = Color.White;
             
-            // 啟用拖放支援 (Drag & Drop)
             this.AllowDrop = true;
             this.DragEnter += Canvas_DragEnter;
             this.DragDrop += Canvas_DragDrop;
@@ -79,7 +74,6 @@ namespace DrawingApp
             InitializeInlineEditor();
         }
 
-        // --- 新增：Drag & Drop 拖曳生成圖形 ---
         private void Canvas_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(typeof(App_Shapes.ShapeType)))
@@ -98,7 +92,7 @@ namespace DrawingApp
                 
                 PointF snapPt = new PointF(Snap(realPt.X), Snap(realPt.Y));
                 var newShape = App_Shapes.ShapeFactory.CreateShape(type, snapPt, CurrentColor);
-                newShape.UpdateEndPoint(new PointF(snapPt.X + 80, snapPt.Y + 80)); // 預設大小
+                newShape.UpdateEndPoint(new PointF(snapPt.X + 80, snapPt.Y + 80)); 
                 
                 CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, newShape));
                 
@@ -279,11 +273,24 @@ namespace DrawingApp
             return (float)Math.Round(value / GridSize) * GridSize;
         }
 
+        // --- 修正：完美處理 ESC 中斷畫圖狀態 ---
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (_inlineTextBox.Focused) return base.ProcessCmdKey(ref msg, keyData);
 
-            if (keyData == Keys.Escape) { OnToolResetRequested?.Invoke(); return true; }
+            if (keyData == Keys.Escape) 
+            { 
+                // 清理所有正在畫一半的暫存物件與狀態
+                _tempShape = null;
+                _hoveredShapeForConnection = null;
+                _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
+                _currentState = InteractionState.Idle;
+                this.Invalidate();
+                
+                OnToolResetRequested?.Invoke(); // 觸發主畫面切換回 Pointer
+                return true; 
+            }
+
             if (keyData == (Keys.Control | Keys.Z)) { CmdManager.Undo(); return true; }
             if (keyData == (Keys.Control | Keys.Y)) { CmdManager.Redo(); return true; }
             if (keyData == (Keys.Control | Keys.G)) { GroupSelected(); return true; }
@@ -401,7 +408,6 @@ namespace DrawingApp
                     
                     _tempShape = new App_Shapes.ConnectorShape(realPt, CurrentColor, isArrow, isOrtho);
                     
-                    // 升級：尋找起始圖形與鎖定錨點
                     for (int i = Shapes.Count - 1; i >= 0; i--)
                     {
                         if (Shapes[i].HitTest(realPt)) 
@@ -423,7 +429,6 @@ namespace DrawingApp
             }
         }
 
-        // 新增：偵測滑鼠靠近哪個固定錨點
         private App_Shapes.AnchorPosition DetectAnchor(App_Shapes.ShapeBase shape, PointF pt)
         {
             float threshold = 15f;
@@ -494,7 +499,7 @@ namespace DrawingApp
                     var me = SelectedShapes[0];
                     PointF center = me.GetCenter();
                     float angle = (float)(Math.Atan2(realPt.Y - center.Y, realPt.X - center.X) * 180 / Math.PI) + 90;
-                    me.RotationAngle = Snap(angle, 15f); // 吸附到 15 度角
+                    me.RotationAngle = Snap(angle, 15f); 
                 }
                 else if (_currentState == InteractionState.BoxSelecting)
                 {
@@ -513,7 +518,6 @@ namespace DrawingApp
                     var shape = SelectedShapes[0];
                     PointF center = shape.GetCenter();
                     
-                    // 將真實位移轉換為不受旋轉影響的本地座標位移
                     PointF lastLocal = App_Shapes.ShapeBase.RotatePoint(GetRealPoint(_lastMousePos), center, -shape.RotationAngle);
                     PointF currentLocal = App_Shapes.ShapeBase.RotatePoint(realPt, center, -shape.RotationAngle);
                     
@@ -562,7 +566,7 @@ namespace DrawingApp
 
         private float Snap(float angle, float step)
         {
-            if (Control.ModifierKeys == Keys.Alt) return angle; // Alt 鍵自由旋轉
+            if (Control.ModifierKeys == Keys.Alt) return angle; 
             return (float)Math.Round(angle / step) * step;
         }
 
@@ -693,7 +697,6 @@ namespace DrawingApp
             _tempShape?.DrawWithTransform(g);
             if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt);
             
-            // 繪製懸停錨點提示
             if (_currentState == InteractionState.Connecting && _hoveredShapeForConnection != null)
             {
                 PointF anchorPt = _hoveredAnchor == App_Shapes.AnchorPosition.Auto 
