@@ -27,14 +27,11 @@ namespace DrawingApp
         private Button _btnShapeColor;
         private Button _btnFontColor;
         
-        // --- 新增：字體樣式切換按鈕 ---
         private Button _btnBold;
         private Button _btnItalic;
         private Button _btnUnderline;
 
         private FlowLayoutPanel _alignmentPanel;
-        
-        // --- 新增：階層排序按鈕 ---
         private FlowLayoutPanel _zIndexPanel;
 
         private TextBox _tabEditBox;
@@ -43,15 +40,12 @@ namespace DrawingApp
         private int _tabCounter = 1;
 
         private bool _isDirty = false;
-        
-        // --- 新增：自動存檔計時器 ---
         private Timer _autoSaveTimer;
 
         public App_UI_MainForm()
         {
             InitializeUI();
             
-            // --- 啟動時先檢查有沒有不正常的自動存檔備份 ---
             var recoveredProject = App_SaveLoad.CheckAndLoadAutoSave();
             if (recoveredProject != null && recoveredProject.Pages.Count > 0)
             {
@@ -64,7 +58,6 @@ namespace DrawingApp
 
             this.FormClosing += App_UI_MainForm_FormClosing;
             
-            // --- 初始化並啟動自動存檔計時器 (5分鐘 = 300,000毫秒) ---
             _autoSaveTimer = new Timer();
             _autoSaveTimer.Interval = 300000; 
             _autoSaveTimer.Tick += AutoSaveTimer_Tick;
@@ -73,7 +66,7 @@ namespace DrawingApp
 
         private void AutoSaveTimer_Tick(object sender, EventArgs e)
         {
-            if (_isDirty) // 只有畫面有變更時才需要背景存檔
+            if (_isDirty) 
             {
                 var project = new DrawProject();
                 foreach (TabPage tab in _tabControl.TabPages)
@@ -185,7 +178,8 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
 
-            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
+            // 面板加入自動捲軸 (AutoScroll)，避免解析度較低時按鈕被切斷
+            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10), AutoScroll = true };
             BuildPropertyPanel();
 
             Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
@@ -218,7 +212,6 @@ namespace DrawingApp
                     e.Cancel = true;
                 }
                 
-                // 如果選擇「否」，我們也一併把自動存檔刪掉，避免下次打開干擾
                 if (result == DialogResult.No)
                 {
                     App_SaveLoad.DeleteAutoSave();
@@ -226,7 +219,6 @@ namespace DrawingApp
             }
             else
             {
-                // 正常關閉，刪除垃圾備份
                 App_SaveLoad.DeleteAutoSave();
             }
         }
@@ -350,6 +342,9 @@ namespace DrawingApp
 
             canvas.OnSelectionChanged += () => RefreshPropertyPanel();
             
+            // --- 新增：綁定進階屬性設定事件 ---
+            canvas.OnShapePropertyRequested += ShowAdvancedProperties;
+            
             canvas.OnToolResetRequested += () => { 
                 if (CurrentCanvas != null) CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer; 
                 SetActiveButton(_btnPointer); 
@@ -365,6 +360,28 @@ namespace DrawingApp
             {
                 _isDirty = true;
                 UpdateWindowTitle();
+            }
+        }
+
+        // --- 新增：開啟進階屬性視窗 (PropertyGrid) ---
+        private void ShowAdvancedProperties(App_Shapes.ShapeBase shape)
+        {
+            using (Form propForm = new Form() { Text = "進階屬性設定 (修改數值後按 Enter 生效)", Size = new Size(350, 500), StartPosition = FormStartPosition.CenterParent })
+            {
+                PropertyGrid grid = new PropertyGrid() 
+                { 
+                    Dock = DockStyle.Fill, 
+                    SelectedObject = shape 
+                };
+
+                grid.PropertyValueChanged += (s, e) => {
+                    CurrentCanvas?.Invalidate();
+                    _isDirty = true;
+                    UpdateWindowTitle();
+                };
+
+                propForm.Controls.Add(grid);
+                propForm.ShowDialog();
             }
         }
 
@@ -416,9 +433,7 @@ namespace DrawingApp
             _cbFont.SelectedIndexChanged += PropertyChanged;
             _rightPanel.Controls.Add(_cbFont); startY += 35;
 
-            // --- 新增：B / I / U 樣式按鈕 ---
             FlowLayoutPanel fontStylePanel = new FlowLayoutPanel() { Location = new Point(60, startY), Width = 140, Height = 35 };
-            
             _btnBold = new Button() { Text = "B", Font = new Font("Arial", 9, FontStyle.Bold), Size = new Size(30, 25), FlatStyle = FlatStyle.Flat, BackColor = Color.White };
             _btnItalic = new Button() { Text = "I", Font = new Font("Arial", 9, FontStyle.Italic), Size = new Size(30, 25), FlatStyle = FlatStyle.Flat, BackColor = Color.White };
             _btnUnderline = new Button() { Text = "U", Font = new Font("Arial", 9, FontStyle.Underline), Size = new Size(30, 25), FlatStyle = FlatStyle.Flat, BackColor = Color.White };
@@ -463,7 +478,8 @@ namespace DrawingApp
             Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
             _rightPanel.Controls.Add(alignTitle); startY += 30;
 
-            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(10, startY), Width = 190, Height = 80, WrapContents = true };
+            // --- 修正：將 Height 拉高到 140，避免與下方元件重疊 ---
+            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(10, startY), Width = 190, Height = 140, WrapContents = true };
             
             _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
             _alignmentPanel.Controls.Add(CreateAlignButton("置中", (s, e) => AlignShapes("Center")));
@@ -474,9 +490,8 @@ namespace DrawingApp
             _alignmentPanel.Controls.Add(CreateAlignButton("水平均分", (s, e) => DistributeShapes("Horizontal")));
             _alignmentPanel.Controls.Add(CreateAlignButton("垂直均分", (s, e) => DistributeShapes("Vertical")));
 
-            _rightPanel.Controls.Add(_alignmentPanel); startY += 90;
+            _rightPanel.Controls.Add(_alignmentPanel); startY += 150;
 
-            // --- 新增：階層排序面板 ---
             Label zIndexTitle = new Label() { Text = "圖層順序", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
             _rightPanel.Controls.Add(zIndexTitle); startY += 30;
 
@@ -506,7 +521,6 @@ namespace DrawingApp
             return btn;
         }
 
-        // --- 新增：切換字體樣式的邏輯 ---
         private void ToggleFontStyle(string style)
         {
             if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count != 1) return;
@@ -519,7 +533,7 @@ namespace DrawingApp
             CurrentCanvas.Invalidate();
             _isDirty = true;
             UpdateWindowTitle();
-            RefreshPropertyPanel(); // 刷新按鈕高亮狀態
+            RefreshPropertyPanel(); 
         }
 
         private void AlignShapes(string type)
@@ -684,7 +698,6 @@ namespace DrawingApp
                     _btnFontColor.BackColor = shape.FontColor;
                     _btnFontColor.ForeColor = GetContrastColor(shape.FontColor);
 
-                    // 同步字體樣式按鈕的高亮狀態
                     _btnBold.BackColor = shape.FontBold ? Color.LightSkyBlue : Color.White;
                     _btnItalic.BackColor = shape.FontItalic ? Color.LightSkyBlue : Color.White;
                     _btnUnderline.BackColor = shape.FontUnderline ? Color.LightSkyBlue : Color.White;
