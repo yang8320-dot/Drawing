@@ -11,37 +11,41 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: '7.0.x' 
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
 
-    - name: Publish Application
-      # 使用 dotnet publish 保證 100% 提取所有 NuGet 依賴檔案
-      run: dotnet publish DrawingApp.csproj -c Release -f net472 -o ./PublishTemp
+    - name: Setup NuGet
+      uses: nuget/setup-nuget@v2.0.0
+
+    - name: Restore NuGet Packages
+      run: msbuild DrawingApp.csproj -t:restore /p:Configuration=Release
+
+    - name: Build Application
+      run: msbuild DrawingApp.csproj /p:Configuration=Release /p:TargetFramework=net472
 
     - name: Reorganize Output (Clean Root Structure)
       shell: pwsh
       run: |
-        $tempDir = "PublishTemp"
+        $releaseDir = "bin\Release\net472"
         $publishDir = "PublishOutput"
         $libraryDir = "$publishDir\Library"
         
+        # 建立外層與 Library 資料夾 (save 資料夾由程式執行時動態建立)
         New-Item -ItemType Directory -Force -Path $publishDir
         New-Item -ItemType Directory -Force -Path $libraryDir
         
         # 1. 僅保留主程式與設定檔在最外層
-        Copy-Item -Path "$tempDir\DrawingApp.exe" -Destination $publishDir
-        Copy-Item -Path "$tempDir\DrawingApp.exe.config" -Destination $publishDir
+        Copy-Item -Path "$releaseDir\DrawingApp.exe" -Destination $publishDir
+        Copy-Item -Path "$releaseDir\DrawingApp.exe.config" -Destination $publishDir
         
         # 2. 將所有的 .dll 元件移動到 Library 資料夾
-        Get-ChildItem -Path $tempDir -Filter *.dll | ForEach-Object {
-            Move-Item -Path $_.FullName -Destination $libraryDir
+        Get-ChildItem -Path $releaseDir -Filter *.dll | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $libraryDir
         }
         
-        # 3. 將 SQLite 底層組件 (x86/x64) 也一併移動到 Library 資料夾內
-        if (Test-Path "$tempDir\x86") { Move-Item -Path "$tempDir\x86" -Destination $libraryDir }
-        if (Test-Path "$tempDir\x64") { Move-Item -Path "$tempDir\x64" -Destination $libraryDir }
+        # 3. 【關鍵修正】將 SQLite 底層組件 (x86/x64) 正確移動到 Library 資料夾內！
+        if (Test-Path "$releaseDir\x86") { Copy-Item -Path "$releaseDir\x86" -Destination $libraryDir -Recurse }
+        if (Test-Path "$releaseDir\x64") { Copy-Item -Path "$releaseDir\x64" -Destination $libraryDir -Recurse }
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
