@@ -1,15 +1,28 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Windows.Forms;
 
 namespace DrawingApp
 {
     public class App_UI_MainForm : Form
     {
-        private Panel _toolbarPanel;
+        private Panel _topBar;
+        private FlowLayoutPanel _leftPanel; // 左側圖形庫
+        private Panel _rightPanel;          // 右側屬性面板
         private App_CanvasControl _canvas;
         private Button _activeToolBtn;
+
+        // 右側面板的控制項
+        private ComboBox _cbFont;
+        private NumericUpDown _nudFontSize;
+        private NumericUpDown _nudStroke;
+        private ComboBox _cbDash;
+        private Button _btnShapeColor;
+        private Button _btnFontColor;
+        
+        private bool _isUpdatingUI = false; // 防止循環觸發事件
 
         public App_UI_MainForm()
         {
@@ -18,95 +31,203 @@ namespace DrawingApp
 
         private void InitializeUI()
         {
-            this.Text = "商業級繪圖系統 (支援 Smart Guides, Inline Edit & Grouping)";
-            this.Size = new Size(1500, 850);
+            this.Text = "商業級繪圖系統 (支援 Drag&Drop, 右側屬性列, 網格對齊)";
+            this.Size = new Size(1600, 900);
             this.StartPosition = FormStartPosition.CenterScreen;
-            this.KeyPreview = true; // 優先捕捉全局按鍵
+            this.KeyPreview = true; 
 
-            _toolbarPanel = new Panel();
-            _toolbarPanel.Dock = DockStyle.Top;
-            _toolbarPanel.Height = 70;
-            _toolbarPanel.BackColor = Color.White;
-
-            int currentX = 10;
-            
-            // --- 工具列區塊 ---
-            var btnPointer = CreateIconButton(currentX, App_Shapes.ShapeType.Pointer, "游標 (Esc) \n- 框選多個按 Ctrl+G 群組\n- 雙擊圖形直接編輯文字"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.ArrowLine, "智慧箭頭線 (右鍵改色)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.StraightLine, "智慧直線 (右鍵改色)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.OrthogonalLine, "90度折線 (右鍵改色)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.Rectangle, "矩形 (右鍵改色)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.Circle, "圓形 (右鍵改色)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.Arc, "圓弧 (右鍵改色)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.Diamond, "菱形 (判斷式)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.Triangle, "三角形"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.TextNode, "文字框 (畫完自動進入輸入狀態)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.Text, "純文字 (畫完自動進入輸入狀態)"); currentX += 45;
-            CreateIconButton(currentX, App_Shapes.ShapeType.Image, "插入圖片"); currentX += 50;
-            
-            SetActiveButton(btnPointer);
-
-            // --- 畫布尺寸選擇 ---
-            ComboBox cbPageSize = new ComboBox();
-            cbPageSize.DropDownStyle = ComboBoxStyle.DropDownList;
-            cbPageSize.Location = new Point(currentX, 20);
-            cbPageSize.Width = 100;
-            cbPageSize.Items.AddRange(new string[] { "A4 直式", "A4 橫式", "A3 直式", "A3 橫式", "A2 直式", "A2 橫式", "A1 直式", "A1 橫式" });
-            cbPageSize.SelectedIndex = 0;
-            cbPageSize.SelectedIndexChanged += (s, e) => UpdatePageSize(cbPageSize.Text);
-            _toolbarPanel.Controls.Add(cbPageSize);
-            currentX += 110;
-
-            // --- 核心畫布初始化 ---
+            // --- 1. 核心畫布 ---
             _canvas = new App_CanvasControl();
             _canvas.Dock = DockStyle.Fill;
-            
-            // --- 系統功能按鈕 ---
-            Button btnUndo = CreateTextButton("復原", currentX, (s, e) => _canvas.CmdManager.Undo()); currentX += 50;
-            Button btnRedo = CreateTextButton("重做", currentX, (s, e) => _canvas.CmdManager.Redo()); currentX += 50;
-            
-            Button btnZoomIn = CreateTextButton("放大+", currentX, (s, e) => _canvas.SetZoom(_canvas.ZoomFactor + 0.2f)); currentX += 55;
-            Button btnZoomOut = CreateTextButton("縮小-", currentX, (s, e) => _canvas.SetZoom(_canvas.ZoomFactor - 0.2f)); currentX += 55;
-            Button btnZoomReset = CreateTextButton("100%", currentX, (s, e) => _canvas.SetZoom(1.0f)); currentX += 55;
+            _canvas.MouseUp += (s, e) => RefreshPropertyPanel();
+            _canvas.CmdManager.OnStateChanged += () => RefreshPropertyPanel();
 
-            CreateTextButton("存檔", currentX, (s, e) => App_SaveLoad.SaveAs(_canvas.Shapes)); currentX += 50;
-            CreateTextButton("讀取", currentX, (s, e) => {
+            // --- 2. 頂部系統工具列 ---
+            _topBar = new Panel() { Dock = DockStyle.Top, Height = 60, BackColor = Color.FromArgb(245, 245, 245) };
+            int currentX = 10;
+
+            ComboBox cbPageSize = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(currentX, 18), Width = 100 };
+            cbPageSize.Items.AddRange(new string[] { "A4 直式", "A4 橫式", "A3 直式", "A3 橫式", "A2 直式", "A2 橫式", "A1 直式", "A1 橫式" });
+            cbPageSize.SelectedIndex = 0;
+            cbPageSize.SelectedIndexChanged += (s, e) => { UpdatePageSize(cbPageSize.Text); };
+            _topBar.Controls.Add(cbPageSize); currentX += 110;
+
+            CreateTextButton(_topBar, "復原", currentX, (s, e) => _canvas.CmdManager.Undo()); currentX += 50;
+            CreateTextButton(_topBar, "重做", currentX, (s, e) => _canvas.CmdManager.Redo()); currentX += 60;
+            
+            CreateTextButton(_topBar, "放大+", currentX, (s, e) => _canvas.SetZoom(_canvas.ZoomFactor + 0.2f)); currentX += 50;
+            CreateTextButton(_topBar, "縮小-", currentX, (s, e) => _canvas.SetZoom(_canvas.ZoomFactor - 0.2f)); currentX += 50;
+            CreateTextButton(_topBar, "100%", currentX, (s, e) => _canvas.SetZoom(1.0f)); currentX += 60;
+
+            CheckBox chkSnap = new CheckBox() { Text = "網格對齊", Location = new Point(currentX, 20), Checked = true, AutoSize = true };
+            chkSnap.CheckedChanged += (s, e) => { _canvas.SnapToGrid = chkSnap.Checked; _canvas.Invalidate(); };
+            _topBar.Controls.Add(chkSnap); currentX += 90;
+
+            CreateTextButton(_topBar, "存檔", currentX, (s, e) => App_SaveLoad.SaveAs(_canvas.Shapes)); currentX += 50;
+            CreateTextButton(_topBar, "讀取", currentX, (s, e) => {
                 var data = App_SaveLoad.Load();
                 if (data != null) { _canvas.Shapes = data; _canvas.Invalidate(); }
-            }); currentX += 50;
+            }); currentX += 60;
 
-            // --- 匯出功能 ---
-            CreateTextButton("匯出 PNG", currentX, async (s, e) => {
+            CreateTextButton(_topBar, "匯出 PNG", currentX, async (s, e) => {
                 using (var sfd = new SaveFileDialog() { Filter = "PNG 圖片|*.png" })
-                {
                     if (sfd.ShowDialog() == DialogResult.OK)
                     {
                         await App_Export.ExportToPngAsync(_canvas.GetTransparentCanvasRender(), sfd.FileName);
                         MessageBox.Show("PNG 匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
-                }
-            }); currentX += 80;
+            }); currentX += 75;
 
-            CreateTextButton("匯出 PDF", currentX, (s, e) => ShowPdfExportDialog()); currentX += 80;
+            CreateTextButton(_topBar, "匯出 PDF", currentX, (s, e) => ShowPdfExportDialog()); currentX += 75;
 
-            // --- 綁定進階事件 ---
+            // --- 3. 左側圖形庫 (Stencil Library) ---
+            _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 60, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5) };
+            
+            var btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n(可框選、旋轉、縮放)");
+            SetActiveButton(btnPointer);
+            
+            CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭線");
+            CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線");
+            CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "90度折線");
+            CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形\n(可直接拖曳至畫布)");
+            CreateToolButton(App_Shapes.ShapeType.Circle, "圓形\n(可直接拖曳至畫布)");
+            CreateToolButton(App_Shapes.ShapeType.Arc, "圓弧\n(可直接拖曳至畫布)");
+            CreateToolButton(App_Shapes.ShapeType.Diamond, "菱形\n(可直接拖曳至畫布)");
+            CreateToolButton(App_Shapes.ShapeType.Triangle, "三角形\n(可直接拖曳至畫布)");
+            CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框");
+            CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
+            CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
+
+            // --- 4. 右側屬性面板 (Property Panel) ---
+            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
+            BuildPropertyPanel();
+
+            // --- 綁定畫布事件 ---
             _canvas.OnToolResetRequested += () => { 
                 _canvas.CurrentTool = App_Shapes.ShapeType.Pointer; 
                 SetActiveButton(btnPointer); 
             };
             
-            // 當在畫布按右鍵選擇「進階屬性設定...」時，彈出此視窗
-            _canvas.OnShapePropertyRequested += ShowPropertyEditor;
-            
-            // 處理插入圖片
             _canvas.OnImageInsertRequested += HandleImageInsert;
 
-            Panel canvasContainer = new Panel();
-            canvasContainer.Dock = DockStyle.Fill;
-            canvasContainer.Controls.Add(_canvas);
+            // 組裝畫面
+            Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
+            centerContainer.Controls.Add(_canvas);
 
-            this.Controls.Add(canvasContainer);
-            this.Controls.Add(_toolbarPanel);
+            this.Controls.Add(centerContainer);
+            this.Controls.Add(_rightPanel);
+            this.Controls.Add(_leftPanel);
+            this.Controls.Add(_topBar);
+        }
+
+        // 建立右側面板內容
+        private void BuildPropertyPanel()
+        {
+            int startY = 20;
+            Label title = new Label() { Text = "圖形屬性", Font = new Font("Arial", 12, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
+            _rightPanel.Controls.Add(title); startY += 40;
+
+            _rightPanel.Controls.Add(new Label() { Text = "字型:", Location = new Point(10, startY), AutoSize = true });
+            _cbFont = new ComboBox() { Location = new Point(60, startY-3), Width = 140, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbFont.Items.AddRange(new string[] { "Arial", "標楷體", "微軟正黑體", "Times New Roman" });
+            _cbFont.SelectedIndexChanged += PropertyChanged;
+            _rightPanel.Controls.Add(_cbFont); startY += 40;
+
+            _rightPanel.Controls.Add(new Label() { Text = "字號:", Location = new Point(10, startY), AutoSize = true });
+            _nudFontSize = new NumericUpDown() { Location = new Point(60, startY-3), Width = 140, Minimum = 8, Maximum = 72 };
+            _nudFontSize.ValueChanged += PropertyChanged;
+            _rightPanel.Controls.Add(_nudFontSize); startY += 40;
+
+            _rightPanel.Controls.Add(new Label() { Text = "線粗:", Location = new Point(10, startY), AutoSize = true });
+            _nudStroke = new NumericUpDown() { Location = new Point(60, startY-3), Width = 140, Minimum = 1, Maximum = 20 };
+            _nudStroke.ValueChanged += PropertyChanged;
+            _rightPanel.Controls.Add(_nudStroke); startY += 40;
+
+            _rightPanel.Controls.Add(new Label() { Text = "樣式:", Location = new Point(10, startY), AutoSize = true });
+            _cbDash = new ComboBox() { Location = new Point(60, startY-3), Width = 140, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbDash.Items.AddRange(new object[] { DashStyle.Solid, DashStyle.Dash, DashStyle.Dot });
+            _cbDash.SelectedIndexChanged += PropertyChanged;
+            _rightPanel.Controls.Add(_cbDash); startY += 50;
+
+            _btnShapeColor = new Button() { Text = "外框 / 圖形顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat };
+            _btnShapeColor.Click += (s, e) => ChangeColor(true);
+            _rightPanel.Controls.Add(_btnShapeColor); startY += 45;
+
+            _btnFontColor = new Button() { Text = "文字顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat };
+            _btnFontColor.Click += (s, e) => ChangeColor(false);
+            _rightPanel.Controls.Add(_btnFontColor);
+
+            _rightPanel.Enabled = false; // 預設禁用，直到選取圖形
+        }
+
+        // 當使用者修改右側面板數值時，套用到圖形
+        private void PropertyChanged(object sender, EventArgs e)
+        {
+            if (_isUpdatingUI || _canvas.SelectedShapes.Count != 1) return;
+            
+            var shape = _canvas.SelectedShapes[0];
+            shape.FontName = _cbFont.Text;
+            shape.FontSize = (float)_nudFontSize.Value;
+            shape.StrokeWidth = (float)_nudStroke.Value;
+            shape.StrokeDashStyle = (DashStyle)_cbDash.SelectedItem;
+            
+            _canvas.Invalidate();
+        }
+
+        private void ChangeColor(bool isShapeColor)
+        {
+            if (_canvas.SelectedShapes.Count != 1) return;
+            var shape = _canvas.SelectedShapes[0];
+
+            using (ColorDialog cd = new ColorDialog() { Color = isShapeColor ? shape.ShapeColor : shape.FontColor })
+            {
+                if (cd.ShowDialog() == DialogResult.OK)
+                {
+                    if (isShapeColor)
+                    {
+                        shape.ShapeColor = cd.Color;
+                        _btnShapeColor.BackColor = cd.Color;
+                        _btnShapeColor.ForeColor = GetContrastColor(cd.Color);
+                        _canvas.CurrentColor = cd.Color; // 連帶改變未來畫圖的顏色
+                    }
+                    else
+                    {
+                        shape.FontColor = cd.Color;
+                        _btnFontColor.BackColor = cd.Color;
+                        _btnFontColor.ForeColor = GetContrastColor(cd.Color);
+                    }
+                    _canvas.Invalidate();
+                }
+            }
+        }
+
+        private Color GetContrastColor(Color bg) => (bg.R * 0.299 + bg.G * 0.587 + bg.B * 0.114) > 186 ? Color.Black : Color.White;
+
+        // 當選取圖形改變時，更新右側面板資料
+        private void RefreshPropertyPanel()
+        {
+            if (_canvas.SelectedShapes.Count == 1)
+            {
+                _isUpdatingUI = true;
+                var shape = _canvas.SelectedShapes[0];
+
+                if (_cbFont.Items.Contains(shape.FontName)) _cbFont.SelectedItem = shape.FontName;
+                _nudFontSize.Value = (decimal)Math.Max(_nudFontSize.Minimum, Math.Min(_nudFontSize.Maximum, (decimal)shape.FontSize));
+                _nudStroke.Value = (decimal)Math.Max(_nudStroke.Minimum, Math.Min(_nudStroke.Maximum, (decimal)shape.StrokeWidth));
+                _cbDash.SelectedItem = shape.StrokeDashStyle;
+
+                _btnShapeColor.BackColor = shape.ShapeColor;
+                _btnShapeColor.ForeColor = GetContrastColor(shape.ShapeColor);
+                _btnFontColor.BackColor = shape.FontColor;
+                _btnFontColor.ForeColor = GetContrastColor(shape.FontColor);
+
+                _rightPanel.Enabled = true;
+                _isUpdatingUI = false;
+            }
+            else
+            {
+                _rightPanel.Enabled = false;
+            }
         }
 
         private void HandleImageInsert(PointF pt)
@@ -168,38 +289,46 @@ namespace DrawingApp
             _canvas.Invalidate();
         }
 
-        private Button CreateIconButton(int startX, App_Shapes.ShapeType type, string tooltip)
+        private Button CreateTextButton(Panel parent, string text, int startX, EventHandler onClick)
         {
-            Button btn = new Button();
-            btn.Location = new Point(startX, 10);
-            btn.Size = new Size(40, 40);
-            btn.FlatStyle = FlatStyle.Flat;
-            btn.Cursor = Cursors.Hand;
+            Button btn = new Button() { Text = text, Location = new Point(startX, 10), Size = new Size(45, 35), FlatStyle = FlatStyle.Flat };
+            btn.FlatAppearance.BorderColor = Color.LightGray;
+            btn.Click += onClick;
+            parent.Controls.Add(btn);
+            return btn;
+        }
+
+        private Button CreateToolButton(App_Shapes.ShapeType type, string tooltip)
+        {
+            Button btn = new Button() { Size = new Size(45, 45), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(2, 2, 2, 8) };
             btn.FlatAppearance.BorderSize = 0;
-            
             Color iconColor = Color.FromArgb(80, 80, 80);
             
             ToolTip tt = new ToolTip();
             tt.SetToolTip(btn, tooltip);
-            tt.AutoPopDelay = 10000; // 讓提示顯示久一點以供閱讀
             
-            btn.MouseUp += (s, e) => {
-                if (e.Button == MouseButtons.Right && type != App_Shapes.ShapeType.Pointer && type != App_Shapes.ShapeType.Image)
+            Point mouseDownLocation = Point.Empty;
+
+            btn.MouseDown += (s, e) => {
+                if (e.Button == MouseButtons.Left) mouseDownLocation = e.Location;
+            };
+
+            btn.MouseMove += (s, e) => {
+                // 實作拖曳圖形 (Drag & Drop) 邏輯
+                if (e.Button == MouseButtons.Left && mouseDownLocation != Point.Empty)
                 {
-                    using (ColorDialog cd = new ColorDialog() { Color = iconColor })
+                    if (Math.Abs(e.X - mouseDownLocation.X) > 5 || Math.Abs(e.Y - mouseDownLocation.Y) > 5)
                     {
-                        if (cd.ShowDialog() == DialogResult.OK)
-                        {
-                            iconColor = cd.Color;
-                            _canvas.CurrentColor = cd.Color;
-                            btn.Invalidate(); 
-                        }
+                        btn.DoDragDrop(type, DragDropEffects.Copy);
+                        mouseDownLocation = Point.Empty;
                     }
                 }
-                else if (e.Button == MouseButtons.Left)
+            };
+
+            btn.MouseUp += (s, e) => {
+                if (e.Button == MouseButtons.Left)
                 {
                     _canvas.CurrentTool = type;
-                    _canvas.CurrentColor = iconColor;
                     SetActiveButton(btn);
                 }
             };
@@ -209,95 +338,29 @@ namespace DrawingApp
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 using (Pen p = new Pen(iconColor, 2))
                 {
-                    if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(12, 10), new Point(12, 30), new Point(18, 22), new Point(25, 22) });
-                    else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 8, 30, 30, 8); g.DrawLine(p, 20, 8, 30, 8); g.DrawLine(p, 30, 8, 30, 18); }
-                    else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 8, 30, 30, 8);
-                    else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(8, 30), new PointF(20, 30), new PointF(20, 10), new PointF(30, 10) });
-                    else if (type == App_Shapes.ShapeType.Rectangle) g.DrawRectangle(p, 8, 10, 24, 20);
-                    else if (type == App_Shapes.ShapeType.Circle) g.DrawEllipse(p, 8, 8, 24, 24);
-                    else if (type == App_Shapes.ShapeType.Arc) g.DrawArc(p, 8, 8, 24, 24, 180, 180);
-                    else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(20, 6), new PointF(34, 20), new PointF(20, 34), new PointF(6, 20) });
-                    else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(20, 8), new PointF(32, 30), new PointF(8, 30) });
-                    else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 6, 10, 28, 20); g.DrawString("A", new Font("Arial", 10), new SolidBrush(iconColor), 12, 12); }
-                    else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 10, 8);
-                    else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 8, 8, 24, 24); g.DrawEllipse(p, 12, 12, 4, 4); g.DrawLine(p, 8, 32, 22, 18); }
+                    if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(14, 12), new Point(14, 32), new Point(20, 24), new Point(27, 24) });
+                    else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 10, 32, 32, 10); g.DrawLine(p, 22, 10, 32, 10); g.DrawLine(p, 32, 10, 32, 20); }
+                    else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 10, 32, 32, 10);
+                    else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(10, 32), new PointF(22, 32), new PointF(22, 12), new PointF(32, 12) });
+                    else if (type == App_Shapes.ShapeType.Rectangle) g.DrawRectangle(p, 10, 12, 24, 20);
+                    else if (type == App_Shapes.ShapeType.Circle) g.DrawEllipse(p, 10, 10, 24, 24);
+                    else if (type == App_Shapes.ShapeType.Arc) g.DrawArc(p, 10, 10, 24, 24, 180, 180);
+                    else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(22, 8), new PointF(36, 22), new PointF(22, 36), new PointF(8, 22) });
+                    else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(22, 10), new PointF(34, 32), new PointF(10, 32) });
+                    else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 8, 12, 28, 20); g.DrawString("A", new Font("Arial", 10), new SolidBrush(iconColor), 14, 14); }
+                    else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 12, 10);
+                    else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 10, 10, 24, 24); g.DrawEllipse(p, 14, 14, 4, 4); g.DrawLine(p, 10, 34, 24, 20); }
                 }
             };
-            _toolbarPanel.Controls.Add(btn);
-            return btn;
-        }
-
-        private Button CreateTextButton(string text, int startX, EventHandler onClick)
-        {
-            Button btn = new Button();
-            btn.Text = text;
-            btn.Location = new Point(startX, 10);
-            btn.Size = new Size(50, 40);
-            btn.FlatStyle = FlatStyle.Flat;
-            btn.FlatAppearance.BorderColor = Color.LightGray;
-            btn.Click += onClick;
-            _toolbarPanel.Controls.Add(btn);
+            _leftPanel.Controls.Add(btn);
             return btn;
         }
 
         private void SetActiveButton(Button btn)
         {
-            if (_activeToolBtn != null) _activeToolBtn.BackColor = Color.White;
+            if (_activeToolBtn != null) _activeToolBtn.BackColor = Color.Transparent;
             _activeToolBtn = btn;
             _activeToolBtn.BackColor = Color.LightSkyBlue;
-        }
-
-        // --- 進階屬性編輯器 ---
-        private void ShowPropertyEditor(App_Shapes.ShapeBase shape)
-        {
-            using (Form form = new Form())
-            {
-                form.Text = "進階圖形樣式設定";
-                form.Size = new Size(340, 360);
-                form.StartPosition = FormStartPosition.CenterParent;
-                form.FormBorderStyle = FormBorderStyle.FixedDialog;
-                form.MaximizeBox = false;
-
-                // 因為文字可以透過畫布雙擊直接編輯，這裡專注在樣式
-                ComboBox cbFont = new ComboBox() { Location = new Point(20, 30), Width = 150 };
-                cbFont.Items.AddRange(new string[] { "Arial", "標楷體", "微軟正黑體", "Times New Roman" });
-                cbFont.Text = shape.FontName;
-                NumericUpDown nudFontSize = new NumericUpDown() { Location = new Point(180, 30), Width = 120, Minimum = 8, Maximum = 72, Value = (decimal)shape.FontSize };
-                
-                Label lblStroke = new Label() { Text = "外框粗細:", Location = new Point(20, 80), Width = 80 };
-                NumericUpDown nudStroke = new NumericUpDown() { Location = new Point(100, 80), Width = 70, Minimum = 1, Maximum = 20, Value = (decimal)shape.StrokeWidth };
-                
-                Label lblDash = new Label() { Text = "外框樣式:", Location = new Point(20, 120), Width = 80 };
-                ComboBox cbDash = new ComboBox() { Location = new Point(100, 120), Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
-                cbDash.Items.AddRange(new object[] { DashStyle.Solid, DashStyle.Dash, DashStyle.Dot });
-                cbDash.SelectedItem = shape.StrokeDashStyle;
-
-                Button btnShapeColor = new Button() { Text = "外框/圖形顏色", Location = new Point(20, 170), Width = 280, BackColor = shape.ShapeColor, ForeColor = Color.White };
-                btnShapeColor.Click += (s, e) => { using (var cd = new ColorDialog() { Color = shape.ShapeColor }) if (cd.ShowDialog() == DialogResult.OK) { shape.ShapeColor = cd.Color; btnShapeColor.BackColor = cd.Color; } };
-
-                Button btnFontColor = new Button() { Text = "文字顏色", Location = new Point(20, 220), Width = 280, BackColor = shape.FontColor, ForeColor = Color.White };
-                btnFontColor.Click += (s, e) => { using (var cd = new ColorDialog() { Color = shape.FontColor }) if (cd.ShowDialog() == DialogResult.OK) { shape.FontColor = cd.Color; btnFontColor.BackColor = cd.Color; } };
-
-                Button btnOk = new Button() { Text = "套用設定", Location = new Point(120, 280), Width = 100 };
-                btnOk.Click += (s, e) =>
-                {
-                    shape.FontName = cbFont.Text;
-                    shape.FontSize = (float)nudFontSize.Value;
-                    shape.StrokeWidth = (float)nudStroke.Value;
-                    shape.StrokeDashStyle = (DashStyle)cbDash.SelectedItem;
-                    
-                    _canvas.Invalidate();
-                    form.Close();
-                };
-
-                form.Controls.AddRange(new Control[] { 
-                    new Label{Text="字型與大小:", Location=new Point(20,10)}, cbFont, nudFontSize, 
-                    lblStroke, nudStroke, lblDash, cbDash, 
-                    btnShapeColor, btnFontColor, btnOk 
-                });
-                
-                form.ShowDialog();
-            }
         }
     }
 }
