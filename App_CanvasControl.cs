@@ -10,7 +10,7 @@ namespace DrawingApp
     public class App_CanvasControl : Panel
     {
         public List<App_Shapes.ShapeBase> Shapes { get; set; } = new List<App_Shapes.ShapeBase>();
-        public SizeF PageSize { get; set; } = new SizeF(2100, 2970); // 預設 A4 放大 10 倍
+        public SizeF PageSize { get; set; } = new SizeF(2100, 2970); 
         
         public CommandManager CmdManager { get; } = new CommandManager();
 
@@ -23,12 +23,21 @@ namespace DrawingApp
         private float _dragTotalDx = 0;
         private float _dragTotalDy = 0;
 
-        private enum InteractionState { Idle, Drawing, Moving, Resizing, Connecting, BoxSelecting }
+        // 新增：旋轉與縮放的初始狀態記錄 (用於 Undo/Redo)
+        private RectangleF _initialBounds;
+        private float _initialAngle;
+
+        // 升級狀態機，加入 Rotating
+        private enum InteractionState { Idle, Drawing, Moving, Resizing, Rotating, Connecting, BoxSelecting }
         private InteractionState _currentState = InteractionState.Idle;
 
         public App_Shapes.ShapeType CurrentTool { get; set; } = App_Shapes.ShapeType.Pointer;
         public Color CurrentColor { get; set; } = Color.Black;
         
+        // 新增：網格對齊開關
+        public bool SnapToGrid { get; set; } = true;
+        public float GridSize { get; set; } = 20f;
+
         private App_Shapes.ShapeBase _tempShape = null;
         private RectangleF _boxSelectRect;
         
@@ -36,12 +45,11 @@ namespace DrawingApp
         private List<App_Shapes.ShapeBase> _clipboard = new List<App_Shapes.ShapeBase>();
         private App_Shapes.HandlePosition _resizingHandle = App_Shapes.HandlePosition.None;
         private App_Shapes.ShapeBase _hoveredShapeForConnection = null;
+        private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto; // 新增：懸停的固定錨點
 
-        // 進階功能：畫布內建文字輸入框
         private TextBox _inlineTextBox;
         private App_Shapes.ShapeBase _editingShape = null;
 
-        // 進階功能：對齊輔助線
         private List<Tuple<PointF, PointF>> _smartGuides = new List<Tuple<PointF, PointF>>();
 
         public event Action<App_Shapes.ShapeBase> OnShapePropertyRequested;
@@ -53,6 +61,11 @@ namespace DrawingApp
             this.DoubleBuffered = true;
             this.BackColor = Color.White;
             
+            // 啟用拖放支援 (Drag & Drop)
+            this.AllowDrop = true;
+            this.DragEnter += Canvas_DragEnter;
+            this.DragDrop += Canvas_DragDrop;
+            
             this.ContextMenuStrip = CreateContextMenu();
             
             this.MouseDown += Canvas_MouseDown;
@@ -63,8 +76,39 @@ namespace DrawingApp
 
             CmdManager.OnStateChanged += () => this.Invalidate();
 
-            // 初始化畫布內建編輯器
             InitializeInlineEditor();
+        }
+
+        // --- 新增：Drag & Drop 拖曳生成圖形 ---
+        private void Canvas_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(typeof(App_Shapes.ShapeType)))
+                e.Effect = DragDropEffects.Copy;
+            else
+                e.Effect = DragDropEffects.None;
+        }
+
+        private void Canvas_DragDrop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(typeof(App_Shapes.ShapeType)))
+            {
+                App_Shapes.ShapeType type = (App_Shapes.ShapeType)e.Data.GetData(typeof(App_Shapes.ShapeType));
+                Point clientPt = this.PointToClient(new Point(e.X, e.Y));
+                PointF realPt = GetRealPoint(clientPt);
+                
+                PointF snapPt = new PointF(Snap(realPt.X), Snap(realPt.Y));
+                var newShape = App_Shapes.ShapeFactory.CreateShape(type, snapPt, CurrentColor);
+                newShape.UpdateEndPoint(new PointF(snapPt.X + 80, snapPt.Y + 80)); // 預設大小
+                
+                CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, newShape));
+                
+                SelectedShapes.ForEach(s => s.IsSelected = false);
+                SelectedShapes.Clear();
+                newShape.IsSelected = true;
+                SelectedShapes.Add(newShape);
+                
+                this.Invalidate();
+            }
         }
 
         private void InitializeInlineEditor()
@@ -75,11 +119,9 @@ namespace DrawingApp
             _inlineTextBox.TextAlign = HorizontalAlignment.Center;
             _inlineTextBox.Visible = false;
             
-            // 編輯完成的觸發條件
             _inlineTextBox.Leave += (s, e) => CommitInlineText();
             _inlineTextBox.KeyDown += (s, e) =>
             {
-                // 按下 Shift+Enter 換行，單按 Enter 完成編輯
                 if (e.KeyCode == Keys.Enter && !e.Shift)
                 {
                     e.SuppressKeyPress = true;
@@ -127,14 +169,11 @@ namespace DrawingApp
             this.Invalidate();
         }
 
-        // --- 進階功能：群組與解除群組 ---
         private void GroupSelected()
         {
             if (SelectedShapes.Count < 2) return;
-            
             var group = new App_Shapes.GroupShape(SelectedShapes.ToList());
             CmdManager.ExecuteCommand(new GroupCommand(Shapes, SelectedShapes, group));
-            
             SelectedShapes.Clear();
             SelectedShapes.Add(group);
             group.IsSelected = true;
@@ -146,7 +185,6 @@ namespace DrawingApp
             if (SelectedShapes.Count == 1 && SelectedShapes[0] is App_Shapes.GroupShape group)
             {
                 CmdManager.ExecuteCommand(new UngroupCommand(Shapes, group));
-                
                 SelectedShapes.Clear();
                 foreach (var child in group.Children)
                 {
@@ -157,7 +195,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 進階功能：畫布內文字編輯器 ---
         private void Canvas_DoubleClick(object sender, EventArgs e)
         {
             if (SelectedShapes.Count == 1 && !(SelectedShapes[0] is App_Shapes.ConnectorShape))
@@ -173,14 +210,12 @@ namespace DrawingApp
             _inlineTextBox.Font = new Font(shape.FontName, shape.FontSize * ZoomFactor);
             _inlineTextBox.ForeColor = shape.FontColor;
 
-            // 將虛擬座標轉換為實體螢幕控制項座標
-            int screenX = (int)(shape.Bounds.X * ZoomFactor + _cameraOffset.X);
-            int screenY = (int)(shape.Bounds.Y * ZoomFactor + _cameraOffset.Y);
+            PointF center = shape.GetCenter();
+            PointF screenCenter = new PointF(center.X * ZoomFactor + _cameraOffset.X, center.Y * ZoomFactor + _cameraOffset.Y);
             int screenW = (int)(shape.Bounds.Width * ZoomFactor);
             int screenH = (int)(shape.Bounds.Height * ZoomFactor);
 
-            // 稍微縮小輸入框使其完美覆蓋在圖形內
-            _inlineTextBox.Bounds = new Rectangle(screenX + 5, screenY + 5, screenW - 10, screenH - 10);
+            _inlineTextBox.Bounds = new Rectangle((int)screenCenter.X - screenW/2 + 5, (int)screenCenter.Y - screenH/2 + 5, screenW - 10, screenH - 10);
             _inlineTextBox.Visible = true;
             _inlineTextBox.Focus();
             _inlineTextBox.SelectAll();
@@ -208,7 +243,7 @@ namespace DrawingApp
         public void SetZoom(float zoom)
         {
             ZoomFactor = Math.Max(0.2f, Math.Min(zoom, 5.0f));
-            if (_inlineTextBox.Visible) CancelInlineText(); // 縮放時關閉編輯器防錯位
+            if (_inlineTextBox.Visible) CancelInlineText();
             this.Invalidate();
         }
 
@@ -238,14 +273,14 @@ namespace DrawingApp
             return new PointF((screenPt.X - _cameraOffset.X) / ZoomFactor, (screenPt.Y - _cameraOffset.Y) / ZoomFactor);
         }
 
-        private float Snap(float value, float gridSize = 20f)
+        private float Snap(float value)
         {
-            return (float)Math.Round(value / gridSize) * gridSize;
+            if (!SnapToGrid) return value;
+            return (float)Math.Round(value / GridSize) * GridSize;
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            // 如果正在輸入文字，不要攔截快捷鍵
             if (_inlineTextBox.Focused) return base.ProcessCmdKey(ref msg, keyData);
 
             if (keyData == Keys.Escape) { OnToolResetRequested?.Invoke(); return true; }
@@ -291,9 +326,7 @@ namespace DrawingApp
         private void Canvas_MouseDown(object sender, MouseEventArgs e)
         {
             if (_inlineTextBox.Visible && !_inlineTextBox.Bounds.Contains(e.Location))
-            {
                 CommitInlineText();
-            }
 
             this.Focus();
             PointF realPt = GetRealPoint(e.Location);
@@ -313,15 +346,21 @@ namespace DrawingApp
                     if (SelectedShapes.Count == 1)
                     {
                         var handle = SelectedShapes[0].HitTestHandle(realPt);
-                        if (handle != App_Shapes.HandlePosition.None)
+                        if (handle == App_Shapes.HandlePosition.Rotate)
+                        {
+                            _currentState = InteractionState.Rotating;
+                            _initialAngle = SelectedShapes[0].RotationAngle;
+                            return;
+                        }
+                        else if (handle != App_Shapes.HandlePosition.None)
                         {
                             _currentState = InteractionState.Resizing;
                             _resizingHandle = handle;
+                            _initialBounds = SelectedShapes[0].Bounds;
                             return;
                         }
                     }
 
-                    // 碰撞偵測改為從上層往下尋找
                     App_Shapes.ShapeBase hit = null;
                     for (int i = Shapes.Count - 1; i >= 0; i--)
                     {
@@ -362,10 +401,16 @@ namespace DrawingApp
                     
                     _tempShape = new App_Shapes.ConnectorShape(realPt, CurrentColor, isArrow, isOrtho);
                     
-                    // 尋找起始圖形
+                    // 升級：尋找起始圖形與鎖定錨點
                     for (int i = Shapes.Count - 1; i >= 0; i--)
                     {
-                        if (Shapes[i].HitTest(realPt)) { ((App_Shapes.ConnectorShape)_tempShape).SourceId = Shapes[i].Id; break; }
+                        if (Shapes[i].HitTest(realPt)) 
+                        { 
+                            var conn = (App_Shapes.ConnectorShape)_tempShape;
+                            conn.SourceId = Shapes[i].Id; 
+                            conn.SourceAnchor = DetectAnchor(Shapes[i], realPt);
+                            break; 
+                        }
                     }
                 }
                 else
@@ -378,10 +423,23 @@ namespace DrawingApp
             }
         }
 
+        // 新增：偵測滑鼠靠近哪個固定錨點
+        private App_Shapes.AnchorPosition DetectAnchor(App_Shapes.ShapeBase shape, PointF pt)
+        {
+            float threshold = 15f;
+            if (Distance(shape.GetAnchorPoint(App_Shapes.AnchorPosition.Top), pt) < threshold) return App_Shapes.AnchorPosition.Top;
+            if (Distance(shape.GetAnchorPoint(App_Shapes.AnchorPosition.Bottom), pt) < threshold) return App_Shapes.AnchorPosition.Bottom;
+            if (Distance(shape.GetAnchorPoint(App_Shapes.AnchorPosition.Left), pt) < threshold) return App_Shapes.AnchorPosition.Left;
+            if (Distance(shape.GetAnchorPoint(App_Shapes.AnchorPosition.Right), pt) < threshold) return App_Shapes.AnchorPosition.Right;
+            return App_Shapes.AnchorPosition.Auto;
+        }
+
+        private float Distance(PointF p1, PointF p2) => (float)Math.Sqrt(Math.Pow(p1.X - p2.X, 2) + Math.Pow(p1.Y - p2.Y, 2));
+
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
             PointF realPt = GetRealPoint(e.Location);
-            _smartGuides.Clear(); // 每次移動清空輔助線
+            _smartGuides.Clear();
 
             if (_isPanning)
             {
@@ -399,36 +457,30 @@ namespace DrawingApp
 
                 if (_currentState == InteractionState.Moving)
                 {
-                    // --- 進階功能：自動對齊磁吸 (Smart Guides) ---
                     if (SelectedShapes.Count == 1)
                     {
                         var me = SelectedShapes[0];
-                        float snapThreshold = 5.0f / ZoomFactor; // 縮放時保持吸附手感
+                        float snapThreshold = 5.0f / ZoomFactor;
 
                         float bestDx = dx, bestDy = dy;
-                        RectangleF futureBounds = new RectangleF(me.Bounds.X + dx, me.Bounds.Y + dy, me.Bounds.Width, me.Bounds.Height);
-                        float myCenterX = futureBounds.X + futureBounds.Width / 2;
-                        float myCenterY = futureBounds.Y + futureBounds.Height / 2;
+                        PointF myCenter = me.GetCenter();
+                        float futureCenterX = myCenter.X + dx;
+                        float futureCenterY = myCenter.Y + dy;
 
                         foreach (var other in Shapes.Where(s => s != me && !(s is App_Shapes.ConnectorShape)))
                         {
-                            float otherCenterX = other.Bounds.X + other.Bounds.Width / 2;
-                            float otherCenterY = other.Bounds.Y + other.Bounds.Height / 2;
-
-                            // X 軸對齊 (中心點對齊)
-                            if (Math.Abs(myCenterX - otherCenterX) < snapThreshold)
+                            PointF otherCenter = other.GetCenter();
+                            if (Math.Abs(futureCenterX - otherCenter.X) < snapThreshold)
                             {
-                                bestDx = otherCenterX - (me.Bounds.X + me.Bounds.Width / 2);
-                                _smartGuides.Add(new Tuple<PointF, PointF>(new PointF(otherCenterX, -10000), new PointF(otherCenterX, 10000)));
+                                bestDx = otherCenter.X - myCenter.X;
+                                _smartGuides.Add(new Tuple<PointF, PointF>(new PointF(otherCenter.X, -10000), new PointF(otherCenter.X, 10000)));
                             }
-                            // Y 軸對齊 (中心點對齊)
-                            if (Math.Abs(myCenterY - otherCenterY) < snapThreshold)
+                            if (Math.Abs(futureCenterY - otherCenter.Y) < snapThreshold)
                             {
-                                bestDy = otherCenterY - (me.Bounds.Y + me.Bounds.Height / 2);
-                                _smartGuides.Add(new Tuple<PointF, PointF>(new PointF(-10000, otherCenterY), new PointF(10000, otherCenterY)));
+                                bestDy = otherCenter.Y - myCenter.Y;
+                                _smartGuides.Add(new Tuple<PointF, PointF>(new PointF(-10000, otherCenter.Y), new PointF(10000, otherCenter.Y)));
                             }
                         }
-                        
                         dx = bestDx;
                         dy = bestDy;
                     }
@@ -436,6 +488,13 @@ namespace DrawingApp
                     _dragTotalDx += dx;
                     _dragTotalDy += dy;
                     foreach (var s in SelectedShapes) s.Move(dx, dy);
+                }
+                else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1)
+                {
+                    var me = SelectedShapes[0];
+                    PointF center = me.GetCenter();
+                    float angle = (float)(Math.Atan2(realPt.Y - center.Y, realPt.X - center.X) * 180 / Math.PI) + 90;
+                    me.RotationAngle = Snap(angle, 15f); // 吸附到 15 度角
                 }
                 else if (_currentState == InteractionState.BoxSelecting)
                 {
@@ -446,18 +505,34 @@ namespace DrawingApp
                         Math.Abs(realPt.Y - _boxSelectRect.Y)
                     );
                     SelectedShapes.ForEach(s => s.IsSelected = false);
-                    SelectedShapes = Shapes.Where(s => _boxSelectRect.IntersectsWith(s.Bounds)).ToList();
+                    SelectedShapes = Shapes.Where(s => s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds)).ToList();
                     SelectedShapes.ForEach(s => s.IsSelected = true);
                 }
                 else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1)
                 {
-                    var b = SelectedShapes[0].Bounds;
+                    var shape = SelectedShapes[0];
+                    PointF center = shape.GetCenter();
+                    
+                    // 將真實位移轉換為不受旋轉影響的本地座標位移
+                    PointF lastLocal = App_Shapes.ShapeBase.RotatePoint(GetRealPoint(_lastMousePos), center, -shape.RotationAngle);
+                    PointF currentLocal = App_Shapes.ShapeBase.RotatePoint(realPt, center, -shape.RotationAngle);
+                    
+                    float ldx = currentLocal.X - lastLocal.X;
+                    float ldy = currentLocal.Y - lastLocal.Y;
+
+                    RectangleF b = shape.Bounds;
                     switch (_resizingHandle)
                     {
-                        case App_Shapes.HandlePosition.NW: b = new RectangleF(b.X + dx, b.Y + dy, b.Width - dx, b.Height - dy); break;
-                        case App_Shapes.HandlePosition.SE: b = new RectangleF(b.X, b.Y, b.Width + dx, b.Height + dy); break;
+                        case App_Shapes.HandlePosition.NW: b = new RectangleF(b.X + ldx, b.Y + ldy, b.Width - ldx, b.Height - ldy); break;
+                        case App_Shapes.HandlePosition.N:  b = new RectangleF(b.X, b.Y + ldy, b.Width, b.Height - ldy); break;
+                        case App_Shapes.HandlePosition.NE: b = new RectangleF(b.X, b.Y + ldy, b.Width + ldx, b.Height - ldy); break;
+                        case App_Shapes.HandlePosition.E:  b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height); break;
+                        case App_Shapes.HandlePosition.SE: b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height + ldy); break;
+                        case App_Shapes.HandlePosition.S:  b = new RectangleF(b.X, b.Y, b.Width, b.Height + ldy); break;
+                        case App_Shapes.HandlePosition.SW: b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height + ldy); break;
+                        case App_Shapes.HandlePosition.W:  b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height); break;
                     }
-                    if (b.Width > 5 && b.Height > 5) SelectedShapes[0].Bounds = b;
+                    if (b.Width > 5 && b.Height > 5) shape.SetBounds(b);
                 }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
@@ -467,19 +542,28 @@ namespace DrawingApp
                 {
                     c.UpdateEndPoint(realPt);
                     _hoveredShapeForConnection = null;
+                    _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
+
                     for (int i = Shapes.Count - 1; i >= 0; i--)
                     {
                         if (Shapes[i].Id != c.SourceId && Shapes[i].HitTest(realPt))
                         {
-                            _hoveredShapeForConnection = Shapes[i]; break;
+                            _hoveredShapeForConnection = Shapes[i]; 
+                            _hoveredAnchor = DetectAnchor(Shapes[i], realPt);
+                            break;
                         }
                     }
                 }
                 
-                // 防止吸附造成滑鼠真實位置偏移，手動重算
                 _lastMousePos = new Point((int)(_lastMousePos.X + dx * ZoomFactor), (int)(_lastMousePos.Y + dy * ZoomFactor));
                 this.Invalidate();
             }
+        }
+
+        private float Snap(float angle, float step)
+        {
+            if (Control.ModifierKeys == Keys.Alt) return angle; // Alt 鍵自由旋轉
+            return (float)Math.Round(angle / step) * step;
         }
 
         private void Canvas_MouseUp(object sender, MouseEventArgs e)
@@ -490,7 +574,7 @@ namespace DrawingApp
                 this.Cursor = Cursors.Default;
             }
 
-            _smartGuides.Clear(); // 放開滑鼠清空輔助線
+            _smartGuides.Clear();
 
             if (e.Button == MouseButtons.Left)
             {
@@ -499,6 +583,14 @@ namespace DrawingApp
                     foreach (var s in SelectedShapes) s.Move(-_dragTotalDx, -_dragTotalDy);
                     CmdManager.ExecuteCommand(new MoveShapesCommand(SelectedShapes, _dragTotalDx, _dragTotalDy));
                 }
+                else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1)
+                {
+                    CmdManager.ExecuteCommand(new ResizeShapeCommand(SelectedShapes[0], _initialBounds, SelectedShapes[0].Bounds));
+                }
+                else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1)
+                {
+                    CmdManager.ExecuteCommand(new RotateShapeCommand(SelectedShapes[0], _initialAngle, SelectedShapes[0].RotationAngle));
+                }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
                     _tempShape.NormalizeBounds();
@@ -506,22 +598,26 @@ namespace DrawingApp
                     {
                         CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, _tempShape));
                     }
-                    
                     if (_tempShape is App_Shapes.TextNodeShape)
                     {
-                        StartInlineEditing(_tempShape); // 畫完自動進入文字編輯
+                        StartInlineEditing(_tempShape);
                         OnToolResetRequested?.Invoke();
                     }
                 }
                 else if (_currentState == InteractionState.Connecting && _tempShape is App_Shapes.ConnectorShape c)
                 {
-                    if (_hoveredShapeForConnection != null) c.TargetId = _hoveredShapeForConnection.Id;
+                    if (_hoveredShapeForConnection != null)
+                    {
+                        c.TargetId = _hoveredShapeForConnection.Id;
+                        c.TargetAnchor = _hoveredAnchor;
+                    }
                     CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, c));
                     OnToolResetRequested?.Invoke();
                 }
 
                 _tempShape = null;
                 _hoveredShapeForConnection = null;
+                _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
                 _currentState = InteractionState.Idle;
                 this.Invalidate();
             }
@@ -538,38 +634,37 @@ namespace DrawingApp
             g.TranslateTransform(_cameraOffset.X, _cameraOffset.Y);
             g.ScaleTransform(ZoomFactor, ZoomFactor);
 
-            // --- 進階效能：Viewport 剔除過濾 (Culling) ---
             RectangleF viewRect = new RectangleF(
                 -_cameraOffset.X / ZoomFactor, 
                 -_cameraOffset.Y / ZoomFactor, 
                 this.Width / ZoomFactor, 
                 this.Height / ZoomFactor);
 
-            DrawGrid(g, viewRect);
+            if (SnapToGrid) DrawGrid(g, viewRect);
 
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, PageSize.Width, PageSize.Height);
 
-            // 只繪製在可見範圍內的圖形
             foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape)))
             {
-                if (viewRect.IntersectsWith(shape.Bounds))
-                {
-                    shape.Draw(g);
-                }
+                if (viewRect.IntersectsWith(shape.Bounds)) shape.DrawWithTransform(g);
             }
 
-            // 連線繪製與跳線偵測
             List<LineSegment> drawnLines = new List<LineSegment>();
             foreach (var shape in Shapes.OfType<App_Shapes.ConnectorShape>())
             {
                 var src = Shapes.FirstOrDefault(x => x.Id == shape.SourceId);
                 var tgt = Shapes.FirstOrDefault(x => x.Id == shape.TargetId);
                 
-                // 套用全新的動態錨點演算法 GetIntersection()
-                PointF p1 = src != null ? src.GetIntersection(tgt != null ? GetCenter(tgt.Bounds) : shape.EndPt) : shape.StartPt;
-                PointF p2 = tgt != null ? tgt.GetIntersection(p1) : shape.EndPt;
+                PointF p1 = shape.StartPt;
+                PointF p2 = shape.EndPt;
+
+                if (src != null)
+                    p1 = shape.SourceAnchor == App_Shapes.AnchorPosition.Auto ? src.GetIntersection(tgt != null ? tgt.GetCenter() : shape.EndPt) : src.GetAnchorPoint(shape.SourceAnchor);
                 
+                if (tgt != null)
+                    p2 = shape.TargetAnchor == App_Shapes.AnchorPosition.Auto ? tgt.GetIntersection(p1) : tgt.GetAnchorPoint(shape.TargetAnchor);
+
                 if (!shape.IsOrthogonal)
                 {
                     foreach (var oldLine in drawnLines)
@@ -595,9 +690,20 @@ namespace DrawingApp
                 if (!shape.IsOrthogonal) drawnLines.Add(new LineSegment(p1, p2));
             }
 
-            _tempShape?.Draw(g);
+            _tempShape?.DrawWithTransform(g);
             if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt);
             
+            // 繪製懸停錨點提示
+            if (_currentState == InteractionState.Connecting && _hoveredShapeForConnection != null)
+            {
+                PointF anchorPt = _hoveredAnchor == App_Shapes.AnchorPosition.Auto 
+                    ? _hoveredShapeForConnection.GetIntersection(GetRealPoint(_lastMousePos)) 
+                    : _hoveredShapeForConnection.GetAnchorPoint(_hoveredAnchor);
+                
+                g.FillEllipse(Brushes.LightCoral, anchorPt.X - 5, anchorPt.Y - 5, 10, 10);
+                g.DrawEllipse(Pens.Red, anchorPt.X - 5, anchorPt.Y - 5, 10, 10);
+            }
+
             foreach (var s in SelectedShapes) s.DrawSelection(g);
             
             if (_currentState == InteractionState.BoxSelecting)
@@ -610,7 +716,6 @@ namespace DrawingApp
                 }
             }
 
-            // 繪製粉紅色的 Smart Guides 對齊輔助線
             using (Pen guidePen = new Pen(Color.DeepPink, 1.5f) { DashStyle = DashStyle.Dash })
             {
                 foreach (var line in _smartGuides)
@@ -624,18 +729,15 @@ namespace DrawingApp
 
         private void DrawGrid(Graphics g, RectangleF viewRect)
         {
-            int gridSize = 20;
-            int startX = (int)(Math.Floor(viewRect.Left / gridSize) * gridSize);
-            int startY = (int)(Math.Floor(viewRect.Top / gridSize) * gridSize);
+            int startX = (int)(Math.Floor(viewRect.Left / GridSize) * GridSize);
+            int startY = (int)(Math.Floor(viewRect.Top / GridSize) * GridSize);
 
-            using (Pen gridPen = new Pen(Color.FromArgb(230, 230, 230)))
+            using (Pen gridPen = new Pen(Color.FromArgb(235, 235, 235)))
             {
-                for (float x = startX; x < viewRect.Right; x += gridSize) g.DrawLine(gridPen, x, viewRect.Top, x, viewRect.Bottom);
-                for (float y = startY; y < viewRect.Bottom; y += gridSize) g.DrawLine(gridPen, viewRect.Left, y, viewRect.Right, y);
+                for (float x = startX; x < viewRect.Right; x += GridSize) g.DrawLine(gridPen, x, viewRect.Top, x, viewRect.Bottom);
+                for (float y = startY; y < viewRect.Bottom; y += GridSize) g.DrawLine(gridPen, viewRect.Left, y, viewRect.Right, y);
             }
         }
-
-        private PointF GetCenter(RectangleF r) => new PointF(r.X + r.Width / 2, r.Y + r.Height / 2);
 
         public Bitmap GetTransparentCanvasRender()
         {
@@ -646,7 +748,7 @@ namespace DrawingApp
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Transparent); g.SmoothingMode = SmoothingMode.AntiAlias;
-                foreach (var s in Shapes) s.Draw(g);
+                foreach (var s in Shapes) s.DrawWithTransform(g);
             }
             return bmp;
         }
