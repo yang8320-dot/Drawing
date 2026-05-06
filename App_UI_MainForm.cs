@@ -13,7 +13,7 @@ namespace DrawingApp
         private FlowLayoutPanel _leftPanel;
         private Panel _rightPanel;
         
-        // 畫布容器改為 TabControl
+        // 畫布容器
         private TabControl _tabControl;
         
         // 動態取得「目前正在顯示」的畫布
@@ -57,13 +57,12 @@ namespace DrawingApp
             _tabControl.SelectedIndexChanged += (s, e) => RefreshPropertyPanel();
             _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
 
-            // 初始化分頁名稱編輯器
+            // 初始化分頁名稱編輯器 (注意：不可加入 TabControl，要在後面加入 container)
             _tabEditBox = new TextBox();
             _tabEditBox.Visible = false;
             _tabEditBox.BorderStyle = BorderStyle.FixedSingle;
             _tabEditBox.Leave += TabEditBox_Leave;
             _tabEditBox.KeyDown += TabEditBox_KeyDown;
-            _tabControl.Controls.Add(_tabEditBox);
 
             // --- 2. 頂部系統工具列 ---
             _topBar = new Panel() { Dock = DockStyle.Top, Height = 60, BackColor = Color.FromArgb(245, 245, 245) };
@@ -132,9 +131,11 @@ namespace DrawingApp
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
             BuildPropertyPanel();
 
-            // 組裝畫面
+            // --- 5. 組裝畫面 (關鍵修正：將 TextBox 加到 Parent Container 並置頂) ---
             Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
             centerContainer.Controls.Add(_tabControl);
+            centerContainer.Controls.Add(_tabEditBox); // 加在這裡才合法
+            _tabEditBox.BringToFront(); // 讓它懸浮在分頁最上層
 
             this.Controls.Add(centerContainer);
             this.Controls.Add(_rightPanel);
@@ -151,9 +152,9 @@ namespace DrawingApp
                 if (rect.Contains(e.Location))
                 {
                     _tabEditBox.Text = _tabControl.TabPages[i].Text;
-                    // 將輸入框顯示在該分頁標籤的位置上方
+                    // 將輸入框顯示在該分頁標籤的位置上方 (相對於 centerContainer)
                     _tabEditBox.Bounds = new Rectangle(rect.X + 2, rect.Y + 2, rect.Width - 4, rect.Height - 4);
-                    _tabEditBox.Tag = _tabControl.TabPages[i]; // 紀錄正在編輯哪個分頁
+                    _tabEditBox.Tag = _tabControl.TabPages[i]; 
                     _tabEditBox.Visible = true;
                     _tabEditBox.BringToFront();
                     _tabEditBox.Focus();
