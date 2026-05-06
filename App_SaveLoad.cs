@@ -20,6 +20,7 @@ namespace DrawingApp
 
     public static class App_SaveLoad
     {
+        // 定義存檔路徑為主程式同層的 "save" 資料夾
         private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
 
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
@@ -28,17 +29,22 @@ namespace DrawingApp
             Formatting = Formatting.Indented
         };
 
+        // 核心：動態確認並建立 save 資料夾
         private static void EnsureDirectory()
         {
-            if (!Directory.Exists(SaveDirectory)) Directory.CreateDirectory(SaveDirectory);
+            if (!Directory.Exists(SaveDirectory)) 
+            {
+                Directory.CreateDirectory(SaveDirectory);
+            }
         }
 
-        // 存檔
+        // 存檔改為接收整個 Project
         public static void SaveProject(DrawProject project)
         {
             try
             {
-                EnsureDirectory();
+                EnsureDirectory(); // 存檔前動態建置資料夾
+                
                 using (SaveFileDialog sfd = new SaveFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
                     if (sfd.ShowDialog() == DialogResult.OK)
@@ -55,12 +61,13 @@ namespace DrawingApp
             }
         }
 
-        // 讀檔
+        // 讀檔回傳整個 Project
         public static DrawProject LoadProject()
         {
             try
             {
-                EnsureDirectory();
+                EnsureDirectory(); // 讀取前動態建置資料夾 (避免第一次執行按讀取會找不到路徑)
+                
                 using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
                     if (ofd.ShowDialog() == DialogResult.OK)
