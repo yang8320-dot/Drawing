@@ -10,7 +10,8 @@ namespace DrawingApp
     public static class App_Shapes
     {
         public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image }
-        public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate }
+        // --- 新增 StartPoint 與 EndPoint ---
+        public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
         public abstract class ShapeBase
@@ -132,14 +133,14 @@ namespace DrawingApp
                 float s = 8;
                 PointF[] corners = new PointF[]
                 {
-                    new PointF(Bounds.Left, Bounds.Top),      // NW
-                    new PointF(center.X, Bounds.Top),         // N
-                    new PointF(Bounds.Right, Bounds.Top),     // NE
-                    new PointF(Bounds.Right, center.Y),       // E
-                    new PointF(Bounds.Right, Bounds.Bottom),  // SE
-                    new PointF(center.X, Bounds.Bottom),      // S
-                    new PointF(Bounds.Left, Bounds.Bottom),   // SW
-                    new PointF(Bounds.Left, center.Y)         // W
+                    new PointF(Bounds.Left, Bounds.Top),
+                    new PointF(center.X, Bounds.Top),
+                    new PointF(Bounds.Right, Bounds.Top),
+                    new PointF(Bounds.Right, center.Y),
+                    new PointF(Bounds.Right, Bounds.Bottom),
+                    new PointF(center.X, Bounds.Bottom),
+                    new PointF(Bounds.Left, Bounds.Bottom),
+                    new PointF(Bounds.Left, center.Y)
                 };
 
                 foreach (var pt in corners)
@@ -156,7 +157,7 @@ namespace DrawingApp
                 g.Transform = oldMatrix;
             }
 
-            public HandlePosition HitTestHandle(PointF pt)
+            public virtual HandlePosition HitTestHandle(PointF pt)
             {
                 if (!IsSelected) return HandlePosition.None;
 
@@ -431,7 +432,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 核心修正的 ConnectorShape ---
         public class ConnectorShape : ShapeBase
         {
             public Guid SourceId { get; set; }
@@ -454,17 +454,37 @@ namespace DrawingApp
             
             public override void UpdateEndPoint(PointF pt) { EndPt = pt; }
             
-            // 修正：計算滑鼠是否點擊在線段上
             public override bool HitTest(PointF pt) 
             { 
                 if (_cachedPath == null || _cachedPath.Length < 2) return false;
-                
                 for (int i = 0; i < _cachedPath.Length - 1; i++)
                 {
                     if (DistancePointToSegment(pt, _cachedPath[i], _cachedPath[i+1]) < 8f) return true;
                 }
                 return false; 
             } 
+
+            // --- 新增：線條的獨立控制器判定 ---
+            public override HandlePosition HitTestHandle(PointF pt)
+            {
+                if (!IsSelected || _cachedPath == null || _cachedPath.Length < 2) return HandlePosition.None;
+
+                float s = 10;
+                PointF start = _cachedPath[0];
+                PointF end = _cachedPath[_cachedPath.Length - 1];
+
+                if (new RectangleF(start.X - s, start.Y - s, s * 2, s * 2).Contains(pt)) return HandlePosition.StartPoint;
+                if (new RectangleF(end.X - s, end.Y - s, s * 2, s * 2).Contains(pt)) return HandlePosition.EndPoint;
+
+                return HandlePosition.None;
+            }
+
+            public override void Move(float dx, float dy)
+            {
+                // 當整個線條被拖曳時，起終點一起移動
+                StartPt = new PointF(StartPt.X + dx, StartPt.Y + dy);
+                EndPt = new PointF(EndPt.X + dx, EndPt.Y + dy);
+            }
 
             private float DistancePointToSegment(PointF pt, PointF p1, PointF p2)
             {
@@ -511,15 +531,27 @@ namespace DrawingApp
 
             public override void Draw(Graphics g) { }
 
-            // 修正：當連線被選取時，畫出控制點
+            // --- 新增：繪製線條的起終點大控制圓圈 ---
             public override void DrawSelection(Graphics g)
             {
-                if (!IsSelected || _cachedPath == null) return;
+                if (!IsSelected || _cachedPath == null || _cachedPath.Length < 2) return;
+                
+                // 畫折點
                 foreach (var pt in _cachedPath)
                 {
-                    g.FillRectangle(Brushes.White, pt.X - 4, pt.Y - 4, 8, 8);
-                    g.DrawRectangle(Pens.DodgerBlue, pt.X - 4, pt.Y - 4, 8, 8);
+                    g.FillRectangle(Brushes.White, pt.X - 3, pt.Y - 3, 6, 6);
+                    g.DrawRectangle(Pens.DodgerBlue, pt.X - 3, pt.Y - 3, 6, 6);
                 }
+
+                // 畫黃色/紅邊大圓圈作為可拖曳點
+                PointF start = _cachedPath[0];
+                PointF end = _cachedPath[_cachedPath.Length - 1];
+
+                g.FillEllipse(Brushes.Yellow, start.X - 5, start.Y - 5, 10, 10);
+                g.DrawEllipse(Pens.Red, start.X - 5, start.Y - 5, 10, 10);
+
+                g.FillEllipse(Brushes.Yellow, end.X - 5, end.Y - 5, 10, 10);
+                g.DrawEllipse(Pens.Red, end.X - 5, end.Y - 5, 10, 10);
             }
         }
 
