@@ -23,36 +23,30 @@ jobs:
     - name: Build Application
       run: msbuild DrawingApp.csproj /p:Configuration=Release /p:TargetFramework=net472
 
-    - name: Reorganize Output (Portable Structure)
+    - name: Reorganize Output (Clean Root Structure)
       shell: pwsh
       run: |
         $releaseDir = "bin\Release\net472"
         $publishDir = "PublishOutput"
-        $appCoreDir = "$publishDir\AppCore"
-        $libraryDir = "$appCoreDir\Library"
-        $saveDir = "$appCoreDir\save"
+        $libraryDir = "$publishDir\Library"
         
-        # 1. 建立外層與隱藏的核心層資料夾
+        # 建立外層與 Library 資料夾 (不主動建立 save 資料夾，交由程式動態產生)
+        New-Item -ItemType Directory -Force -Path $publishDir
         New-Item -ItemType Directory -Force -Path $libraryDir
-        New-Item -ItemType Directory -Force -Path $saveDir
         
-        # 2. 將主程式與設定檔放入 AppCore
-        Copy-Item -Path "$releaseDir\DrawingApp.exe" -Destination $appCoreDir
-        Copy-Item -Path "$releaseDir\DrawingApp.exe.config" -Destination $appCoreDir
+        # 1. 將主程式與設定檔留在主資料夾
+        Copy-Item -Path "$releaseDir\DrawingApp.exe" -Destination $publishDir
+        Copy-Item -Path "$releaseDir\DrawingApp.exe.config" -Destination $publishDir
         
-        # 3. 將所有 DLL 移動到 AppCore\Library 內
+        # 2. 將所有元件 (.dll) 移動到 Library 子資料夾內
         Get-ChildItem -Path $releaseDir -Filter *.dll | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination $libraryDir
         }
         
-        # 4. 處理 SQLite 的底層依賴庫 (x86/x64)
-        if (Test-Path "$releaseDir\x86") { Copy-Item -Path "$releaseDir\x86" -Destination $appCoreDir -Recurse }
-        if (Test-Path "$releaseDir\x64") { Copy-Item -Path "$releaseDir\x64" -Destination $appCoreDir -Recurse }
-
-        # 5. 在根目錄建立相對路徑的「啟動捷徑 (BAT腳本)」
-        # 使用 %~dp0 確保無論使用者在哪裡點擊，都能正確找到 AppCore 裡面的執行檔
-        $batContent = "@echo off`r`nstart """" `"%~dp0AppCore\DrawingApp.exe`""
-        Set-Content -Path "$publishDir\啟動繪圖軟體.bat" -Value $batContent -Encoding Default
+        # 3. 處理 SQLite 的底層非託管庫 (x86/x64)
+        # 這些必須與 .exe 保持同層，否則 SQLite 引擎會找不到
+        if (Test-Path "$releaseDir\x86") { Copy-Item -Path "$releaseDir\x86" -Destination $publishDir -Recurse }
+        if (Test-Path "$releaseDir\x64") { Copy-Item -Path "$releaseDir\x64" -Destination $publishDir -Recurse }
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
