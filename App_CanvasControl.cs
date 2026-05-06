@@ -25,7 +25,6 @@ namespace DrawingApp
         private RectangleF _initialBounds;
         private float _initialAngle;
 
-        // --- 紀錄連線拖曳前的狀態 ---
         private Guid _oldSrcId, _oldTgtId;
         private App_Shapes.AnchorPosition _oldSA, _oldTA;
         private PointF _oldStart, _oldEnd;
@@ -56,6 +55,8 @@ namespace DrawingApp
         public event Action<App_Shapes.ShapeBase> OnShapePropertyRequested;
         public event Action<PointF> OnImageInsertRequested;
         public event Action OnToolResetRequested;
+        // 為了讓外部 (MainForm) 能在多選時更新 UI 狀態
+        public event Action OnSelectionChanged;
 
         public App_CanvasControl()
         {
@@ -67,6 +68,7 @@ namespace DrawingApp
             this.DragDrop += Canvas_DragDrop;
             
             this.ContextMenuStrip = CreateContextMenu();
+            this.ContextMenuStrip.Opening += ContextMenuStrip_Opening; // 動態更新右鍵選單
             
             this.MouseDown += Canvas_MouseDown;
             this.MouseMove += Canvas_MouseMove;
@@ -105,6 +107,7 @@ namespace DrawingApp
                 SelectedShapes.Clear();
                 newShape.IsSelected = true;
                 SelectedShapes.Add(newShape);
+                OnSelectionChanged?.Invoke();
                 
                 this.Invalidate();
             }
@@ -147,10 +150,47 @@ namespace DrawingApp
             menu.Items.Add("移到最上層", null, (s, e) => ChangeZIndex(0));
             menu.Items.Add("移到最下層", null, (s, e) => ChangeZIndex(-99));
             menu.Items.Add(new ToolStripSeparator());
+            
+            // --- 優化：加入鎖定功能選單 ---
+            menu.Items.Add("鎖定/解鎖圖形", null, (s, e) => ToggleLock());
+            
+            menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("進階屬性設定...", null, (s, e) => {
                 if (SelectedShapes.Count == 1) OnShapePropertyRequested?.Invoke(SelectedShapes[0]);
             });
             return menu;
+        }
+
+        // 動態根據選取狀態決定哪些右鍵選單可用
+        private void ContextMenuStrip_Opening(object sender, System.ComponentModel.CancelEventArgs e)
+        {
+            var menu = (ContextMenuStrip)sender;
+            bool hasSelection = SelectedShapes.Count > 0;
+            bool hasSingleSelection = SelectedShapes.Count == 1;
+            bool hasGroupSelection = SelectedShapes.Count == 1 && SelectedShapes[0] is App_Shapes.GroupShape;
+            bool hasClipboard = _clipboard.Count > 0;
+
+            menu.Items[0].Enabled = hasSelection; // 複製
+            menu.Items[1].Enabled = hasClipboard; // 貼上
+            menu.Items[3].Enabled = SelectedShapes.Count > 1; // 群組
+            menu.Items[4].Enabled = hasGroupSelection; // 解除群組
+            menu.Items[6].Enabled = hasSelection; // 移到最上層
+            menu.Items[7].Enabled = hasSelection; // 移到最下層
+            menu.Items[9].Enabled = hasSelection; // 鎖定/解鎖
+            
+            if (hasSelection)
+            {
+                bool isAllLocked = SelectedShapes.All(s => s.IsLocked);
+                menu.Items[9].Text = isAllLocked ? "解鎖圖形" : "鎖定圖形";
+            }
+        }
+
+        private void ToggleLock()
+        {
+            if (SelectedShapes.Count == 0) return;
+            bool isAllLocked = SelectedShapes.All(s => s.IsLocked);
+            foreach (var s in SelectedShapes) s.IsLocked = !isAllLocked;
+            this.Invalidate();
         }
 
         private void ChangeZIndex(int direction)
@@ -176,6 +216,7 @@ namespace DrawingApp
             SelectedShapes.Clear();
             SelectedShapes.Add(group);
             group.IsSelected = true;
+            OnSelectionChanged?.Invoke();
             this.Invalidate();
         }
 
@@ -183,6 +224,8 @@ namespace DrawingApp
         {
             if (SelectedShapes.Count == 1 && SelectedShapes[0] is App_Shapes.GroupShape group)
             {
+                if (group.IsLocked) return; // 鎖定的群組無法解開
+
                 CmdManager.ExecuteCommand(new UngroupCommand(Shapes, group));
                 SelectedShapes.Clear();
                 foreach (var child in group.Children)
@@ -190,6 +233,7 @@ namespace DrawingApp
                     child.IsSelected = true;
                     SelectedShapes.Add(child);
                 }
+                OnSelectionChanged?.Invoke();
                 this.Invalidate();
             }
         }
@@ -299,7 +343,6 @@ namespace DrawingApp
             if (keyData == (Keys.Control | Keys.G)) { GroupSelected(); return true; }
             if (keyData == (Keys.Control | Keys.U)) { UngroupSelected(); return true; }
 
-            // --- 新增：方向鍵微調 (Nudge) 功能 ---
             Keys baseKey = keyData & ~Keys.Modifiers;
             if (SelectedShapes.Count > 0 && 
                (baseKey == Keys.Up || baseKey == Keys.Down || baseKey == Keys.Left || baseKey == Keys.Right))
@@ -313,21 +356,29 @@ namespace DrawingApp
                 if (baseKey == Keys.Left) dx = -nudgeAmount;
                 if (baseKey == Keys.Right) dx = nudgeAmount;
 
-                // 透過 Command 觸發移動，保證支援 Undo/Redo
-                CmdManager.ExecuteCommand(new MoveShapesCommand(SelectedShapes, dx, dy));
-                this.Invalidate();
+                var movableShapes = SelectedShapes.Where(s => !s.IsLocked).ToList();
+                if (movableShapes.Count > 0)
+                {
+                    CmdManager.ExecuteCommand(new MoveShapesCommand(movableShapes, dx, dy));
+                    this.Invalidate();
+                }
                 return true;
             }
 
             if (keyData == Keys.Delete && SelectedShapes.Count > 0)
             {
-                var toRemove = new List<App_Shapes.ShapeBase>(SelectedShapes);
-                foreach (var s in SelectedShapes)
+                // 防呆：不能刪除鎖定的圖形
+                var toRemove = new List<App_Shapes.ShapeBase>(SelectedShapes.Where(s => !s.IsLocked));
+                if (toRemove.Count == 0) return true;
+
+                foreach (var s in toRemove.ToList())
                 {
                     toRemove.AddRange(Shapes.OfType<App_Shapes.ConnectorShape>().Where(c => c.SourceId == s.Id || c.TargetId == s.Id));
                 }
                 CmdManager.ExecuteCommand(new RemoveShapesCommand(Shapes, toRemove));
-                SelectedShapes.Clear();
+                SelectedShapes.RemoveAll(s => !s.IsLocked);
+                OnSelectionChanged?.Invoke();
+                this.Invalidate();
                 return true;
             }
             if (keyData == (Keys.Control | Keys.C)) { Copy(); return true; }
@@ -346,11 +397,14 @@ namespace DrawingApp
             foreach (var s in newClones)
             {
                 s.Id = Guid.NewGuid();
+                s.IsLocked = false; // 貼上的圖形預設不鎖定
                 s.Move(20, 20);
                 s.IsSelected = true;
                 CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, s));
                 SelectedShapes.Add(s);
             }
+            OnSelectionChanged?.Invoke();
+            this.Invalidate();
         }
 
         private void Canvas_MouseDown(object sender, MouseEventArgs e)
@@ -373,7 +427,7 @@ namespace DrawingApp
             {
                 if (CurrentTool == App_Shapes.ShapeType.Pointer)
                 {
-                    if (SelectedShapes.Count == 1)
+                    if (SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                     {
                         var handle = SelectedShapes[0].HitTestHandle(realPt);
                         if (handle == App_Shapes.HandlePosition.Rotate)
@@ -409,21 +463,48 @@ namespace DrawingApp
 
                     if (hit != null)
                     {
-                        if (!SelectedShapes.Contains(hit) && Control.ModifierKeys != Keys.Control)
-                        {
-                            SelectedShapes.ForEach(s => s.IsSelected = false);
-                            SelectedShapes.Clear();
-                        }
-                        hit.IsSelected = true;
-                        if (!SelectedShapes.Contains(hit)) SelectedShapes.Add(hit);
+                        // --- 優化：支援 Shift 或 Ctrl 多重選取 ---
+                        bool isMultiSelectKey = (Control.ModifierKeys == Keys.Control || Control.ModifierKeys == Keys.Shift);
                         
-                        _currentState = InteractionState.Moving;
-                        _dragTotalDx = 0; _dragTotalDy = 0;
+                        if (isMultiSelectKey)
+                        {
+                            if (SelectedShapes.Contains(hit))
+                            {
+                                hit.IsSelected = false;
+                                SelectedShapes.Remove(hit);
+                            }
+                            else
+                            {
+                                hit.IsSelected = true;
+                                SelectedShapes.Add(hit);
+                            }
+                        }
+                        else
+                        {
+                            if (!SelectedShapes.Contains(hit))
+                            {
+                                SelectedShapes.ForEach(s => s.IsSelected = false);
+                                SelectedShapes.Clear();
+                                hit.IsSelected = true;
+                                SelectedShapes.Add(hit);
+                            }
+                        }
+                        
+                        OnSelectionChanged?.Invoke();
+
+                        // 只有當選取的圖形「包含非鎖定物件」時才能移動
+                        if (SelectedShapes.Any(s => !s.IsLocked))
+                        {
+                            _currentState = InteractionState.Moving;
+                            _dragTotalDx = 0; _dragTotalDy = 0;
+                        }
                     }
                     else
                     {
                         SelectedShapes.ForEach(s => s.IsSelected = false);
                         SelectedShapes.Clear();
+                        OnSelectionChanged?.Invoke();
+                        
                         _currentState = InteractionState.BoxSelecting;
                         _boxSelectRect = new RectangleF(realPt.X, realPt.Y, 0, 0);
                     }
@@ -495,9 +576,11 @@ namespace DrawingApp
 
                 if (_currentState == InteractionState.Moving)
                 {
-                    if (SelectedShapes.Count == 1)
+                    var movableShapes = SelectedShapes.Where(s => !s.IsLocked).ToList();
+                    
+                    if (movableShapes.Count == 1)
                     {
-                        var me = SelectedShapes[0];
+                        var me = movableShapes[0];
                         float snapThreshold = 5.0f / ZoomFactor;
 
                         float bestDx = dx, bestDy = dy;
@@ -525,9 +608,9 @@ namespace DrawingApp
 
                     _dragTotalDx += dx;
                     _dragTotalDy += dy;
-                    foreach (var s in SelectedShapes) s.Move(dx, dy);
+                    foreach (var s in movableShapes) s.Move(dx, dy);
                 }
-                else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1)
+                else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
                     var me = SelectedShapes[0];
                     PointF center = me.GetCenter();
@@ -542,11 +625,28 @@ namespace DrawingApp
                         Math.Abs(realPt.X - _boxSelectRect.X),
                         Math.Abs(realPt.Y - _boxSelectRect.Y)
                     );
-                    SelectedShapes.ForEach(s => s.IsSelected = false);
-                    SelectedShapes = Shapes.Where(s => s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds)).ToList();
-                    SelectedShapes.ForEach(s => s.IsSelected = true);
+                    
+                    bool isMultiSelectKey = (Control.ModifierKeys == Keys.Control || Control.ModifierKeys == Keys.Shift);
+                    if (!isMultiSelectKey) 
+                    {
+                        SelectedShapes.ForEach(s => s.IsSelected = false);
+                        SelectedShapes.Clear();
+                    }
+
+                    var newlySelected = Shapes.Where(s => s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds)).ToList();
+                    
+                    foreach(var ns in newlySelected)
+                    {
+                        if (!SelectedShapes.Contains(ns))
+                        {
+                            ns.IsSelected = true;
+                            SelectedShapes.Add(ns);
+                        }
+                    }
+                    
+                    OnSelectionChanged?.Invoke();
                 }
-                else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1)
+                else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
                     var shape = SelectedShapes[0];
 
@@ -558,12 +658,12 @@ namespace DrawingApp
                         if (_resizingHandle == App_Shapes.HandlePosition.StartPoint)
                         {
                             conn.StartPt = realPt;
-                            conn.SourceId = Guid.Empty; // 拖曳時先切斷綁定
+                            conn.SourceId = Guid.Empty;
                         }
                         else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint)
                         {
                             conn.EndPt = realPt;
-                            conn.TargetId = Guid.Empty; // 拖曳時先切斷綁定
+                            conn.TargetId = Guid.Empty;
                         }
 
                         for (int i = Shapes.Count - 1; i >= 0; i--)
@@ -655,12 +755,14 @@ namespace DrawingApp
 
             if (e.Button == MouseButtons.Left)
             {
-                if (_currentState == InteractionState.Moving && SelectedShapes.Count > 0 && (_dragTotalDx != 0 || _dragTotalDy != 0))
+                var movableShapes = SelectedShapes.Where(s => !s.IsLocked).ToList();
+
+                if (_currentState == InteractionState.Moving && movableShapes.Count > 0 && (_dragTotalDx != 0 || _dragTotalDy != 0))
                 {
-                    foreach (var s in SelectedShapes) s.Move(-_dragTotalDx, -_dragTotalDy);
-                    CmdManager.ExecuteCommand(new MoveShapesCommand(SelectedShapes, _dragTotalDx, _dragTotalDy));
+                    foreach (var s in movableShapes) s.Move(-_dragTotalDx, -_dragTotalDy);
+                    CmdManager.ExecuteCommand(new MoveShapesCommand(movableShapes, _dragTotalDx, _dragTotalDy));
                 }
-                else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1)
+                else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
                     if (SelectedShapes[0] is App_Shapes.ConnectorShape conn)
                     {
@@ -674,7 +776,7 @@ namespace DrawingApp
                         CmdManager.ExecuteCommand(new ResizeShapeCommand(SelectedShapes[0], _initialBounds, SelectedShapes[0].Bounds));
                     }
                 }
-                else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1)
+                else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
                     CmdManager.ExecuteCommand(new RotateShapeCommand(SelectedShapes[0], _initialAngle, SelectedShapes[0].RotationAngle));
                 }
