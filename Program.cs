@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -9,13 +10,15 @@ namespace DrawingApp
 {
     static class Program
     {
-        // 定義全域 Mutex 防止程式重複開啟
+        // 匯入 Windows 底層 API 以強制載入 Native DLL
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string libname);
+
         private static Mutex _mutex;
 
         [STAThread]
         static void Main()
         {
-            // 防止程式重複開啟
             _mutex = new Mutex(true, "DrawingApp_Commercial_Unique_ID", out bool createdNew);
             if (!createdNew)
             {
@@ -23,51 +26,58 @@ namespace DrawingApp
                 return;
             }
 
-            // 【關鍵修正】在觸碰任何 UI 或 Json 程式碼之前，先註冊事件
+            // 1. 強制讓系統先去 Library 裡面尋找 C++ 底層依賴檔 (如 SQLite)
+            PreLoadNativeLibraries();
+
+            // 2. 攔截一般 C# 程式庫 (如 Newtonsoft.Json) 去 Library 尋找
             AppDomain.CurrentDomain.AssemblyResolve += ResolveAssembly;
 
-            // 啟用視覺樣式
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             
-            // 攔截全域例外，提供更友善的錯誤訊息
             Application.ThreadException += (sender, args) =>
             {
-                string msg = $"發生未預期的錯誤: \n{args.Exception.Message}\n\n請確認 Library 資料夾內是否缺少必要的 DLL 檔案。";
+                string msg = $"發生未預期的錯誤: \n{args.Exception.Message}\n\n請確認 Library 資料夾內是否缺少必要的元件檔案。";
                 MessageBox.Show(msg, "系統錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
             };
 
-            // 使用獨立的方法來啟動主程式，防止 JIT 編譯器提早尋找 DLL
             LaunchApplication();
         }
 
-        // 告訴編譯器不要把這個方法跟 Main 合併，確保 AssemblyResolve 優先執行
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static void LaunchApplication()
         {
             Application.Run(new App_UI_MainForm());
         }
 
-        // 解析並載入外部 DLL
+        // 強制系統去 Library 資料夾載入 x64 或 x86 的 Native DLL
+        private static void PreLoadNativeLibraries()
+        {
+            try
+            {
+                string arch = Environment.Is64BitProcess ? "x64" : "x86";
+                string interopPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Library", arch, "SQLite.Interop.dll");
+                
+                if (File.Exists(interopPath))
+                {
+                    LoadLibrary(interopPath);
+                }
+            }
+            catch { /* 忽略底層載入錯誤，交由後續邏輯處理 */ }
+        }
+
+        // 引導 C# 核心套件至 Library 資料夾
         private static Assembly ResolveAssembly(object sender, ResolveEventArgs args)
         {
             try
             {
-                // 系統找不到 DLL 時，強制導向子資料夾 "Library"
                 string folderPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Library");
                 string assemblyName = new AssemblyName(args.Name).Name;
                 string assemblyPath = Path.Combine(folderPath, assemblyName + ".dll");
                 
-                if (File.Exists(assemblyPath))
-                {
-                    return Assembly.LoadFrom(assemblyPath);
-                }
+                if (File.Exists(assemblyPath)) return Assembly.LoadFrom(assemblyPath);
             }
-            catch 
-            { 
-                // 忽略解析過程中可能發生的名稱解析錯誤
-            }
-            
+            catch { }
             return null;
         }
     }
