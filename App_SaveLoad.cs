@@ -6,7 +6,6 @@ using Newtonsoft.Json;
 
 namespace DrawingApp
 {
-    // 支援多畫布分頁的資料結構
     public class DrawProject
     {
         public List<DrawPage> Pages { get; set; } = new List<DrawPage>();
@@ -20,7 +19,6 @@ namespace DrawingApp
 
     public static class App_SaveLoad
     {
-        // 定義存檔路徑為主程式同層的 "save" 資料夾
         private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
 
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
@@ -29,7 +27,7 @@ namespace DrawingApp
             Formatting = Formatting.Indented
         };
 
-        // 核心：動態確認並建立 save 資料夾
+        // 自動建立 save 資料夾
         private static void EnsureDirectory()
         {
             if (!Directory.Exists(SaveDirectory)) 
@@ -38,13 +36,11 @@ namespace DrawingApp
             }
         }
 
-        // 存檔改為接收整個 Project
         public static void SaveProject(DrawProject project)
         {
             try
             {
-                EnsureDirectory(); // 存檔前動態建置資料夾
-                
+                EnsureDirectory(); // 動作前先確保資料夾存在
                 using (SaveFileDialog sfd = new SaveFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
                     if (sfd.ShowDialog() == DialogResult.OK)
@@ -61,26 +57,22 @@ namespace DrawingApp
             }
         }
 
-        // 讀檔回傳整個 Project
         public static DrawProject LoadProject()
         {
             try
             {
-                EnsureDirectory(); // 讀取前動態建置資料夾 (避免第一次執行按讀取會找不到路徑)
-                
+                EnsureDirectory(); // 動作前先確保資料夾存在
                 using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
                     if (ofd.ShowDialog() == DialogResult.OK)
                     {
                         string json = File.ReadAllText(ofd.FileName);
-                        
-                        // 為了相容舊版的單頁存檔，做個防呆嘗試
                         try 
                         {
                             var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
                             if (project != null && project.Pages != null) return project;
                         }
-                        catch { /* 忽略錯誤，嘗試用舊版格式讀取 */ }
+                        catch { }
 
                         try
                         {
@@ -98,11 +90,9 @@ namespace DrawingApp
             {
                 MessageBox.Show($"讀取檔案時發生錯誤: {ex.Message}", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
-            
             return null;
         }
 
-        // 用於複製貼上的深拷貝
         public static List<App_Shapes.ShapeBase> CloneShapes(List<App_Shapes.ShapeBase> shapes)
         {
             try
@@ -113,7 +103,7 @@ namespace DrawingApp
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"複製圖形失敗: {ex.Message}", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"複製圖形失敗: {ex.Message}\n\n請確認元件是否正確載入。", "錯誤", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return new List<App_Shapes.ShapeBase>();
             }
         }
