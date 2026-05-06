@@ -10,7 +10,6 @@ namespace DrawingApp
     public static class App_Shapes
     {
         public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image }
-        // --- 新增 StartPoint 與 EndPoint ---
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
@@ -26,6 +25,9 @@ namespace DrawingApp
             
             [JsonIgnore] 
             public bool IsSelected { get; set; }
+
+            // --- 優化：加入 IsLocked 屬性，防止圖形被移動或縮放 ---
+            public bool IsLocked { get; set; } = false;
             
             public Guid Id { get; set; } = Guid.NewGuid();
 
@@ -78,12 +80,14 @@ namespace DrawingApp
 
             public virtual void UpdateEndPoint(PointF pt)
             {
+                if (IsLocked) return;
                 Bounds = new RectangleF(Bounds.X, Bounds.Y, pt.X - Bounds.X, pt.Y - Bounds.Y);
                 NormalizeBounds();
             }
 
             public virtual void SetBounds(RectangleF newBounds)
             {
+                if (IsLocked) return;
                 Bounds = newBounds;
                 NormalizeBounds();
             }
@@ -99,6 +103,7 @@ namespace DrawingApp
 
             public virtual void Move(float dx, float dy)
             {
+                if (IsLocked) return;
                 Bounds.Offset(dx, dy);
             }
 
@@ -125,7 +130,9 @@ namespace DrawingApp
                 g.RotateTransform(RotationAngle);
                 g.TranslateTransform(-center.X, -center.Y);
 
-                using (Pen p = new Pen(Color.DodgerBlue, 1.5f) { DashStyle = DashStyle.Dash })
+                // --- 優化：鎖定狀態下繪製灰色虛線框與灰色控制點 ---
+                Color outlineColor = IsLocked ? Color.Gray : Color.DodgerBlue;
+                using (Pen p = new Pen(outlineColor, 1.5f) { DashStyle = DashStyle.Dash })
                 {
                     g.DrawRectangle(p, Rectangle.Round(Bounds));
                 }
@@ -143,23 +150,29 @@ namespace DrawingApp
                     new PointF(Bounds.Left, center.Y)
                 };
 
+                Brush fillBrush = IsLocked ? Brushes.LightGray : Brushes.White;
+                Pen borderPen = IsLocked ? Pens.Gray : Pens.DodgerBlue;
+
                 foreach (var pt in corners)
                 {
-                    g.FillRectangle(Brushes.White, pt.X - s/2, pt.Y - s/2, s, s);
-                    g.DrawRectangle(Pens.DodgerBlue, pt.X - s/2, pt.Y - s/2, s, s);
+                    g.FillRectangle(fillBrush, pt.X - s/2, pt.Y - s/2, s, s);
+                    g.DrawRectangle(borderPen, pt.X - s/2, pt.Y - s/2, s, s);
                 }
 
-                PointF rotatePt = new PointF(center.X, Bounds.Top - 25);
-                g.DrawLine(Pens.DodgerBlue, center.X, Bounds.Top, rotatePt.X, rotatePt.Y);
-                g.FillEllipse(Brushes.LightGreen, rotatePt.X - 5, rotatePt.Y - 5, 10, 10);
-                g.DrawEllipse(Pens.DarkGreen, rotatePt.X - 5, rotatePt.Y - 5, 10, 10);
+                if (!IsLocked)
+                {
+                    PointF rotatePt = new PointF(center.X, Bounds.Top - 25);
+                    g.DrawLine(Pens.DodgerBlue, center.X, Bounds.Top, rotatePt.X, rotatePt.Y);
+                    g.FillEllipse(Brushes.LightGreen, rotatePt.X - 5, rotatePt.Y - 5, 10, 10);
+                    g.DrawEllipse(Pens.DarkGreen, rotatePt.X - 5, rotatePt.Y - 5, 10, 10);
+                }
 
                 g.Transform = oldMatrix;
             }
 
             public virtual HandlePosition HitTestHandle(PointF pt)
             {
-                if (!IsSelected) return HandlePosition.None;
+                if (!IsSelected || IsLocked) return HandlePosition.None;
 
                 PointF center = GetCenter();
                 PointF rotatedPt = RotatePoint(pt, center, -RotationAngle);
@@ -255,6 +268,7 @@ namespace DrawingApp
 
             public override void Move(float dx, float dy)
             {
+                if (IsLocked) return;
                 base.Move(dx, dy);
                 foreach (var child in Children)
                 {
@@ -264,6 +278,7 @@ namespace DrawingApp
 
             public override void SetBounds(RectangleF newBounds)
             {
+                if (IsLocked) return;
                 if (Bounds.Width == 0 || Bounds.Height == 0) return;
                 
                 float scaleX = newBounds.Width / Bounds.Width;
@@ -452,7 +467,7 @@ namespace DrawingApp
                 StartPt = start; EndPt = start; HasArrow = arrow; IsOrthogonal = orthogonal;
             }
             
-            public override void UpdateEndPoint(PointF pt) { EndPt = pt; }
+            public override void UpdateEndPoint(PointF pt) { if (!IsLocked) EndPt = pt; }
             
             public override bool HitTest(PointF pt) 
             { 
@@ -464,10 +479,9 @@ namespace DrawingApp
                 return false; 
             } 
 
-            // --- 新增：線條的獨立控制器判定 ---
             public override HandlePosition HitTestHandle(PointF pt)
             {
-                if (!IsSelected || _cachedPath == null || _cachedPath.Length < 2) return HandlePosition.None;
+                if (!IsSelected || IsLocked || _cachedPath == null || _cachedPath.Length < 2) return HandlePosition.None;
 
                 float s = 10;
                 PointF start = _cachedPath[0];
@@ -481,7 +495,7 @@ namespace DrawingApp
 
             public override void Move(float dx, float dy)
             {
-                // 當整個線條被拖曳時，起終點一起移動
+                if (IsLocked) return;
                 StartPt = new PointF(StartPt.X + dx, StartPt.Y + dy);
                 EndPt = new PointF(EndPt.X + dx, EndPt.Y + dy);
             }
@@ -531,27 +545,30 @@ namespace DrawingApp
 
             public override void Draw(Graphics g) { }
 
-            // --- 新增：繪製線條的起終點大控制圓圈 ---
             public override void DrawSelection(Graphics g)
             {
                 if (!IsSelected || _cachedPath == null || _cachedPath.Length < 2) return;
                 
-                // 畫折點
+                Color ptColor = IsLocked ? Color.LightGray : Color.White;
+                Color borderColor = IsLocked ? Color.Gray : Color.DodgerBlue;
+
                 foreach (var pt in _cachedPath)
                 {
-                    g.FillRectangle(Brushes.White, pt.X - 3, pt.Y - 3, 6, 6);
-                    g.DrawRectangle(Pens.DodgerBlue, pt.X - 3, pt.Y - 3, 6, 6);
+                    using (Brush b = new SolidBrush(ptColor)) g.FillRectangle(b, pt.X - 3, pt.Y - 3, 6, 6);
+                    using (Pen p = new Pen(borderColor)) g.DrawRectangle(p, pt.X - 3, pt.Y - 3, 6, 6);
                 }
 
-                // 畫黃色/紅邊大圓圈作為可拖曳點
-                PointF start = _cachedPath[0];
-                PointF end = _cachedPath[_cachedPath.Length - 1];
+                if (!IsLocked)
+                {
+                    PointF start = _cachedPath[0];
+                    PointF end = _cachedPath[_cachedPath.Length - 1];
 
-                g.FillEllipse(Brushes.Yellow, start.X - 5, start.Y - 5, 10, 10);
-                g.DrawEllipse(Pens.Red, start.X - 5, start.Y - 5, 10, 10);
+                    g.FillEllipse(Brushes.Yellow, start.X - 5, start.Y - 5, 10, 10);
+                    g.DrawEllipse(Pens.Red, start.X - 5, start.Y - 5, 10, 10);
 
-                g.FillEllipse(Brushes.Yellow, end.X - 5, end.Y - 5, 10, 10);
-                g.DrawEllipse(Pens.Red, end.X - 5, end.Y - 5, 10, 10);
+                    g.FillEllipse(Brushes.Yellow, end.X - 5, end.Y - 5, 10, 10);
+                    g.DrawEllipse(Pens.Red, end.X - 5, end.Y - 5, 10, 10);
+                }
             }
         }
 
