@@ -27,12 +27,14 @@ namespace DrawingApp
         private Button _btnShapeColor;
         private Button _btnFontColor;
         
+        // --- 新增：對齊面板的容器 ---
+        private FlowLayoutPanel _alignmentPanel;
+
         private TextBox _tabEditBox;
 
         private bool _isUpdatingUI = false;
         private int _tabCounter = 1;
 
-        // --- 優化：加入 Dirty Flag 變數 ---
         private bool _isDirty = false;
 
         public App_UI_MainForm()
@@ -41,7 +43,6 @@ namespace DrawingApp
             
             AddNewTab($"畫布 {_tabCounter++}");
 
-            // --- 優化：攔截視窗關閉事件 ---
             this.FormClosing += App_UI_MainForm_FormClosing;
         }
 
@@ -56,7 +57,6 @@ namespace DrawingApp
             _tabControl.Dock = DockStyle.Fill;
             _tabControl.SelectedIndexChanged += (s, e) => RefreshPropertyPanel();
             _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
-            // --- 優化：加入 Tab 的滑鼠右鍵點擊事件 (關閉分頁) ---
             _tabControl.MouseClick += TabControl_MouseClick;
 
             _tabEditBox = new TextBox();
@@ -82,7 +82,7 @@ namespace DrawingApp
             cbPageSize.SelectedIndexChanged += (s, e) => { 
                 if (CurrentCanvas != null) { 
                     UpdatePageSize(cbPageSize.Text); 
-                    _isDirty = true; // 頁面大小改變視為未存檔
+                    _isDirty = true; 
                     UpdateWindowTitle();
                 } 
             };
@@ -160,7 +160,6 @@ namespace DrawingApp
             this.Controls.Add(_topBar);
         }
 
-        // --- 優化：關閉軟體時的防呆攔截 ---
         private void App_UI_MainForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (_isDirty)
@@ -170,7 +169,7 @@ namespace DrawingApp
                 if (result == DialogResult.Yes)
                 {
                     SaveAllTabs();
-                    if (_isDirty) // 如果存檔失敗或被取消，就阻止關閉
+                    if (_isDirty) 
                     {
                         e.Cancel = true;
                     }
@@ -210,7 +209,6 @@ namespace DrawingApp
             return new Panel() { Width = 1, Height = 35, BackColor = Color.FromArgb(200, 200, 200), Margin = new Padding(4, 0, 12, 0) };
         }
 
-        // --- 優化：在 Tab 上點擊右鍵跳出關閉選單 ---
         private void TabControl_MouseClick(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Right)
@@ -294,12 +292,14 @@ namespace DrawingApp
 
             canvas.MouseUp += (s, e) => RefreshPropertyPanel();
             
-            // --- 優化：當 Canvas 的 CommandManager 狀態改變時，觸發 Dirty Flag ---
             canvas.CmdManager.OnStateChanged += () => {
                 RefreshPropertyPanel();
                 _isDirty = true;
                 UpdateWindowTitle();
             };
+
+            // 當多選狀態改變時，更新屬性與對齊面板
+            canvas.OnSelectionChanged += () => RefreshPropertyPanel();
             
             canvas.OnToolResetRequested += () => { 
                 if (CurrentCanvas != null) CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer; 
@@ -312,7 +312,6 @@ namespace DrawingApp
             _tabControl.TabPages.Add(page);
             _tabControl.SelectedTab = page; 
 
-            // 如果是使用者點擊新增按鈕，標記為未存檔
             if (shapes == null)
             {
                 _isDirty = true;
@@ -392,9 +391,141 @@ namespace DrawingApp
             _btnFontColor = new Button() { Text = "文字顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
             _btnFontColor.FlatAppearance.BorderColor = Color.Gray;
             _btnFontColor.Click += (s, e) => ChangeColor(false);
-            _rightPanel.Controls.Add(_btnFontColor);
+            _rightPanel.Controls.Add(_btnFontColor); startY += 50;
 
+            // --- 優化：一鍵對齊工具列 ---
+            Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
+            _rightPanel.Controls.Add(alignTitle); startY += 30;
+
+            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(10, startY), Width = 190, Height = 80, WrapContents = true };
+            
+            _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
+            _alignmentPanel.Controls.Add(CreateAlignButton("置中", (s, e) => AlignShapes("Center")));
+            _alignmentPanel.Controls.Add(CreateAlignButton("靠右", (s, e) => AlignShapes("Right")));
+            _alignmentPanel.Controls.Add(CreateAlignButton("靠上", (s, e) => AlignShapes("Top")));
+            _alignmentPanel.Controls.Add(CreateAlignButton("垂直置中", (s, e) => AlignShapes("Middle")));
+            _alignmentPanel.Controls.Add(CreateAlignButton("靠下", (s, e) => AlignShapes("Bottom")));
+            _alignmentPanel.Controls.Add(CreateAlignButton("水平均分", (s, e) => DistributeShapes("Horizontal")));
+            _alignmentPanel.Controls.Add(CreateAlignButton("垂直均分", (s, e) => DistributeShapes("Vertical")));
+
+            _rightPanel.Controls.Add(_alignmentPanel);
+            
             _rightPanel.Enabled = false; 
+            _alignmentPanel.Enabled = false;
+        }
+
+        private Button CreateAlignButton(string text, EventHandler onClick)
+        {
+            Button btn = new Button()
+            {
+                Text = text,
+                Size = new Size(58, 28),
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.White,
+                Cursor = Cursors.Hand,
+                Font = new Font("微軟正黑體", 8)
+            };
+            btn.FlatAppearance.BorderColor = Color.LightGray;
+            btn.Click += onClick;
+            return btn;
+        }
+
+        // --- 優化：實作對齊邏輯 ---
+        private void AlignShapes(string type)
+        {
+            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count < 2) return;
+            
+            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
+            if (shapes.Count == 0) return;
+
+            var oldBounds = shapes.Select(s => s.Bounds).ToList();
+            var newBounds = new List<RectangleF>();
+
+            float referenceValue = 0;
+
+            switch (type)
+            {
+                case "Left":
+                    referenceValue = shapes.Min(s => s.Bounds.Left);
+                    foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                    break;
+                case "Right":
+                    referenceValue = shapes.Max(s => s.Bounds.Right);
+                    foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                    break;
+                case "Center":
+                    referenceValue = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2);
+                    foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                    break;
+                case "Top":
+                    referenceValue = shapes.Min(s => s.Bounds.Top);
+                    foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue, s.Bounds.Width, s.Bounds.Height));
+                    break;
+                case "Bottom":
+                    referenceValue = shapes.Max(s => s.Bounds.Bottom);
+                    foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height));
+                    break;
+                case "Middle":
+                    referenceValue = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2);
+                    foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height));
+                    break;
+            }
+
+            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
+            CurrentCanvas.Invalidate();
+        }
+
+        // --- 優化：實作等距均分邏輯 ---
+        private void DistributeShapes(string type)
+        {
+            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count < 3) return;
+            
+            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
+            if (shapes.Count < 3) return;
+
+            var oldBounds = shapes.Select(s => s.Bounds).ToList();
+            var newBounds = new List<RectangleF>();
+
+            if (type == "Horizontal")
+            {
+                shapes = shapes.OrderBy(s => s.Bounds.X).ToList();
+                float totalSpace = shapes.Last().Bounds.Right - shapes.First().Bounds.Left;
+                float totalShapeWidth = shapes.Sum(s => s.Bounds.Width);
+                float gap = (totalSpace - totalShapeWidth) / (shapes.Count - 1);
+                
+                float currentX = shapes.First().Bounds.Left;
+                foreach (var s in shapes)
+                {
+                    newBounds.Add(new RectangleF(currentX, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                    currentX += s.Bounds.Width + gap;
+                }
+            }
+            else if (type == "Vertical")
+            {
+                shapes = shapes.OrderBy(s => s.Bounds.Y).ToList();
+                float totalSpace = shapes.Last().Bounds.Bottom - shapes.First().Bounds.Top;
+                float totalShapeHeight = shapes.Sum(s => s.Bounds.Height);
+                float gap = (totalSpace - totalShapeHeight) / (shapes.Count - 1);
+                
+                float currentY = shapes.First().Bounds.Top;
+                foreach (var s in shapes)
+                {
+                    newBounds.Add(new RectangleF(s.Bounds.X, currentY, s.Bounds.Width, s.Bounds.Height));
+                    currentY += s.Bounds.Height + gap;
+                }
+            }
+
+            // 要對應原本順序以正確寫入 Command
+            var orderedNewBounds = new List<RectangleF>();
+            var originalShapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
+            for (int i = 0; i < originalShapes.Count; i++)
+            {
+                int sortedIndex = shapes.IndexOf(originalShapes[i]);
+                orderedNewBounds.Add(newBounds[sortedIndex]);
+            }
+
+            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(originalShapes, oldBounds, orderedNewBounds));
+            CurrentCanvas.Invalidate();
         }
 
         private void PropertyChanged(object sender, EventArgs e)
@@ -407,7 +538,6 @@ namespace DrawingApp
             shape.StrokeWidth = (float)_nudStroke.Value;
             shape.StrokeDashStyle = (DashStyle)_cbDash.SelectedItem;
             
-            // 觸發重新繪製並標記為髒狀態
             CurrentCanvas.Invalidate();
             _isDirty = true;
             UpdateWindowTitle();
@@ -446,27 +576,44 @@ namespace DrawingApp
 
         private void RefreshPropertyPanel()
         {
-            if (CurrentCanvas != null && CurrentCanvas.SelectedShapes.Count == 1)
+            if (CurrentCanvas != null)
             {
-                _isUpdatingUI = true;
-                var shape = CurrentCanvas.SelectedShapes[0];
+                int selCount = CurrentCanvas.SelectedShapes.Count;
+                
+                // 只有選取單一圖形時開放屬性編輯
+                if (selCount == 1)
+                {
+                    _isUpdatingUI = true;
+                    var shape = CurrentCanvas.SelectedShapes[0];
 
-                if (_cbFont.Items.Contains(shape.FontName)) _cbFont.SelectedItem = shape.FontName;
-                _nudFontSize.Value = (decimal)Math.Max(_nudFontSize.Minimum, Math.Min(_nudFontSize.Maximum, (decimal)shape.FontSize));
-                _nudStroke.Value = (decimal)Math.Max(_nudStroke.Minimum, Math.Min(_nudStroke.Maximum, (decimal)shape.StrokeWidth));
-                _cbDash.SelectedItem = shape.StrokeDashStyle;
+                    if (_cbFont.Items.Contains(shape.FontName)) _cbFont.SelectedItem = shape.FontName;
+                    _nudFontSize.Value = (decimal)Math.Max(_nudFontSize.Minimum, Math.Min(_nudFontSize.Maximum, (decimal)shape.FontSize));
+                    _nudStroke.Value = (decimal)Math.Max(_nudStroke.Minimum, Math.Min(_nudStroke.Maximum, (decimal)shape.StrokeWidth));
+                    _cbDash.SelectedItem = shape.StrokeDashStyle;
 
-                _btnShapeColor.BackColor = shape.ShapeColor;
-                _btnShapeColor.ForeColor = GetContrastColor(shape.ShapeColor);
-                _btnFontColor.BackColor = shape.FontColor;
-                _btnFontColor.ForeColor = GetContrastColor(shape.FontColor);
+                    _btnShapeColor.BackColor = shape.ShapeColor;
+                    _btnShapeColor.ForeColor = GetContrastColor(shape.ShapeColor);
+                    _btnFontColor.BackColor = shape.FontColor;
+                    _btnFontColor.ForeColor = GetContrastColor(shape.FontColor);
 
-                _rightPanel.Enabled = true;
-                _isUpdatingUI = false;
+                    _rightPanel.Enabled = true;
+                    _isUpdatingUI = false;
+                }
+                else
+                {
+                    _rightPanel.Enabled = false;
+                }
+
+                // 只有選取兩個以上時開放對齊按鈕
+                _alignmentPanel.Enabled = selCount > 1;
+
+                // 為了讓右側面板在 Enable 變化時視覺刷新
+                _rightPanel.Enabled = (selCount > 0);
             }
             else
             {
                 _rightPanel.Enabled = false;
+                _alignmentPanel.Enabled = false;
             }
         }
 
