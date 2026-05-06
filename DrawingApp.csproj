@@ -7,6 +7,9 @@
     <AssemblyName>DrawingApp</AssemblyName>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    
+    <!-- 【關鍵修正】強制將 NuGet 參考的 DLL 複製到輸出目錄，否則 PostBuild 會找不到檔案 -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <ItemGroup>
