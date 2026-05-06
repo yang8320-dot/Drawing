@@ -20,6 +20,9 @@ namespace DrawingApp
     public static class App_SaveLoad
     {
         private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
+        
+        // --- 新增：定義自動存檔的路徑 ---
+        private static string AutoSavePath => Path.Combine(SaveDirectory, "autosave.draw");
 
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
         {
@@ -27,7 +30,6 @@ namespace DrawingApp
             Formatting = Formatting.Indented
         };
 
-        // 自動建立 save 資料夾
         private static void EnsureDirectory()
         {
             if (!Directory.Exists(SaveDirectory)) 
@@ -36,12 +38,11 @@ namespace DrawingApp
             }
         }
 
-        // --- 優化：變更回傳型態為 bool，讓外部可以判斷是否存檔成功以解除 Dirty Flag ---
         public static bool SaveProject(DrawProject project)
         {
             try
             {
-                EnsureDirectory(); // 動作前先確保資料夾存在
+                EnsureDirectory(); 
                 using (SaveFileDialog sfd = new SaveFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
                     if (sfd.ShowDialog() == DialogResult.OK)
@@ -49,6 +50,9 @@ namespace DrawingApp
                         string json = JsonConvert.SerializeObject(project, jsonSettings);
                         File.WriteAllText(sfd.FileName, json);
                         MessageBox.Show("專案存檔成功！", "系統通知", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        
+                        // 正常存檔後，刪除自動存檔備份
+                        DeleteAutoSave();
                         return true;
                     }
                 }
@@ -64,7 +68,7 @@ namespace DrawingApp
         {
             try
             {
-                EnsureDirectory(); // 動作前先確保資料夾存在
+                EnsureDirectory(); 
                 using (OpenFileDialog ofd = new OpenFileDialog { Filter = "Draw Project (*.draw)|*.draw", InitialDirectory = SaveDirectory })
                 {
                     if (ofd.ShowDialog() == DialogResult.OK)
@@ -94,6 +98,53 @@ namespace DrawingApp
                 MessageBox.Show($"讀取檔案時發生錯誤: {ex.Message}", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             return null;
+        }
+
+        // --- 新增：背景自動存檔邏輯 ---
+        public static void PerformAutoSave(DrawProject project)
+        {
+            try
+            {
+                EnsureDirectory();
+                string json = JsonConvert.SerializeObject(project, jsonSettings);
+                File.WriteAllText(AutoSavePath, json);
+            }
+            catch { /* 背景存檔出錯時不干擾使用者 */ }
+        }
+
+        // --- 新增：檢測是否有未正常關閉的備份檔 ---
+        public static DrawProject CheckAndLoadAutoSave()
+        {
+            if (File.Exists(AutoSavePath))
+            {
+                var result = MessageBox.Show("系統發現有未正常關閉的自動存檔，是否要恢復之前的進度？", "恢復備份", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                if (result == DialogResult.Yes)
+                {
+                    try
+                    {
+                        string json = File.ReadAllText(AutoSavePath);
+                        var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
+                        if (project != null && project.Pages != null) return project;
+                    }
+                    catch
+                    {
+                        MessageBox.Show("自動存檔檔案已損毀，無法恢復。", "恢復失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+                
+                // 不管是選擇不恢復、還是恢復失敗，都清空舊的 AutoSave
+                DeleteAutoSave();
+            }
+            return null;
+        }
+
+        public static void DeleteAutoSave()
+        {
+            try
+            {
+                if (File.Exists(AutoSavePath)) File.Delete(AutoSavePath);
+            }
+            catch { }
         }
 
         public static List<App_Shapes.ShapeBase> CloneShapes(List<App_Shapes.ShapeBase> shapes)
