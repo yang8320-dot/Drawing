@@ -9,7 +9,8 @@ namespace DrawingApp
 {
     public class App_UI_MainForm : Form
     {
-        private Panel _topBar;
+        // 改為 FlowLayoutPanel 實現完美自動排版
+        private FlowLayoutPanel _topBar;
         private FlowLayoutPanel _leftPanel;
         private Panel _rightPanel;
         
@@ -57,45 +58,63 @@ namespace DrawingApp
             _tabControl.SelectedIndexChanged += (s, e) => RefreshPropertyPanel();
             _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
 
-            // 初始化分頁名稱編輯器 (注意：不可加入 TabControl，要在後面加入 container)
             _tabEditBox = new TextBox();
             _tabEditBox.Visible = false;
             _tabEditBox.BorderStyle = BorderStyle.FixedSingle;
             _tabEditBox.Leave += TabEditBox_Leave;
             _tabEditBox.KeyDown += TabEditBox_KeyDown;
 
-            // --- 2. 頂部系統工具列 ---
-            _topBar = new Panel() { Dock = DockStyle.Top, Height = 60, BackColor = Color.FromArgb(245, 245, 245) };
-            int currentX = 10;
+            // --- 2. 頂部系統工具列 (重構：完美對齊的流式佈局) ---
+            _topBar = new FlowLayoutPanel() 
+            { 
+                Dock = DockStyle.Top, 
+                Height = 55, 
+                BackColor = Color.FromArgb(245, 246, 248), 
+                Padding = new Padding(10, 10, 10, 10),
+                WrapContents = false 
+            };
 
-            CreateTextButton(_topBar, "➕ 新增畫布", currentX, 85, (s, e) => AddNewTab($"畫布 {_tabCounter++}")); currentX += 95;
-
-            ComboBox cbPageSize = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(currentX, 18), Width = 100 };
+            // 【畫布區】
+            _topBar.Controls.Add(CreateTextButton("➕ 新增畫布", 100, (s, e) => AddNewTab($"畫布 {_tabCounter++}")));
+            
+            ComboBox cbPageSize = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100, Margin = new Padding(0, 7, 8, 0) };
             cbPageSize.Items.AddRange(new string[] { "A4 直式", "A4 橫式", "A3 直式", "A3 橫式", "A2 直式", "A2 橫式", "A1 直式", "A1 橫式" });
             cbPageSize.SelectedIndex = 0;
             cbPageSize.SelectedIndexChanged += (s, e) => { if (CurrentCanvas != null) { UpdatePageSize(cbPageSize.Text); } };
-            _topBar.Controls.Add(cbPageSize); currentX += 110;
+            _topBar.Controls.Add(cbPageSize);
 
-            CreateTextButton(_topBar, "復原", currentX, 50, (s, e) => CurrentCanvas?.CmdManager.Undo()); currentX += 55;
-            CreateTextButton(_topBar, "重做", currentX, 50, (s, e) => CurrentCanvas?.CmdManager.Redo()); currentX += 65;
-            
-            CreateTextButton(_topBar, "放大+", currentX, 50, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor + 0.2f); }); currentX += 55;
-            CreateTextButton(_topBar, "縮小-", currentX, 50, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }); currentX += 55;
-            CreateTextButton(_topBar, "100%", currentX, 50, (s, e) => CurrentCanvas?.SetZoom(1.0f)); currentX += 65;
+            _topBar.Controls.Add(CreateDivider());
 
-            CheckBox chkSnap = new CheckBox() { Text = "網格對齊", Location = new Point(currentX, 20), Checked = true, AutoSize = true };
+            // 【編輯區】
+            _topBar.Controls.Add(CreateTextButton("復原", 60, (s, e) => CurrentCanvas?.CmdManager.Undo()));
+            _topBar.Controls.Add(CreateTextButton("重做", 60, (s, e) => CurrentCanvas?.CmdManager.Redo()));
+
+            _topBar.Controls.Add(CreateDivider());
+
+            // 【視圖區】
+            _topBar.Controls.Add(CreateTextButton("放大 +", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor + 0.2f); }));
+            _topBar.Controls.Add(CreateTextButton("縮小 -", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }));
+            _topBar.Controls.Add(CreateTextButton("100%", 60, (s, e) => CurrentCanvas?.SetZoom(1.0f)));
+
+            CheckBox chkSnap = new CheckBox() { Text = "網格對齊", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 15, 0) };
             chkSnap.CheckedChanged += (s, e) => { 
                 if (CurrentCanvas != null) {
                     CurrentCanvas.SnapToGrid = chkSnap.Checked; 
                     CurrentCanvas.Invalidate(); 
                 }
             };
-            _topBar.Controls.Add(chkSnap); currentX += 90;
+            _topBar.Controls.Add(chkSnap);
 
-            CreateTextButton(_topBar, "存檔", currentX, 50, (s, e) => SaveAllTabs()); currentX += 55;
-            CreateTextButton(_topBar, "讀取", currentX, 50, (s, e) => LoadTabs()); currentX += 65;
+            _topBar.Controls.Add(CreateDivider());
 
-            CreateTextButton(_topBar, "匯出 PNG", currentX, 75, async (s, e) => {
+            // 【檔案存取區】
+            _topBar.Controls.Add(CreateTextButton("存檔", 60, (s, e) => SaveAllTabs()));
+            _topBar.Controls.Add(CreateTextButton("讀取", 60, (s, e) => LoadTabs()));
+
+            _topBar.Controls.Add(CreateDivider());
+
+            // 【匯出區】
+            _topBar.Controls.Add(CreateTextButton("匯出 PNG", 90, async (s, e) => {
                 if (CurrentCanvas == null) return;
                 using (var sfd = new SaveFileDialog() { Filter = "PNG 圖片|*.png" })
                     if (sfd.ShowDialog() == DialogResult.OK)
@@ -103,11 +122,11 @@ namespace DrawingApp
                         await App_Export.ExportToPngAsync(CurrentCanvas.GetTransparentCanvasRender(), sfd.FileName);
                         MessageBox.Show("當前畫布 PNG 匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
-            }); currentX += 80;
-
-            CreateTextButton(_topBar, "匯出 PDF", currentX, 75, (s, e) => {
+            }));
+            
+            _topBar.Controls.Add(CreateTextButton("匯出 PDF", 90, (s, e) => {
                 if (CurrentCanvas != null) ShowPdfExportDialog();
-            });
+            }));
 
             // --- 3. 左側圖形庫 ---
             _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 60, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5) };
@@ -131,16 +150,40 @@ namespace DrawingApp
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
             BuildPropertyPanel();
 
-            // --- 5. 組裝畫面 (關鍵修正：將 TextBox 加到 Parent Container 並置頂) ---
+            // --- 5. 組裝畫面 ---
             Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
             centerContainer.Controls.Add(_tabControl);
-            centerContainer.Controls.Add(_tabEditBox); // 加在這裡才合法
-            _tabEditBox.BringToFront(); // 讓它懸浮在分頁最上層
+            centerContainer.Controls.Add(_tabEditBox); 
+            _tabEditBox.BringToFront(); 
 
             this.Controls.Add(centerContainer);
             this.Controls.Add(_rightPanel);
             this.Controls.Add(_leftPanel);
             this.Controls.Add(_topBar);
+        }
+
+        // --- 產生頂部按鈕的標準化方法 ---
+        private Button CreateTextButton(string text, int width, EventHandler onClick)
+        {
+            Button btn = new Button() 
+            { 
+                Text = text, 
+                Size = new Size(width, 35), 
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.White,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 0, 8, 0)
+            };
+            btn.FlatAppearance.BorderColor = Color.FromArgb(210, 210, 210);
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 238, 255); // 滑鼠懸停的高亮色
+            btn.Click += onClick;
+            return btn;
+        }
+
+        // --- 產生垂直分隔線 ---
+        private Panel CreateDivider()
+        {
+            return new Panel() { Width = 1, Height = 35, BackColor = Color.FromArgb(200, 200, 200), Margin = new Padding(4, 0, 12, 0) };
         }
 
         // --- 畫布名稱雙擊編輯邏輯 ---
@@ -152,7 +195,6 @@ namespace DrawingApp
                 if (rect.Contains(e.Location))
                 {
                     _tabEditBox.Text = _tabControl.TabPages[i].Text;
-                    // 將輸入框顯示在該分頁標籤的位置上方 (相對於 centerContainer)
                     _tabEditBox.Bounds = new Rectangle(rect.X + 2, rect.Y + 2, rect.Width - 4, rect.Height - 4);
                     _tabEditBox.Tag = _tabControl.TabPages[i]; 
                     _tabEditBox.Visible = true;
@@ -164,32 +206,19 @@ namespace DrawingApp
             }
         }
 
-        private void TabEditBox_Leave(object sender, EventArgs e)
-        {
-            CommitTabRename();
-        }
-
+        private void TabEditBox_Leave(object sender, EventArgs e) { CommitTabRename(); }
+        
         private void TabEditBox_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Enter)
-            {
-                e.SuppressKeyPress = true;
-                CommitTabRename();
-            }
-            else if (e.KeyCode == Keys.Escape)
-            {
-                _tabEditBox.Visible = false;
-            }
+            if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; CommitTabRename(); }
+            else if (e.KeyCode == Keys.Escape) _tabEditBox.Visible = false;
         }
 
         private void CommitTabRename()
         {
             if (_tabEditBox.Visible && _tabEditBox.Tag is TabPage page)
             {
-                if (!string.IsNullOrWhiteSpace(_tabEditBox.Text))
-                {
-                    page.Text = _tabEditBox.Text.Trim();
-                }
+                if (!string.IsNullOrWhiteSpace(_tabEditBox.Text)) page.Text = _tabEditBox.Text.Trim();
                 _tabEditBox.Visible = false;
             }
         }
@@ -205,7 +234,6 @@ namespace DrawingApp
             canvas.Dock = DockStyle.Fill;
             if (shapes != null) canvas.Shapes = shapes;
 
-            // 將畫布事件綁定到 UI
             canvas.MouseUp += (s, e) => RefreshPropertyPanel();
             canvas.CmdManager.OnStateChanged += () => RefreshPropertyPanel();
             
@@ -218,7 +246,7 @@ namespace DrawingApp
 
             page.Controls.Add(canvas);
             _tabControl.TabPages.Add(page);
-            _tabControl.SelectedTab = page; // 切換到新畫布
+            _tabControl.SelectedTab = page; 
         }
 
         private void SaveAllTabs()
@@ -227,9 +255,7 @@ namespace DrawingApp
             foreach (TabPage tab in _tabControl.TabPages)
             {
                 if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl canvas)
-                {
                     project.Pages.Add(new DrawPage { Title = tab.Text, Shapes = canvas.Shapes });
-                }
             }
             App_SaveLoad.SaveProject(project);
         }
@@ -240,10 +266,7 @@ namespace DrawingApp
             if (project != null && project.Pages.Count > 0)
             {
                 _tabControl.TabPages.Clear();
-                foreach (var page in project.Pages)
-                {
-                    AddNewTab(page.Title, page.Shapes);
-                }
+                foreach (var page in project.Pages) AddNewTab(page.Title, page.Shapes);
             }
         }
 
@@ -276,11 +299,13 @@ namespace DrawingApp
             _cbDash.SelectedIndexChanged += PropertyChanged;
             _rightPanel.Controls.Add(_cbDash); startY += 50;
 
-            _btnShapeColor = new Button() { Text = "外框 / 圖形顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat };
+            _btnShapeColor = new Button() { Text = "外框 / 圖形顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
+            _btnShapeColor.FlatAppearance.BorderColor = Color.Gray;
             _btnShapeColor.Click += (s, e) => ChangeColor(true);
             _rightPanel.Controls.Add(_btnShapeColor); startY += 45;
 
-            _btnFontColor = new Button() { Text = "文字顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat };
+            _btnFontColor = new Button() { Text = "文字顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
+            _btnFontColor.FlatAppearance.BorderColor = Color.Gray;
             _btnFontColor.Click += (s, e) => ChangeColor(false);
             _rightPanel.Controls.Add(_btnFontColor);
 
@@ -415,15 +440,6 @@ namespace DrawingApp
             CurrentCanvas.Invalidate();
         }
 
-        private Button CreateTextButton(Panel parent, string text, int startX, int width, EventHandler onClick)
-        {
-            Button btn = new Button() { Text = text, Location = new Point(startX, 10), Size = new Size(width, 35), FlatStyle = FlatStyle.Flat };
-            btn.FlatAppearance.BorderColor = Color.LightGray;
-            btn.Click += onClick;
-            parent.Controls.Add(btn);
-            return btn;
-        }
-
         private Button CreateToolButton(App_Shapes.ShapeType type, string tooltip)
         {
             Button btn = new Button() { Size = new Size(45, 45), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(2, 2, 2, 8) };
@@ -435,9 +451,7 @@ namespace DrawingApp
             
             Point mouseDownLocation = Point.Empty;
 
-            btn.MouseDown += (s, e) => {
-                if (e.Button == MouseButtons.Left) mouseDownLocation = e.Location;
-            };
+            btn.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) mouseDownLocation = e.Location; };
 
             btn.MouseMove += (s, e) => {
                 if (e.Button == MouseButtons.Left && mouseDownLocation != Point.Empty)
