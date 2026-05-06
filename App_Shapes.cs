@@ -10,7 +10,10 @@ namespace DrawingApp
     public static class App_Shapes
     {
         public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image }
-        public enum HandlePosition { None, NW, NE, SW, SE }
+        // 升級：擴充為 8 個縮放點與 1 個旋轉控制點
+        public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate }
+        // 新增：固定連線錨點
+        public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
         public abstract class ShapeBase
         {
@@ -19,6 +22,9 @@ namespace DrawingApp
             
             public float StrokeWidth { get; set; } = 2f;
             public DashStyle StrokeDashStyle { get; set; } = DashStyle.Solid;
+            
+            // 新增：旋轉角度
+            public float RotationAngle { get; set; } = 0f;
             
             [JsonIgnore] 
             public bool IsSelected { get; set; }
@@ -36,6 +42,20 @@ namespace DrawingApp
             {
                 Bounds = new RectangleF(start.X, start.Y, 0, 0);
                 ShapeColor = color;
+            }
+
+            // 新增：畫布轉換處理 (處理旋轉)
+            public void DrawWithTransform(Graphics g)
+            {
+                Matrix oldMatrix = g.Transform;
+                PointF center = GetCenter();
+                g.TranslateTransform(center.X, center.Y);
+                g.RotateTransform(RotationAngle);
+                g.TranslateTransform(-center.X, -center.Y);
+
+                Draw(g);
+
+                g.Transform = oldMatrix;
             }
 
             public abstract void Draw(Graphics g);
@@ -65,6 +85,13 @@ namespace DrawingApp
                 NormalizeBounds();
             }
 
+            // 支援 8 點縮放的新版邊界更新
+            public virtual void SetBounds(RectangleF newBounds)
+            {
+                Bounds = newBounds;
+                NormalizeBounds();
+            }
+
             public virtual void NormalizeBounds()
             {
                 float x = Math.Min(Bounds.X, Bounds.Right);
@@ -79,29 +106,47 @@ namespace DrawingApp
                 Bounds.Offset(dx, dy);
             }
 
+            public PointF GetCenter()
+            {
+                return new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y + Bounds.Height / 2);
+            }
+
+            // 新增：處理旋轉後的碰撞偵測
             public virtual bool HitTest(PointF pt)
             {
+                PointF rotatedPt = RotatePoint(pt, GetCenter(), -RotationAngle);
                 RectangleF hitBounds = Bounds;
                 hitBounds.Inflate(5, 5);
-                return hitBounds.Contains(pt);
+                return hitBounds.Contains(rotatedPt);
             }
             
+            // 升級：繪製 8 個縮放點與旋轉點
             public void DrawSelection(Graphics g)
             {
                 if (!IsSelected) return;
+
+                Matrix oldMatrix = g.Transform;
+                PointF center = GetCenter();
+                g.TranslateTransform(center.X, center.Y);
+                g.RotateTransform(RotationAngle);
+                g.TranslateTransform(-center.X, -center.Y);
 
                 using (Pen p = new Pen(Color.DodgerBlue, 1.5f) { DashStyle = DashStyle.Dash })
                 {
                     g.DrawRectangle(p, Rectangle.Round(Bounds));
                 }
 
-                float s = 6;
+                float s = 8;
                 PointF[] corners = new PointF[]
                 {
-                    new PointF(Bounds.Left, Bounds.Top),
-                    new PointF(Bounds.Right, Bounds.Top),
-                    new PointF(Bounds.Left, Bounds.Bottom),
-                    new PointF(Bounds.Right, Bounds.Bottom)
+                    new PointF(Bounds.Left, Bounds.Top),      // NW
+                    new PointF(center.X, Bounds.Top),         // N
+                    new PointF(Bounds.Right, Bounds.Top),     // NE
+                    new PointF(Bounds.Right, center.Y),       // E
+                    new PointF(Bounds.Right, Bounds.Bottom),  // SE
+                    new PointF(center.X, Bounds.Bottom),      // S
+                    new PointF(Bounds.Left, Bounds.Bottom),   // SW
+                    new PointF(Bounds.Left, center.Y)         // W
                 };
 
                 foreach (var pt in corners)
@@ -109,50 +154,96 @@ namespace DrawingApp
                     g.FillRectangle(Brushes.White, pt.X - s/2, pt.Y - s/2, s, s);
                     g.DrawRectangle(Pens.DodgerBlue, pt.X - s/2, pt.Y - s/2, s, s);
                 }
+
+                // 旋轉控制點
+                PointF rotatePt = new PointF(center.X, Bounds.Top - 25);
+                g.DrawLine(Pens.DodgerBlue, center.X, Bounds.Top, rotatePt.X, rotatePt.Y);
+                g.FillEllipse(Brushes.LightGreen, rotatePt.X - 5, rotatePt.Y - 5, 10, 10);
+                g.DrawEllipse(Pens.DarkGreen, rotatePt.X - 5, rotatePt.Y - 5, 10, 10);
+
+                g.Transform = oldMatrix;
             }
 
             public HandlePosition HitTestHandle(PointF pt)
             {
                 if (!IsSelected) return HandlePosition.None;
 
-                float s = 6;
-                if (new RectangleF(Bounds.Left - s/2, Bounds.Top - s/2, s, s).Contains(pt)) return HandlePosition.NW;
-                if (new RectangleF(Bounds.Right - s/2, Bounds.Top - s/2, s, s).Contains(pt)) return HandlePosition.NE;
-                if (new RectangleF(Bounds.Left - s/2, Bounds.Bottom - s/2, s, s).Contains(pt)) return HandlePosition.SW;
-                if (new RectangleF(Bounds.Right - s/2, Bounds.Bottom - s/2, s, s).Contains(pt)) return HandlePosition.SE;
+                PointF center = GetCenter();
+                PointF rotatedPt = RotatePoint(pt, center, -RotationAngle);
+
+                float s = 10;
+                // 旋轉點
+                if (new RectangleF(center.X - s, Bounds.Top - 25 - s, s * 2, s * 2).Contains(rotatedPt)) return HandlePosition.Rotate;
+
+                // 8 個縮放點
+                if (new RectangleF(Bounds.Left - s/2, Bounds.Top - s/2, s, s).Contains(rotatedPt)) return HandlePosition.NW;
+                if (new RectangleF(center.X - s/2, Bounds.Top - s/2, s, s).Contains(rotatedPt)) return HandlePosition.N;
+                if (new RectangleF(Bounds.Right - s/2, Bounds.Top - s/2, s, s).Contains(rotatedPt)) return HandlePosition.NE;
+                if (new RectangleF(Bounds.Right - s/2, center.Y - s/2, s, s).Contains(rotatedPt)) return HandlePosition.E;
+                if (new RectangleF(Bounds.Right - s/2, Bounds.Bottom - s/2, s, s).Contains(rotatedPt)) return HandlePosition.SE;
+                if (new RectangleF(center.X - s/2, Bounds.Bottom - s/2, s, s).Contains(rotatedPt)) return HandlePosition.S;
+                if (new RectangleF(Bounds.Left - s/2, Bounds.Bottom - s/2, s, s).Contains(rotatedPt)) return HandlePosition.SW;
+                if (new RectangleF(Bounds.Left - s/2, center.Y - s/2, s, s).Contains(rotatedPt)) return HandlePosition.W;
                 
                 return HandlePosition.None;
             }
 
-            // --- 新增：動態錨點系統 (Dynamic Anchors) ---
-            // 計算連線從外部目標射向本圖形中心時，與圖形邊界的交點
+            // 新增：獲取固定錨點位置
+            public PointF GetAnchorPoint(AnchorPosition pos)
+            {
+                PointF pt = GetCenter();
+                switch (pos)
+                {
+                    case AnchorPosition.Top: pt = new PointF(pt.X, Bounds.Top); break;
+                    case AnchorPosition.Bottom: pt = new PointF(pt.X, Bounds.Bottom); break;
+                    case AnchorPosition.Left: pt = new PointF(Bounds.Left, pt.Y); break;
+                    case AnchorPosition.Right: pt = new PointF(Bounds.Right, pt.Y); break;
+                }
+                return RotatePoint(pt, GetCenter(), RotationAngle);
+            }
+
             public virtual PointF GetIntersection(PointF targetPoint)
             {
-                PointF center = new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y + Bounds.Height / 2);
-                float dx = targetPoint.X - center.X;
-                float dy = targetPoint.Y - center.Y;
+                PointF center = GetCenter();
+                PointF localTarget = RotatePoint(targetPoint, center, -RotationAngle);
+                
+                float dx = localTarget.X - center.X;
+                float dy = localTarget.Y - center.Y;
 
                 if (Math.Abs(dx) == 0 && Math.Abs(dy) == 0) return center;
 
-                // 基礎矩形邊界相交計算
                 float halfWidth = Bounds.Width / 2;
                 float halfHeight = Bounds.Height / 2;
 
                 float crossX = halfWidth * Math.Sign(dx);
                 float crossY = halfHeight * Math.Sign(dy);
 
+                PointF localIntersection;
                 if (Math.Abs(dx * halfHeight) > Math.Abs(dy * halfWidth))
                 {
-                    return new PointF(center.X + crossX, center.Y + crossX * dy / dx);
+                    localIntersection = new PointF(center.X + crossX, center.Y + crossX * dy / dx);
                 }
                 else
                 {
-                    return new PointF(center.X + crossY * dx / dy, center.Y + crossY);
+                    localIntersection = new PointF(center.X + crossY * dx / dy, center.Y + crossY);
                 }
+
+                return RotatePoint(localIntersection, center, RotationAngle);
+            }
+
+            public static PointF RotatePoint(PointF pt, PointF center, float angleDegrees)
+            {
+                float angleRadians = angleDegrees * (float)Math.PI / 180f;
+                float cosTheta = (float)Math.Cos(angleRadians);
+                float sinTheta = (float)Math.Sin(angleRadians);
+                return new PointF(
+                    cosTheta * (pt.X - center.X) - sinTheta * (pt.Y - center.Y) + center.X,
+                    sinTheta * (pt.X - center.X) + cosTheta * (pt.Y - center.Y) + center.Y
+                );
             }
         }
 
-        // --- 新增：群組物件 (GroupShape) ---
+        // 升級：支援等比例縮放的群組
         public class GroupShape : ShapeBase
         {
             public List<ShapeBase> Children { get; set; } = new List<ShapeBase>();
@@ -169,7 +260,7 @@ namespace DrawingApp
             {
                 foreach (var child in Children)
                 {
-                    child.Draw(g);
+                    child.DrawWithTransform(g);
                 }
             }
 
@@ -180,6 +271,25 @@ namespace DrawingApp
                 {
                     child.Move(dx, dy);
                 }
+            }
+
+            // 群組縮放核心邏輯
+            public override void SetBounds(RectangleF newBounds)
+            {
+                if (Bounds.Width == 0 || Bounds.Height == 0) return;
+                
+                float scaleX = newBounds.Width / Bounds.Width;
+                float scaleY = newBounds.Height / Bounds.Height;
+
+                foreach (var child in Children)
+                {
+                    float newChildX = newBounds.X + (child.Bounds.X - Bounds.X) * scaleX;
+                    float newChildY = newBounds.Y + (child.Bounds.Y - Bounds.Y) * scaleY;
+                    float newChildW = child.Bounds.Width * scaleX;
+                    float newChildH = child.Bounds.Height * scaleY;
+                    child.SetBounds(new RectangleF(newChildX, newChildY, newChildW, newChildH));
+                }
+                Bounds = newBounds;
             }
 
             public override void NormalizeBounds()
@@ -197,12 +307,6 @@ namespace DrawingApp
             public override bool HitTest(PointF pt)
             {
                 return Children.Any(c => c.HitTest(pt));
-            }
-
-            // 群組縮放邏輯比較複雜，這裡先鎖定比例或強制重算
-            public override void UpdateEndPoint(PointF pt)
-            {
-                // 群組暫不支援直接自由變形邊界，依賴內部物件
             }
         }
 
@@ -229,10 +333,9 @@ namespace DrawingApp
                 DrawText(g);
             }
 
-            // 圓形覆寫動態錨點為計算半徑交點
             public override PointF GetIntersection(PointF targetPoint)
             {
-                PointF center = new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y + Bounds.Height / 2);
+                PointF center = GetCenter();
                 float dx = targetPoint.X - center.X;
                 float dy = targetPoint.Y - center.Y;
                 float distance = (float)Math.Sqrt(dx * dx + dy * dy);
@@ -241,7 +344,7 @@ namespace DrawingApp
 
                 float radiusX = Bounds.Width / 2;
                 float radiusY = Bounds.Height / 2;
-                float radius = Math.Min(radiusX, radiusY); // 簡化為正圓計算
+                float radius = Math.Min(radiusX, radiusY);
 
                 return new PointF(center.X + (dx / distance) * radius, center.Y + (dy / distance) * radius);
             }
@@ -303,7 +406,7 @@ namespace DrawingApp
             public TextNodeShape(PointF start, Color color, bool transparent) : base(start, color)
             {
                 IsTransparent = transparent;
-                Text = "連點兩下編輯";
+                Text = "雙擊編輯";
             }
             public override void Draw(Graphics g)
             {
@@ -347,6 +450,10 @@ namespace DrawingApp
         {
             public Guid SourceId { get; set; }
             public Guid TargetId { get; set; }
+            // 新增：綁定特定的錨點
+            public AnchorPosition SourceAnchor { get; set; } = AnchorPosition.Auto;
+            public AnchorPosition TargetAnchor { get; set; } = AnchorPosition.Auto;
+
             public PointF StartPt { get; set; }
             public PointF EndPt { get; set; }
             public bool HasArrow { get; set; }
@@ -368,16 +475,26 @@ namespace DrawingApp
                     if (HasArrow)
                     {
                         GraphicsPath capPath = new GraphicsPath();
-                        capPath.AddLine(new PointF(-3, -3), new PointF(0, 0));
-                        capPath.AddLine(new PointF(0, 0), new PointF(3, -3));
+                        capPath.AddLine(new PointF(-4, -4), new PointF(0, 0));
+                        capPath.AddLine(new PointF(0, 0), new PointF(4, -4));
                         p.CustomEndCap = new CustomLineCap(null, capPath);
                     }
 
                     if (IsOrthogonal)
                     {
-                        // 升級：基於相對位置的智慧折線 (模擬 A* 基礎避開圖形本體)
+                        // 改進的智慧折線 (中點分段法)
                         float midX = p1.X + (p2.X - p1.X) / 2;
-                        PointF[] pts = new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
+                        float midY = p1.Y + (p2.Y - p1.Y) / 2;
+                        
+                        PointF[] pts;
+                        if (Math.Abs(p2.X - p1.X) > Math.Abs(p2.Y - p1.Y))
+                        {
+                            pts = new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
+                        }
+                        else
+                        {
+                            pts = new PointF[] { p1, new PointF(p1.X, midY), new PointF(p2.X, midY), p2 };
+                        }
                         g.DrawLines(p, pts);
                     }
                     else
