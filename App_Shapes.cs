@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
@@ -9,35 +10,77 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        // --- 修正：新增 HandPan (拖曳畫布) 的列舉 ---
         public enum ShapeType { Pointer, HandPan, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image, Freehand }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
         public abstract class ShapeBase : IDisposable
         {
+            [Category("3. 座標與尺寸")]
+            [DisplayName("物件邊界 (Bounds)")]
+            [Description("修改物件的 X, Y 座標與寬高。")]
             public RectangleF Bounds;
+
+            [Category("1. 外觀屬性")]
+            [DisplayName("外框/線條顏色")]
             public Color ShapeColor { get; set; }
+
+            // --- 新增：填充顏色 ---
+            [Category("1. 外觀屬性")]
+            [DisplayName("填充顏色")]
+            [Description("圖形內部的顏色，預設為透明 (Transparent)。")]
+            public Color FillColor { get; set; } = Color.Transparent;
             
+            [Category("1. 外觀屬性")]
+            [DisplayName("線條粗細")]
             public float StrokeWidth { get; set; } = 2f;
+
+            [Category("1. 外觀屬性")]
+            [DisplayName("線條樣式")]
             public DashStyle StrokeDashStyle { get; set; } = DashStyle.Solid;
             
+            [Category("3. 座標與尺寸")]
+            [DisplayName("旋轉角度")]
             public float RotationAngle { get; set; } = 0f;
             
+            [Browsable(false)]
             [JsonIgnore] 
             public bool IsSelected { get; set; }
 
+            [Category("4. 系統屬性")]
+            [DisplayName("鎖定圖形")]
+            [Description("鎖定後將無法被拖曳或修改大小。")]
             public bool IsLocked { get; set; } = false;
             
+            [Browsable(false)]
             public Guid Id { get; set; } = Guid.NewGuid();
 
+            [Category("2. 文字屬性")]
+            [DisplayName("文字內容")]
             public string Text { get; set; } = "";
+
+            [Category("2. 文字屬性")]
+            [DisplayName("字型名稱")]
             public string FontName { get; set; } = "Arial";
+
+            [Category("2. 文字屬性")]
+            [DisplayName("字體大小")]
             public float FontSize { get; set; } = 12f;
+
+            [Category("2. 文字屬性")]
+            [DisplayName("文字顏色")]
             public Color FontColor { get; set; } = Color.Black;
 
+            [Category("2. 文字屬性")]
+            [DisplayName("粗體")]
             public bool FontBold { get; set; } = false;
+
+            [Category("2. 文字屬性")]
+            [DisplayName("斜體")]
             public bool FontItalic { get; set; } = false;
+
+            [Category("2. 文字屬性")]
+            [DisplayName("底線")]
             public bool FontUnderline { get; set; } = false;
 
             public ShapeBase() { }
@@ -48,9 +91,7 @@ namespace DrawingApp
                 ShapeColor = color;
             }
 
-            public virtual void Dispose() 
-            { 
-            }
+            public virtual void Dispose() { }
 
             public void DrawWithTransform(Graphics g)
             {
@@ -260,6 +301,7 @@ namespace DrawingApp
 
         public class GroupShape : ShapeBase
         {
+            [Browsable(false)]
             public List<ShapeBase> Children { get; set; } = new List<ShapeBase>();
 
             public GroupShape() { }
@@ -332,6 +374,7 @@ namespace DrawingApp
 
         public class FreehandShape : ShapeBase
         {
+            [Browsable(false)]
             public List<PointF> LocalPoints { get; set; } = new List<PointF>();
 
             public FreehandShape() { }
@@ -405,6 +448,11 @@ namespace DrawingApp
             public RectShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
+                // --- 修改：加入填充繪製 ---
+                if (FillColor != Color.Transparent)
+                {
+                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillRectangle(fillBrush, Bounds);
+                }
                 using (Pen p = CreatePen()) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 DrawText(g);
             }
@@ -416,6 +464,11 @@ namespace DrawingApp
             public CircleShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
+                // --- 修改：加入填充繪製 ---
+                if (FillColor != Color.Transparent)
+                {
+                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillEllipse(fillBrush, Bounds);
+                }
                 using (Pen p = CreatePen()) g.DrawEllipse(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 DrawText(g);
             }
@@ -464,6 +517,13 @@ namespace DrawingApp
                     new PointF(Bounds.X + Bounds.Width / 2, Bounds.Bottom),
                     new PointF(Bounds.X, Bounds.Y + Bounds.Height / 2)
                 };
+                
+                // --- 修改：加入填充繪製 ---
+                if (FillColor != Color.Transparent)
+                {
+                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                }
+                
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
             }
@@ -481,6 +541,13 @@ namespace DrawingApp
                     new PointF(Bounds.Right, Bounds.Bottom),
                     new PointF(Bounds.X, Bounds.Bottom)
                 };
+
+                // --- 修改：加入填充繪製 ---
+                if (FillColor != Color.Transparent)
+                {
+                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                }
+
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
             }
@@ -488,7 +555,9 @@ namespace DrawingApp
 
         public class TextNodeShape : ShapeBase
         {
+            [Browsable(false)]
             public bool IsTransparent { get; set; } = false;
+            
             public TextNodeShape() { } 
             public TextNodeShape(PointF start, Color color, bool transparent) : base(start, color)
             {
@@ -499,6 +568,11 @@ namespace DrawingApp
             {
                 if (!IsTransparent)
                 {
+                    // --- 修改：加入填充繪製 ---
+                    if (FillColor != Color.Transparent)
+                    {
+                        using (Brush fillBrush = new SolidBrush(FillColor)) g.FillRectangle(fillBrush, Bounds);
+                    }
                     using (Pen p = CreatePen()) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 }
                 DrawText(g);
@@ -507,8 +581,12 @@ namespace DrawingApp
 
         public class ImageShape : ShapeBase
         {
+            [Browsable(false)]
             public string Base64Image { get; set; }
-            [JsonIgnore] private Bitmap _imgCache;
+            
+            [JsonIgnore] 
+            [Browsable(false)]
+            private Bitmap _imgCache;
             
             public ImageShape() { }
             public ImageShape(PointF start, Bitmap img) : base(start, Color.Black)
@@ -545,17 +623,31 @@ namespace DrawingApp
 
         public class ConnectorShape : ShapeBase
         {
-            public Guid SourceId { get; set; }
-            public Guid TargetId { get; set; }
+            [Browsable(false)] public Guid SourceId { get; set; }
+            [Browsable(false)] public Guid TargetId { get; set; }
+            
+            [Category("5. 連線屬性")]
+            [DisplayName("起點錨點")]
             public AnchorPosition SourceAnchor { get; set; } = AnchorPosition.Auto;
+            
+            [Category("5. 連線屬性")]
+            [DisplayName("終點錨點")]
             public AnchorPosition TargetAnchor { get; set; } = AnchorPosition.Auto;
 
-            public PointF StartPt { get; set; }
-            public PointF EndPt { get; set; }
+            [Browsable(false)] public PointF StartPt { get; set; }
+            [Browsable(false)] public PointF EndPt { get; set; }
+            
+            [Category("5. 連線屬性")]
+            [DisplayName("顯示箭頭")]
             public bool HasArrow { get; set; }
+            
+            [Category("5. 連線屬性")]
+            [DisplayName("直角折線")]
             public bool IsOrthogonal { get; set; }
 
-            [JsonIgnore] private PointF[] _cachedPath;
+            [JsonIgnore] 
+            [Browsable(false)] 
+            private PointF[] _cachedPath;
 
             public ConnectorShape() { }
             public ConnectorShape(PointF start, Color color, bool arrow, bool orthogonal = false) : base(start, color)
