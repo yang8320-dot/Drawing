@@ -9,12 +9,11 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        // --- 新增：支援 Freehand (自由畫筆) ---
-        public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image, Freehand }
+        // --- 修正：新增 HandPan (拖曳畫布) 的列舉 ---
+        public enum ShapeType { Pointer, HandPan, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image, Freehand }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
-        // --- 新增：實作 IDisposable 避免記憶體洩漏 ---
         public abstract class ShapeBase : IDisposable
         {
             public RectangleF Bounds;
@@ -51,7 +50,6 @@ namespace DrawingApp
 
             public virtual void Dispose() 
             { 
-                // 供子類別實作記憶體釋放 
             }
 
             public void DrawWithTransform(Graphics g)
@@ -332,7 +330,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：自由畫筆 (Freehand) 類別 ---
         public class FreehandShape : ShapeBase
         {
             public List<PointF> LocalPoints { get; set; } = new List<PointF>();
@@ -508,7 +505,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 修正：覆寫 Dispose() 解決 Memory Leak ---
         public class ImageShape : ShapeBase
         {
             public string Base64Image { get; set; }
