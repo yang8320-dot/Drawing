@@ -253,7 +253,6 @@ namespace DrawingApp
         }
     }
 
-    // --- 新增：紀錄階層調整的指令 ---
     public class ChangeZIndexCommand : ICommand
     {
         private List<App_Shapes.ShapeBase> _canvasShapes;
