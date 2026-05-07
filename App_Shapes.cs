@@ -10,7 +10,6 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        // --- 修正：擴充 ShapeType 支援新的幾何圖形 ---
         public enum ShapeType { Pointer, HandPan, ArrowLine, StraightLine, OrthogonalLine, Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, TextNode, Text, Image, Freehand }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
@@ -20,7 +19,7 @@ namespace DrawingApp
             [Category("3. 座標與尺寸")]
             [DisplayName("物件邊界 (Bounds)")]
             [Description("修改物件的 X, Y 座標與寬高。")]
-            public RectangleF Bounds { get; set; } // <--- 修正：加上 { get; set; } 變成屬性
+            public RectangleF Bounds { get; set; }
 
             [Category("1. 外觀屬性")]
             [DisplayName("外框/線條顏色")]
@@ -29,7 +28,7 @@ namespace DrawingApp
             [Category("1. 外觀屬性")]
             [DisplayName("填充顏色")]
             [Description("圖形內部的顏色，預設為透明 (Transparent)。")]
-            public Color FillColor { get; set; } = Color.Transparent;
+            public virtual Color FillColor { get; set; } = Color.Transparent;
             
             [Category("1. 外觀屬性")]
             [DisplayName("線條粗細")]
@@ -41,7 +40,7 @@ namespace DrawingApp
             
             [Category("3. 座標與尺寸")]
             [DisplayName("旋轉角度")]
-            public float RotationAngle { get; set; } = 0f;
+            public virtual float RotationAngle { get; set; } = 0f;
             
             [Browsable(false)]
             [JsonIgnore] 
@@ -57,31 +56,31 @@ namespace DrawingApp
 
             [Category("2. 文字屬性")]
             [DisplayName("文字內容")]
-            public string Text { get; set; } = "";
+            public virtual string Text { get; set; } = "";
 
             [Category("2. 文字屬性")]
             [DisplayName("字型名稱")]
-            public string FontName { get; set; } = "Arial";
+            public virtual string FontName { get; set; } = "Arial";
 
             [Category("2. 文字屬性")]
             [DisplayName("字體大小")]
-            public float FontSize { get; set; } = 12f;
+            public virtual float FontSize { get; set; } = 12f;
 
             [Category("2. 文字屬性")]
             [DisplayName("文字顏色")]
-            public Color FontColor { get; set; } = Color.Black;
+            public virtual Color FontColor { get; set; } = Color.Black;
 
             [Category("2. 文字屬性")]
             [DisplayName("粗體")]
-            public bool FontBold { get; set; } = false;
+            public virtual bool FontBold { get; set; } = false;
 
             [Category("2. 文字屬性")]
             [DisplayName("斜體")]
-            public bool FontItalic { get; set; } = false;
+            public virtual bool FontItalic { get; set; } = false;
 
             [Category("2. 文字屬性")]
             [DisplayName("底線")]
-            public bool FontUnderline { get; set; } = false;
+            public virtual bool FontUnderline { get; set; } = false;
 
             public ShapeBase() { }
 
@@ -158,7 +157,6 @@ namespace DrawingApp
             public virtual void Move(float dx, float dy)
             {
                 if (IsLocked) return;
-                // <--- 修正：屬性為 Struct 不能直接呼叫 Offset，需重新賦值
                 Bounds = new RectangleF(Bounds.X + dx, Bounds.Y + dy, Bounds.Width, Bounds.Height);
             }
 
@@ -375,6 +373,15 @@ namespace DrawingApp
 
         public class FreehandShape : ShapeBase
         {
+            [Browsable(false)] public override Color FillColor { get; set; } = Color.Transparent;
+            [Browsable(false)] public override string Text { get; set; } = "";
+            [Browsable(false)] public override string FontName { get; set; } = "Arial";
+            [Browsable(false)] public override float FontSize { get; set; } = 12f;
+            [Browsable(false)] public override Color FontColor { get; set; } = Color.Black;
+            [Browsable(false)] public override bool FontBold { get; set; } = false;
+            [Browsable(false)] public override bool FontItalic { get; set; } = false;
+            [Browsable(false)] public override bool FontUnderline { get; set; } = false;
+
             [Browsable(false)]
             public List<PointF> LocalPoints { get; set; } = new List<PointF>();
 
@@ -458,7 +465,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：圓角矩形 ---
         public class RoundedRectShape : ShapeBase
         {
             public RoundedRectShape() { }
@@ -519,6 +525,7 @@ namespace DrawingApp
 
         public class ArcShape : ShapeBase
         {
+            [Browsable(false)] public override Color FillColor { get; set; } = Color.Transparent;
             public ArcShape() { } 
             public ArcShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
@@ -586,7 +593,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：五邊形 ---
         public class PentagonShape : ShapeBase
         {
             public PentagonShape() { }
@@ -618,7 +624,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：六邊形 ---
         public class HexagonShape : ShapeBase
         {
             public HexagonShape() { }
@@ -650,7 +655,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：星形 ---
         public class StarShape : ShapeBase
         {
             public StarShape() { }
@@ -687,7 +691,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：雲朵形狀 ---
         public class CloudShape : ShapeBase
         {
             public CloudShape() { }
@@ -744,6 +747,15 @@ namespace DrawingApp
 
         public class ImageShape : ShapeBase
         {
+            [Browsable(false)] public override Color FillColor { get; set; } = Color.Transparent;
+            [Browsable(false)] public override string Text { get; set; } = "";
+            [Browsable(false)] public override string FontName { get; set; } = "Arial";
+            [Browsable(false)] public override float FontSize { get; set; } = 12f;
+            [Browsable(false)] public override Color FontColor { get; set; } = Color.Black;
+            [Browsable(false)] public override bool FontBold { get; set; } = false;
+            [Browsable(false)] public override bool FontItalic { get; set; } = false;
+            [Browsable(false)] public override bool FontUnderline { get; set; } = false;
+
             [Browsable(false)]
             public string Base64Image { get; set; }
             
@@ -760,7 +772,6 @@ namespace DrawingApp
                     img.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                     Base64Image = Convert.ToBase64String(ms.ToArray());
                 }
-                // <--- 修正：屬性為 Struct 不能直接呼叫 Width = ...，需重新賦值
                 Bounds = new RectangleF(Bounds.X, Bounds.Y, img.Width, img.Height); 
             }
 
@@ -787,6 +798,17 @@ namespace DrawingApp
 
         public class ConnectorShape : ShapeBase
         {
+            // --- 屬性過濾：連線不需要內部填充與文字 ---
+            [Browsable(false)] public override Color FillColor { get; set; } = Color.Transparent;
+            [Browsable(false)] public override float RotationAngle { get; set; } = 0f;
+            [Browsable(false)] public override string Text { get; set; } = "";
+            [Browsable(false)] public override string FontName { get; set; } = "Arial";
+            [Browsable(false)] public override float FontSize { get; set; } = 12f;
+            [Browsable(false)] public override Color FontColor { get; set; } = Color.Black;
+            [Browsable(false)] public override bool FontBold { get; set; } = false;
+            [Browsable(false)] public override bool FontItalic { get; set; } = false;
+            [Browsable(false)] public override bool FontUnderline { get; set; } = false;
+
             [Browsable(false)] public Guid SourceId { get; set; }
             [Browsable(false)] public Guid TargetId { get; set; }
             
@@ -860,8 +882,176 @@ namespace DrawingApp
                 PointF projection = new PointF(p1.X + t * (p2.X - p1.X), p1.Y + t * (p2.Y - p1.Y));
                 return (float)Math.Sqrt(Math.Pow(pt.X - projection.X, 2) + Math.Pow(pt.Y - projection.Y, 2));
             }
-            
-            public void DrawDynamic(Graphics g, PointF p1, PointF p2)
+
+            // 優化：A* 避障直角連線演算法 (Orthogonal Routing with Obstacle Avoidance)
+            // 將原本簡單的 midX, midY 判斷替換為基於曼哈頓距離的網格尋路
+            private PointF[] CalculateOrthogonalPath(PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes)
+            {
+                // 如果兩點距離太近，直接連過去避免計算浪費
+                if (Math.Abs(p1.X - p2.X) < 20 && Math.Abs(p1.Y - p2.Y) < 20)
+                {
+                    return new PointF[] { p1, new PointF(p1.X, p2.Y), p2 };
+                }
+
+                List<RectangleF> obstacles = new List<RectangleF>();
+                if (allShapes != null)
+                {
+                    foreach (var s in allShapes)
+                    {
+                        if (s is ConnectorShape || s.Id == this.SourceId || s.Id == this.TargetId) continue;
+                        // 將障礙物範圍稍微擴大 (Padding)，避免線條貼緊邊緣
+                        RectangleF obs = s.Bounds;
+                        obs.Inflate(15, 15);
+                        obstacles.Add(obs);
+                    }
+                }
+
+                // 產生網格點 (Grid generation) - 使用關鍵點的 X 與 Y 交集來建立尋路網格
+                List<float> xCoords = new List<float> { p1.X, p2.X, p1.X - 30, p1.X + 30, p2.X - 30, p2.X + 30 };
+                List<float> yCoords = new List<float> { p1.Y, p2.Y, p1.Y - 30, p1.Y + 30, p2.Y - 30, p2.Y + 30 };
+
+                foreach (var obs in obstacles)
+                {
+                    xCoords.Add(obs.Left); xCoords.Add(obs.Right);
+                    yCoords.Add(obs.Top); yCoords.Add(obs.Bottom);
+                }
+
+                xCoords = xCoords.Distinct().OrderBy(x => x).ToList();
+                yCoords = yCoords.Distinct().OrderBy(y => y).ToList();
+
+                // 簡單的回退機制：如果圖形太多導致網格過度龐大，改用基本的三段折線避免卡頓
+                if (xCoords.Count * yCoords.Count > 1000) 
+                {
+                    return BasicOrthogonalPath(p1, p2);
+                }
+
+                PointF startNode = GetClosestNode(p1, xCoords, yCoords);
+                PointF endNode = GetClosestNode(p2, xCoords, yCoords);
+
+                // A* 核心邏輯
+                var openSet = new List<PointF> { startNode };
+                var cameFrom = new Dictionary<PointF, PointF>();
+                var gScore = new Dictionary<PointF, float> { [startNode] = 0 };
+                var fScore = new Dictionary<PointF, float> { [startNode] = Heuristic(startNode, endNode) };
+
+                while (openSet.Count > 0)
+                {
+                    PointF current = openSet.OrderBy(n => fScore.ContainsKey(n) ? fScore[n] : float.MaxValue).First();
+                    if (current == endNode) return ReconstructPath(cameFrom, current, p1, p2);
+
+                    openSet.Remove(current);
+
+                    foreach (var neighbor in GetNeighbors(current, xCoords, yCoords))
+                    {
+                        // 檢查這條連線是否穿過障礙物
+                        if (LineIntersectsObstacles(current, neighbor, obstacles)) continue;
+
+                        // 計算轉彎懲罰 (Turn penalty)，鼓勵直走
+                        float penalty = 0;
+                        if (cameFrom.ContainsKey(current))
+                        {
+                            PointF prev = cameFrom[current];
+                            bool wasHorizontal = Math.Abs(current.Y - prev.Y) < 1f;
+                            bool isHorizontal = Math.Abs(neighbor.Y - current.Y) < 1f;
+                            if (wasHorizontal != isHorizontal) penalty = 50f; 
+                        }
+
+                        float tentativeG = gScore[current] + Heuristic(current, neighbor) + penalty;
+
+                        if (!gScore.ContainsKey(neighbor) || tentativeG < gScore[neighbor])
+                        {
+                            cameFrom[neighbor] = current;
+                            gScore[neighbor] = tentativeG;
+                            fScore[neighbor] = gScore[neighbor] + Heuristic(neighbor, endNode);
+                            if (!openSet.Contains(neighbor)) openSet.Add(neighbor);
+                        }
+                    }
+                }
+
+                // 如果找不到完全避障的路徑（例如被包圍），回退到基本連線
+                return BasicOrthogonalPath(p1, p2);
+            }
+
+            private PointF[] BasicOrthogonalPath(PointF p1, PointF p2)
+            {
+                float midX = p1.X + (p2.X - p1.X) / 2;
+                float midY = p1.Y + (p2.Y - p1.Y) / 2;
+                
+                if (Math.Abs(p2.X - p1.X) > Math.Abs(p2.Y - p1.Y))
+                    return new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
+                else
+                    return new PointF[] { p1, new PointF(p1.X, midY), new PointF(p2.X, midY), p2 };
+            }
+
+            private PointF GetClosestNode(PointF p, List<float> xCoords, List<float> yCoords)
+            {
+                float closeX = xCoords.OrderBy(x => Math.Abs(x - p.X)).First();
+                float closeY = yCoords.OrderBy(y => Math.Abs(y - p.Y)).First();
+                return new PointF(closeX, closeY);
+            }
+
+            private float Heuristic(PointF a, PointF b) => Math.Abs(a.X - b.X) + Math.Abs(a.Y - b.Y);
+
+            private IEnumerable<PointF> GetNeighbors(PointF p, List<float> xCoords, List<float> yCoords)
+            {
+                int xi = xCoords.IndexOf(p.X);
+                int yi = yCoords.IndexOf(p.Y);
+                if (xi > 0) yield return new PointF(xCoords[xi - 1], p.Y);
+                if (xi < xCoords.Count - 1) yield return new PointF(xCoords[xi + 1], p.Y);
+                if (yi > 0) yield return new PointF(p.X, yCoords[yi - 1]);
+                if (yi < yCoords.Count - 1) yield return new PointF(p.X, yCoords[yi + 1]);
+            }
+
+            private bool LineIntersectsObstacles(PointF p1, PointF p2, List<RectangleF> obstacles)
+            {
+                float minX = Math.Min(p1.X, p2.X);
+                float maxX = Math.Max(p1.X, p2.X);
+                float minY = Math.Min(p1.Y, p2.Y);
+                float maxY = Math.Max(p1.Y, p2.Y);
+
+                foreach (var obs in obstacles)
+                {
+                    if (p1.X == p2.X) // 垂直線
+                    {
+                        if (p1.X > obs.Left && p1.X < obs.Right && minY < obs.Bottom && maxY > obs.Top) return true;
+                    }
+                    else if (p1.Y == p2.Y) // 水平線
+                    {
+                        if (p1.Y > obs.Top && p1.Y < obs.Bottom && minX < obs.Right && maxX > obs.Left) return true;
+                    }
+                }
+                return false;
+            }
+
+            private PointF[] ReconstructPath(Dictionary<PointF, PointF> cameFrom, PointF current, PointF start, PointF end)
+            {
+                List<PointF> path = new List<PointF> { end };
+                while (cameFrom.ContainsKey(current))
+                {
+                    path.Add(current);
+                    current = cameFrom[current];
+                }
+                path.Add(start);
+                path.Reverse();
+
+                // 移除不需要的共線中繼點，使折線更乾淨
+                List<PointF> cleanPath = new List<PointF> { path[0] };
+                for (int i = 1; i < path.Count - 1; i++)
+                {
+                    PointF prev = cleanPath.Last();
+                    PointF next = path[i + 1];
+                    // 如果不是在同一直線上，才把這個點加進去 (轉折點)
+                    if (prev.X != next.X && prev.Y != next.Y)
+                    {
+                        cleanPath.Add(path[i]);
+                    }
+                }
+                cleanPath.Add(path.Last());
+
+                return cleanPath.ToArray();
+            }
+
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null)
             {
                 using (Pen p = CreatePen())
                 {
@@ -875,15 +1065,7 @@ namespace DrawingApp
 
                     if (IsOrthogonal)
                     {
-                        float midX = p1.X + (p2.X - p1.X) / 2;
-                        float midY = p1.Y + (p2.Y - p1.Y) / 2;
-                        
-                        PointF[] pts;
-                        if (Math.Abs(p2.X - p1.X) > Math.Abs(p2.Y - p1.Y))
-                            pts = new PointF[] { p1, new PointF(midX, p1.Y), new PointF(midX, p2.Y), p2 };
-                        else
-                            pts = new PointF[] { p1, new PointF(p1.X, midY), new PointF(p2.X, midY), p2 };
-                        
+                        PointF[] pts = CalculateOrthogonalPath(p1, p2, allShapes);
                         _cachedPath = pts; 
                         g.DrawLines(p, pts);
                     }
@@ -895,6 +1077,8 @@ namespace DrawingApp
                 }
             }
 
+            // 為了相容原本介面，保留這兩個多載
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null);
             public override void Draw(Graphics g) { }
 
             public override void DrawSelection(Graphics g)
