@@ -107,14 +107,24 @@ namespace DrawingApp
                             svg.AppendLine($"\" fill=\"none\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
                         }
                     }
-                    // --- 新增：支援多邊形 SVG (三角形、菱形、星形、五邊形、六邊形) ---
+                    // --- 修正：移除 dynamic，改用模式比對來獲取多邊形的節點 ---
                     else if (shape is App_Shapes.TriangleShape || shape is App_Shapes.DiamondShape || 
                              shape is App_Shapes.StarShape || shape is App_Shapes.PentagonShape || shape is App_Shapes.HexagonShape)
                     {
-                        PointF[] pts = ((dynamic)shape).GetPolygonPoints();
-                        svg.Append($"  <polygon points=\"");
-                        foreach (var pt in pts) svg.Append($"{pt.X},{pt.Y} ");
-                        svg.AppendLine($"\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
+                        PointF[] pts = null;
+
+                        if (shape is App_Shapes.TriangleShape ts) pts = ts.GetPolygonPoints();
+                        else if (shape is App_Shapes.DiamondShape ds) pts = ds.GetPolygonPoints();
+                        else if (shape is App_Shapes.StarShape ss) pts = ss.GetPolygonPoints();
+                        else if (shape is App_Shapes.PentagonShape ps) pts = ps.GetPolygonPoints();
+                        else if (shape is App_Shapes.HexagonShape hs) pts = hs.GetPolygonPoints();
+
+                        if (pts != null)
+                        {
+                            svg.Append($"  <polygon points=\"");
+                            foreach (var pt in pts) svg.Append($"{pt.X},{pt.Y} ");
+                            svg.AppendLine($"\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
+                        }
                     }
                     // --- 新增：雲朵 SVG (多個橢圓組合) ---
                     else if (shape is App_Shapes.CloudShape)
