@@ -9,11 +9,13 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image }
+        // --- 新增：支援 Freehand (自由畫筆) ---
+        public enum ShapeType { Pointer, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image, Freehand }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
-        public abstract class ShapeBase
+        // --- 新增：實作 IDisposable 避免記憶體洩漏 ---
+        public abstract class ShapeBase : IDisposable
         {
             public RectangleF Bounds;
             public Color ShapeColor { get; set; }
@@ -35,7 +37,6 @@ namespace DrawingApp
             public float FontSize { get; set; } = 12f;
             public Color FontColor { get; set; } = Color.Black;
 
-            // --- 新增：文字樣式擴充 ---
             public bool FontBold { get; set; } = false;
             public bool FontItalic { get; set; } = false;
             public bool FontUnderline { get; set; } = false;
@@ -46,6 +47,11 @@ namespace DrawingApp
             {
                 Bounds = new RectangleF(start.X, start.Y, 0, 0);
                 ShapeColor = color;
+            }
+
+            public virtual void Dispose() 
+            { 
+                // 供子類別實作記憶體釋放 
             }
 
             public void DrawWithTransform(Graphics g)
@@ -72,7 +78,6 @@ namespace DrawingApp
             {
                 if (string.IsNullOrEmpty(Text)) return;
                 
-                // --- 優化：套用文字樣式 ---
                 FontStyle style = FontStyle.Regular;
                 if (FontBold) style |= FontStyle.Bold;
                 if (FontItalic) style |= FontStyle.Italic;
@@ -267,6 +272,11 @@ namespace DrawingApp
                 NormalizeBounds();
             }
 
+            public override void Dispose()
+            {
+                foreach (var child in Children) child.Dispose();
+            }
+
             public override void Draw(Graphics g)
             {
                 foreach (var child in Children)
@@ -319,6 +329,76 @@ namespace DrawingApp
             public override bool HitTest(PointF pt)
             {
                 return Children.Any(c => c.HitTest(pt));
+            }
+        }
+
+        // --- 新增：自由畫筆 (Freehand) 類別 ---
+        public class FreehandShape : ShapeBase
+        {
+            public List<PointF> LocalPoints { get; set; } = new List<PointF>();
+
+            public FreehandShape() { }
+
+            public FreehandShape(PointF start, Color color) : base(start, color)
+            {
+                LocalPoints.Add(new PointF(0, 0));
+            }
+
+            public void AddPoint(PointF absolutePt)
+            {
+                LocalPoints.Add(new PointF(absolutePt.X - Bounds.X, absolutePt.Y - Bounds.Y));
+            }
+
+            public override void Draw(Graphics g)
+            {
+                if (LocalPoints.Count > 1)
+                {
+                    using (Pen p = CreatePen())
+                    {
+                        p.StartCap = LineCap.Round;
+                        p.EndCap = LineCap.Round;
+                        p.LineJoin = LineJoin.Round;
+                        PointF[] absPts = LocalPoints.Select(pt => new PointF(Bounds.X + pt.X, Bounds.Y + pt.Y)).ToArray();
+                        g.DrawLines(p, absPts);
+                    }
+                }
+            }
+
+            public override void NormalizeBounds()
+            {
+                if (LocalPoints.Count == 0) return;
+                float minX = LocalPoints.Min(p => p.X);
+                float minY = LocalPoints.Min(p => p.Y);
+                float maxX = LocalPoints.Max(p => p.X);
+                float maxY = LocalPoints.Max(p => p.Y);
+
+                float newWidth = maxX - minX;
+                float newHeight = maxY - minY;
+
+                float absMinX = Bounds.X + minX;
+                float absMinY = Bounds.Y + minY;
+
+                Bounds = new RectangleF(absMinX, absMinY, newWidth, newHeight);
+
+                for (int i = 0; i < LocalPoints.Count; i++)
+                {
+                    LocalPoints[i] = new PointF(LocalPoints[i].X - minX, LocalPoints[i].Y - minY);
+                }
+            }
+
+            public override void SetBounds(RectangleF newBounds)
+            {
+                if (IsLocked) return;
+                if (Bounds.Width == 0 || Bounds.Height == 0) return;
+
+                float scaleX = newBounds.Width / Bounds.Width;
+                float scaleY = newBounds.Height / Bounds.Height;
+
+                for (int i = 0; i < LocalPoints.Count; i++)
+                {
+                    LocalPoints[i] = new PointF(LocalPoints[i].X * scaleX, LocalPoints[i].Y * scaleY);
+                }
+                Bounds = newBounds;
             }
         }
 
@@ -428,6 +508,7 @@ namespace DrawingApp
             }
         }
 
+        // --- 修正：覆寫 Dispose() 解決 Memory Leak ---
         public class ImageShape : ShapeBase
         {
             public string Base64Image { get; set; }
@@ -444,6 +525,16 @@ namespace DrawingApp
                 }
                 Bounds.Width = img.Width; Bounds.Height = img.Height;
             }
+
+            public override void Dispose()
+            {
+                if (_imgCache != null)
+                {
+                    _imgCache.Dispose();
+                    _imgCache = null;
+                }
+            }
+
             public override void Draw(Graphics g)
             {
                 if (_imgCache == null && !string.IsNullOrEmpty(Base64Image))
@@ -598,6 +689,7 @@ namespace DrawingApp
                     case ShapeType.TextNode: return new TextNodeShape(start, color, false);
                     case ShapeType.Text: return new TextNodeShape(start, color, true);
                     case ShapeType.Image: return new ImageShape(start, img);
+                    case ShapeType.Freehand: return new FreehandShape(start, color);
                     default: return null;
                 }
             }
