@@ -10,7 +10,45 @@ namespace DrawingApp
     public class App_CanvasControl : Panel
     {
         public List<App_Shapes.ShapeBase> Shapes { get; set; } = new List<App_Shapes.ShapeBase>();
-        public SizeF PageSize { get; set; } = new SizeF(2100, 2970); 
+        
+        // 保留使用者選擇的基礎大小，但將其實作為最小限制
+        private SizeF _basePageSize = new SizeF(2100, 2970);
+        public SizeF PageSize 
+        { 
+            get => _basePageSize; 
+            set 
+            { 
+                _basePageSize = value; 
+                this.Invalidate(); 
+            } 
+        }
+
+        // 動態計算實際的畫布大小 (Auto-grow)
+        public SizeF ActualPageSize 
+        {
+            get 
+            {
+                if (Shapes == null || Shapes.Count == 0) return _basePageSize;
+                
+                float maxX = _basePageSize.Width;
+                float maxY = _basePageSize.Height;
+
+                foreach (var s in Shapes)
+                {
+                    if (s is App_Shapes.ConnectorShape cs)
+                    {
+                        maxX = Math.Max(maxX, Math.Max(cs.StartPt.X, cs.EndPt.X) + 100);
+                        maxY = Math.Max(maxY, Math.Max(cs.StartPt.Y, cs.EndPt.Y) + 100);
+                    }
+                    else
+                    {
+                        maxX = Math.Max(maxX, s.Bounds.Right + 100);
+                        maxY = Math.Max(maxY, s.Bounds.Bottom + 100);
+                    }
+                }
+                return new SizeF(maxX, maxY);
+            }
+        }
         
         public CommandManager CmdManager { get; } = new CommandManager();
 
@@ -501,7 +539,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 優化：新增局部重繪計算器 ---
         private void InvalidateWorldRect(RectangleF worldRect)
         {
             if (worldRect == RectangleF.Empty) return;
@@ -510,12 +547,10 @@ namespace DrawingApp
             float w = worldRect.Width * ZoomFactor;
             float h = worldRect.Height * ZoomFactor;
             
-            // 放大重繪範圍，涵蓋控制節點與邊框粗細
             Rectangle screenRect = new Rectangle((int)x - 50, (int)y - 50, (int)w + 100, (int)h + 100);
             this.Invalidate(screenRect);
         }
 
-        // --- 優化：取得指定圖形及其連線的總邊界 ---
         private RectangleF GetShapesAndConnectorsBounds(List<App_Shapes.ShapeBase> shapes)
         {
             if (shapes == null || shapes.Count == 0) return RectangleF.Empty;
@@ -552,7 +587,6 @@ namespace DrawingApp
             return new RectangleF(minX, minY, maxX - minX, maxY - minY);
         }
 
-        // --- 優化：智慧游標變更邏輯 ---
         private void UpdateCursor(PointF realPt)
         {
             if (_currentState != InteractionState.Idle) return; 
@@ -763,7 +797,7 @@ namespace DrawingApp
 
         private void UpdateCameraFromMinimap(Point mouseLoc)
         {
-            float minimapScale = MINIMAP_WIDTH / PageSize.Width;
+            float minimapScale = MINIMAP_WIDTH / ActualPageSize.Width;
             float targetX = (mouseLoc.X - _minimapRect.X) / minimapScale;
             float targetY = (mouseLoc.Y - _minimapRect.Y) / minimapScale;
 
@@ -778,7 +812,6 @@ namespace DrawingApp
             PointF realPt = GetRealPoint(e.Location);
             _smartGuides.Clear();
 
-            // 觸發游標優化判斷
             UpdateCursor(realPt);
 
             if (_isDraggingMinimap)
@@ -805,7 +838,6 @@ namespace DrawingApp
                 {
                     var movableShapes = SelectedShapes.Where(s => !s.IsLocked).ToList();
                     
-                    // 記錄移動前的髒點範圍
                     RectangleF oldBounds = GetShapesAndConnectorsBounds(movableShapes);
 
                     if (movableShapes.Count == 1)
@@ -840,10 +872,8 @@ namespace DrawingApp
                     _dragTotalDy += dy;
                     foreach (var s in movableShapes) s.Move(dx, dy);
 
-                    // 記錄移動後的髒點範圍
                     RectangleF newBounds = GetShapesAndConnectorsBounds(movableShapes);
 
-                    // 優化：有導引線時全畫面重繪以消除導引線殘留，否則只做局部重繪 (Partial Invalidation)
                     if (_smartGuides.Count > 0)
                     {
                         this.Invalidate();
@@ -852,7 +882,7 @@ namespace DrawingApp
                     {
                         InvalidateWorldRect(oldBounds);
                         InvalidateWorldRect(newBounds);
-                        if (_minimapRect != Rectangle.Empty) this.Invalidate(_minimapRect); // 確保小地圖同步更新
+                        if (_minimapRect != Rectangle.Empty) this.Invalidate(_minimapRect); 
                     }
                 }
                 else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
@@ -1006,14 +1036,7 @@ namespace DrawingApp
                 }
                 
                 _lastMousePos = new Point((int)(_lastMousePos.X + dx * ZoomFactor), (int)(_lastMousePos.Y + dy * ZoomFactor));
-                // 如果沒有進入任何特定狀態，我們仍然可能需要全面刷新，但上面的特定邏輯已經精準覆蓋
             }
-        }
-
-        private float Snap(float angle, float step)
-        {
-            if (Control.ModifierKeys == Keys.Alt) return angle; 
-            return (float)Math.Round(angle / step) * step;
         }
 
         private void Canvas_MouseUp(object sender, MouseEventArgs e)
@@ -1044,6 +1067,9 @@ namespace DrawingApp
                 {
                     foreach (var s in movableShapes) s.Move(-_dragTotalDx, -_dragTotalDy);
                     CmdManager.ExecuteCommand(new MoveShapesCommand(movableShapes, _dragTotalDx, _dragTotalDy));
+                    
+                    // 優化：當拖曳結束放開滑鼠時，因為可能觸發畫布擴張 (ActualPageSize 變大)，強制重繪整個畫面與小地圖
+                    this.Invalidate();
                 }
                 else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
@@ -1058,6 +1084,7 @@ namespace DrawingApp
                     {
                         CmdManager.ExecuteCommand(new ResizeShapeCommand(SelectedShapes[0], _initialBounds, SelectedShapes[0].Bounds));
                     }
+                    this.Invalidate(); // 同樣觸發畫布可能擴張的重繪
                 }
                 else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
@@ -1108,13 +1135,15 @@ namespace DrawingApp
             g.TranslateTransform(_cameraOffset.X, _cameraOffset.Y);
             g.ScaleTransform(ZoomFactor, ZoomFactor);
 
-            // 優化：取得目前實際需要重繪的裁切範圍，只畫範圍內的物件
             RectangleF clipWorldBounds = new RectangleF(
                 (e.ClipRectangle.X - _cameraOffset.X) / ZoomFactor,
                 (e.ClipRectangle.Y - _cameraOffset.Y) / ZoomFactor,
                 e.ClipRectangle.Width / ZoomFactor,
                 e.ClipRectangle.Height / ZoomFactor
             );
+
+            // 優化：取得自動擴張後的實際畫布尺寸
+            SizeF currentCanvasSize = ActualPageSize;
 
             RectangleF viewRect = new RectangleF(
                 -_cameraOffset.X / ZoomFactor, 
@@ -1124,12 +1153,12 @@ namespace DrawingApp
 
             if (SnapToGrid) DrawGrid(g, viewRect);
 
+            // 優化：繪製畫布邊界，並確保它大到可以包住所有圖形
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
-                g.DrawRectangle(pPage, 0, 0, PageSize.Width, PageSize.Height);
+                g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
             foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape)))
             {
-                // 優化：只重繪在裁切範圍內的物件
                 if (clipWorldBounds.IntersectsWith(shape.Bounds)) shape.DrawWithTransform(g);
             }
 
@@ -1169,12 +1198,13 @@ namespace DrawingApp
                     }
                 }
                 
-                shape.DrawDynamic(g, p1, p2);
+                // 優化：傳遞所有的 shapes 給連線形狀，讓 A* 演算法可以判斷障礙物
+                shape.DrawDynamic(g, p1, p2, Shapes);
                 if (!shape.IsOrthogonal) drawnLines.Add(new LineSegment(p1, p2));
             }
 
             _tempShape?.DrawWithTransform(g);
-            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt);
+            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes); // 拖曳中也支援避障
             
             if ((_currentState == InteractionState.Connecting || _currentState == InteractionState.Resizing) && _hoveredShapeForConnection != null)
             {
@@ -1208,8 +1238,9 @@ namespace DrawingApp
 
             g.Transform = oldTransform; 
 
-            float minimapScale = MINIMAP_WIDTH / PageSize.Width;
-            int minimapHeight = (int)(PageSize.Height * minimapScale);
+            // 優化：小地圖也跟著 ActualPageSize 自動擴張比例
+            float minimapScale = MINIMAP_WIDTH / currentCanvasSize.Width;
+            int minimapHeight = (int)(currentCanvasSize.Height * minimapScale);
             _minimapRect = new Rectangle(this.Width - MINIMAP_WIDTH - 20, this.Height - minimapHeight - 20, MINIMAP_WIDTH, minimapHeight);
 
             using (Brush bgBrush = new SolidBrush(Color.FromArgb(220, 245, 245, 245)))
@@ -1255,8 +1286,8 @@ namespace DrawingApp
         public Bitmap GetTransparentCanvasRender()
         {
             SelectedShapes.ForEach(s => s.IsSelected = false);
-            float maxX = Shapes.Count > 0 ? Shapes.Max(s => s.Bounds.Right) : PageSize.Width;
-            float maxY = Shapes.Count > 0 ? Shapes.Max(s => s.Bounds.Bottom) : PageSize.Height;
+            float maxX = ActualPageSize.Width;
+            float maxY = ActualPageSize.Height;
             Bitmap bmp = new Bitmap(Math.Max((int)maxX + 50, (int)PageSize.Width), Math.Max((int)maxY + 50, (int)PageSize.Height)); 
             using (Graphics g = Graphics.FromImage(bmp))
             {
