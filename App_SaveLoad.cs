@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Windows.Forms;
 using Newtonsoft.Json;
 
@@ -24,11 +25,10 @@ namespace DrawingApp
         // 定義自動存檔的路徑
         private static string AutoSavePath => Path.Combine(SaveDirectory, "autosave.draw");
 
-        // 優化：加入 NullValueHandling.Ignore 以縮減 JSON 存檔體積
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
         {
             TypeNameHandling = TypeNameHandling.All, 
-            Formatting = Formatting.Indented,
+            Formatting = Formatting.None, // 優化：移除縮排，因為已使用 GZIP 壓縮，減少記憶體使用
             NullValueHandling = NullValueHandling.Ignore 
         };
 
@@ -37,6 +37,36 @@ namespace DrawingApp
             if (!Directory.Exists(SaveDirectory)) 
             {
                 Directory.CreateDirectory(SaveDirectory);
+            }
+        }
+
+        // 優化：寫入 GZIP 壓縮檔案，大幅縮減檔案大小 (尤其是圖片 Base64)
+        private static void WriteCompressedFile(string filePath, string content)
+        {
+            using (FileStream fileStream = new FileStream(filePath, FileMode.Create))
+            using (GZipStream compressionStream = new GZipStream(fileStream, CompressionMode.Compress))
+            using (StreamWriter writer = new StreamWriter(compressionStream))
+            {
+                writer.Write(content);
+            }
+        }
+
+        // 優化：讀取並解壓 GZIP 檔案 (支援舊版無壓縮檔案自動回退機制)
+        private static string ReadCompressedFile(string filePath)
+        {
+            try
+            {
+                using (FileStream fileStream = new FileStream(filePath, FileMode.Open))
+                using (GZipStream decompressionStream = new GZipStream(fileStream, CompressionMode.Decompress))
+                using (StreamReader reader = new StreamReader(decompressionStream))
+                {
+                    return reader.ReadToEnd();
+                }
+            }
+            catch (InvalidDataException)
+            {
+                // 如果拋出 InvalidDataException，表示這不是一個 GZIP 壓縮檔，而是舊版的明文 JSON
+                return File.ReadAllText(filePath);
             }
         }
 
@@ -50,10 +80,10 @@ namespace DrawingApp
                     if (sfd.ShowDialog() == DialogResult.OK)
                     {
                         string json = JsonConvert.SerializeObject(project, jsonSettings);
-                        File.WriteAllText(sfd.FileName, json);
+                        WriteCompressedFile(sfd.FileName, json);
+                        
                         MessageBox.Show("專案存檔成功！", "系統通知", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         
-                        // 正常存檔後，刪除自動存檔備份
                         DeleteAutoSave();
                         return true;
                     }
@@ -75,7 +105,8 @@ namespace DrawingApp
                 {
                     if (ofd.ShowDialog() == DialogResult.OK)
                     {
-                        string json = File.ReadAllText(ofd.FileName);
+                        string json = ReadCompressedFile(ofd.FileName);
+                        
                         try 
                         {
                             var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
@@ -102,19 +133,18 @@ namespace DrawingApp
             return null;
         }
 
-        // 背景自動存檔邏輯
         public static void PerformAutoSave(DrawProject project)
         {
             try
             {
                 EnsureDirectory();
                 string json = JsonConvert.SerializeObject(project, jsonSettings);
-                File.WriteAllText(AutoSavePath, json);
+                // 優化：背景存檔同樣進行壓縮，提升磁碟 I/O 寫入效能
+                WriteCompressedFile(AutoSavePath, json);
             }
             catch { /* 背景存檔出錯時不干擾使用者 */ }
         }
 
-        // 檢測是否有未正常關閉的備份檔
         public static DrawProject CheckAndLoadAutoSave()
         {
             if (File.Exists(AutoSavePath))
@@ -124,7 +154,7 @@ namespace DrawingApp
                 {
                     try
                     {
-                        string json = File.ReadAllText(AutoSavePath);
+                        string json = ReadCompressedFile(AutoSavePath);
                         var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
                         if (project != null && project.Pages != null) return project;
                     }
@@ -134,7 +164,6 @@ namespace DrawingApp
                     }
                 }
                 
-                // 不管是選擇不恢復、還是恢復失敗，都清空舊的 AutoSave
                 DeleteAutoSave();
             }
             return null;
