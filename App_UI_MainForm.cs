@@ -161,6 +161,17 @@ namespace DrawingApp
                 if (CurrentCanvas != null) ShowPdfExportDialog();
             }));
 
+            // --- 新增：SVG 匯出按鈕 ---
+            _topBar.Controls.Add(CreateTextButton("匯出 SVG", 90, async (s, e) => {
+                if (CurrentCanvas == null) return;
+                using (var sfd = new SaveFileDialog() { Filter = "SVG 向量圖|*.svg" })
+                    if (sfd.ShowDialog() == DialogResult.OK)
+                    {
+                        await App_Export.ExportToSvgAsync(CurrentCanvas.Shapes, CurrentCanvas.PageSize, sfd.FileName);
+                        MessageBox.Show("當前畫布 SVG 匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+            }));
+
             _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 60, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5) };
             
             _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n(可框選、旋轉、縮放)");
@@ -177,8 +188,9 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框");
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
+            // --- 新增：自由畫筆按鈕 ---
+            CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆");
 
-            // 面板加入自動捲軸 (AutoScroll)，避免解析度較低時按鈕被切斷
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10), AutoScroll = true };
             BuildPropertyPanel();
 
@@ -202,24 +214,30 @@ namespace DrawingApp
                 if (result == DialogResult.Yes)
                 {
                     SaveAllTabs();
-                    if (_isDirty) 
-                    {
-                        e.Cancel = true;
-                    }
+                    if (_isDirty) e.Cancel = true;
                 }
                 else if (result == DialogResult.Cancel)
                 {
                     e.Cancel = true;
                 }
                 
-                if (result == DialogResult.No)
-                {
-                    App_SaveLoad.DeleteAutoSave();
-                }
+                if (result == DialogResult.No) App_SaveLoad.DeleteAutoSave();
             }
             else
             {
                 App_SaveLoad.DeleteAutoSave();
+            }
+
+            // --- 修正：程式關閉時釋放所有圖形的資源，避免 Memory Leak ---
+            if (!e.Cancel)
+            {
+                foreach (TabPage tab in _tabControl.TabPages)
+                {
+                    if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl canvas)
+                    {
+                        foreach (var shape in canvas.Shapes) shape.Dispose();
+                    }
+                }
             }
         }
 
@@ -265,6 +283,12 @@ namespace DrawingApp
                         {
                             if (_tabControl.TabCount > 1)
                             {
+                                // --- 修正：分頁關閉時釋放資源 ---
+                                if (tabToClose.Controls.Count > 0 && tabToClose.Controls[0] is App_CanvasControl canvas)
+                                {
+                                    foreach (var shape in canvas.Shapes) shape.Dispose();
+                                }
+                                
                                 _tabControl.TabPages.Remove(tabToClose);
                                 _isDirty = true;
                                 UpdateWindowTitle();
@@ -342,7 +366,6 @@ namespace DrawingApp
 
             canvas.OnSelectionChanged += () => RefreshPropertyPanel();
             
-            // --- 新增：綁定進階屬性設定事件 ---
             canvas.OnShapePropertyRequested += ShowAdvancedProperties;
             
             canvas.OnToolResetRequested += () => { 
@@ -363,7 +386,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：開啟進階屬性視窗 (PropertyGrid) ---
         private void ShowAdvancedProperties(App_Shapes.ShapeBase shape)
         {
             using (Form propForm = new Form() { Text = "進階屬性設定 (修改數值後按 Enter 生效)", Size = new Size(350, 500), StartPosition = FormStartPosition.CenterParent })
@@ -413,6 +435,15 @@ namespace DrawingApp
             var project = App_SaveLoad.LoadProject();
             if (project != null && project.Pages.Count > 0)
             {
+                // 讀取新檔前，先清空並釋放舊的資源
+                foreach (TabPage tab in _tabControl.TabPages)
+                {
+                    if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl oldCanvas)
+                    {
+                        foreach (var shape in oldCanvas.Shapes) shape.Dispose();
+                    }
+                }
+                
                 _tabControl.TabPages.Clear();
                 foreach (var page in project.Pages) AddNewTab(page.Title, page.Shapes);
                 
@@ -478,7 +509,6 @@ namespace DrawingApp
             Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
             _rightPanel.Controls.Add(alignTitle); startY += 30;
 
-            // --- 修正：將 Height 拉高到 140，避免與下方元件重疊 ---
             _alignmentPanel = new FlowLayoutPanel() { Location = new Point(10, startY), Width = 190, Height = 140, WrapContents = true };
             
             _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
@@ -723,6 +753,7 @@ namespace DrawingApp
             }
         }
 
+        // --- 修正：自動壓縮過大圖片，防 OOM，同時加入資源釋放 ---
         private void HandleImageInsert(PointF pt)
         {
             if (CurrentCanvas == null) return;
@@ -730,10 +761,29 @@ namespace DrawingApp
             {
                 if (ofd.ShowDialog() == DialogResult.OK)
                 {
-                    Bitmap img = new Bitmap(ofd.FileName);
-                    var imgShape = App_Shapes.ShapeFactory.CreateShape(App_Shapes.ShapeType.Image, pt, Color.Black, img);
-                    CurrentCanvas.CmdManager.ExecuteCommand(new AddShapeCommand(CurrentCanvas.Shapes, imgShape));
-                    CurrentCanvas.Invalidate();
+                    using (Bitmap originalImg = new Bitmap(ofd.FileName))
+                    {
+                        Bitmap finalImg = originalImg;
+                        int maxW = 1920, maxH = 1080;
+                        
+                        if (originalImg.Width > maxW || originalImg.Height > maxH)
+                        {
+                            float ratioX = (float)maxW / originalImg.Width;
+                            float ratioY = (float)maxH / originalImg.Height;
+                            float ratio = Math.Min(ratioX, ratioY);
+                            
+                            int newW = (int)(originalImg.Width * ratio);
+                            int newH = (int)(originalImg.Height * ratio);
+                            finalImg = new Bitmap(originalImg, newW, newH);
+                        }
+                        
+                        var imgShape = App_Shapes.ShapeFactory.CreateShape(App_Shapes.ShapeType.Image, pt, Color.Black, finalImg);
+                        CurrentCanvas.CmdManager.ExecuteCommand(new AddShapeCommand(CurrentCanvas.Shapes, imgShape));
+                        CurrentCanvas.Invalidate();
+                        
+                        // 若圖片經過壓縮，釋放記憶體中的壓縮圖實體
+                        if (finalImg != originalImg) finalImg.Dispose();
+                    }
                 }
             }
         }
@@ -832,6 +882,8 @@ namespace DrawingApp
                     else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 8, 12, 28, 20); g.DrawString("A", new Font("Arial", 10), new SolidBrush(iconColor), 14, 14); }
                     else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 12, 10);
                     else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 10, 10, 24, 24); g.DrawEllipse(p, 14, 14, 4, 4); g.DrawLine(p, 10, 34, 24, 20); }
+                    // --- 新增：自由畫筆按鈕的 Icon 繪製 ---
+                    else if (type == App_Shapes.ShapeType.Freehand) { g.DrawBezier(p, new Point(10, 22), new Point(20, 10), new Point(25, 34), new Point(35, 22)); }
                 }
             };
             _leftPanel.Controls.Add(btn);
