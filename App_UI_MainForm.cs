@@ -25,7 +25,7 @@ namespace DrawingApp
         private NumericUpDown _nudStroke;
         private ComboBox _cbDash;
         private Button _btnShapeColor;
-        private Button _btnFillColor; // 新增：填充顏色按鈕
+        private Button _btnFillColor;
         private Button _btnFontColor;
         
         private Button _btnBold;
@@ -172,22 +172,28 @@ namespace DrawingApp
                     }
             }));
 
-            _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 60, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5) };
+            // 修改左側工具列面板：加入自動滾動，避免圖示太多被切斷
+            _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 65, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
             
             _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n(可框選、旋轉、縮放)");
             SetActiveButton(_btnPointer);
             
-            // --- 新增：拖曳畫布工具按鈕 ---
             CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (Hand Tool)\n(可用滑鼠左鍵直接平移畫面)");
-            
             CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭線");
             CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線");
             CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "90度折線");
-            CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形\n(可直接拖曳至畫布)");
-            CreateToolButton(App_Shapes.ShapeType.Circle, "圓形\n(可直接拖曳至畫布)");
-            CreateToolButton(App_Shapes.ShapeType.Arc, "圓弧\n(可直接拖曳至畫布)");
-            CreateToolButton(App_Shapes.ShapeType.Diamond, "菱形\n(可直接拖曳至畫布)");
-            CreateToolButton(App_Shapes.ShapeType.Triangle, "三角形\n(可直接拖曳至畫布)");
+
+            CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形");
+            CreateToolButton(App_Shapes.ShapeType.RoundedRectangle, "圓角矩形"); // 新增
+            CreateToolButton(App_Shapes.ShapeType.Circle, "圓形");
+            CreateToolButton(App_Shapes.ShapeType.Arc, "圓弧");
+            CreateToolButton(App_Shapes.ShapeType.Diamond, "菱形");
+            CreateToolButton(App_Shapes.ShapeType.Triangle, "三角形");
+            CreateToolButton(App_Shapes.ShapeType.Pentagon, "五邊形"); // 新增
+            CreateToolButton(App_Shapes.ShapeType.Hexagon, "六邊形"); // 新增
+            CreateToolButton(App_Shapes.ShapeType.Star, "星形"); // 新增
+            CreateToolButton(App_Shapes.ShapeType.Cloud, "雲朵"); // 新增
+
             CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框");
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
@@ -400,6 +406,8 @@ namespace DrawingApp
                     CurrentCanvas?.Invalidate();
                     _isDirty = true;
                     UpdateWindowTitle();
+                    // 修正：當屬性表修改後，同時刷新右側控制面板的 UI 狀態
+                    RefreshPropertyPanel(); 
                 };
 
                 propForm.Controls.Add(grid);
@@ -495,12 +503,11 @@ namespace DrawingApp
             _cbDash.SelectedIndexChanged += PropertyChanged;
             _rightPanel.Controls.Add(_cbDash); startY += 50;
 
-            _btnShapeColor = new Button() { Text = "線條 / 外框顏色", Location = new Point(10, startY), Width = 190, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
+            _btnShapeColor = new Button() { Text = "外框 / 線條顏色", Location = new Point(10, startY), Width = 190, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
             _btnShapeColor.FlatAppearance.BorderColor = Color.Gray;
             _btnShapeColor.Click += (s, e) => ChangeColor("Stroke");
             _rightPanel.Controls.Add(_btnShapeColor); startY += 35;
 
-            // --- 新增：填充顏色按鈕 ---
             _btnFillColor = new Button() { Text = "圖形填充顏色", Location = new Point(10, startY), Width = 190, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
             _btnFillColor.FlatAppearance.BorderColor = Color.Gray;
             _btnFillColor.Click += (s, e) => ChangeColor("Fill");
@@ -681,7 +688,6 @@ namespace DrawingApp
             UpdateWindowTitle();
         }
 
-        // --- 修正：區分更改 外框色、填充色、字體色 ---
         private void ChangeColor(string target)
         {
             if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count != 1) return;
@@ -891,7 +897,6 @@ namespace DrawingApp
                 using (Pen p = new Pen(iconColor, 2))
                 {
                     if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(14, 12), new Point(14, 32), new Point(20, 24), new Point(27, 24) });
-                    // --- 新增：拖曳畫布工具 (手掌圖示) ---
                     else if (type == App_Shapes.ShapeType.HandPan) 
                     { 
                         g.DrawLine(p, 16, 26, 16, 14); g.DrawArc(p, 14, 12, 4, 4, 180, 180); 
@@ -904,10 +909,68 @@ namespace DrawingApp
                     else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 10, 32, 32, 10);
                     else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(10, 32), new PointF(22, 32), new PointF(22, 12), new PointF(32, 12) });
                     else if (type == App_Shapes.ShapeType.Rectangle) g.DrawRectangle(p, 10, 12, 24, 20);
+                    
+                    // 新增圖示：圓角矩形
+                    else if (type == App_Shapes.ShapeType.RoundedRectangle) 
+                    {
+                        using(GraphicsPath gp = new GraphicsPath()) {
+                            gp.AddArc(10, 12, 6, 6, 180, 90);
+                            gp.AddArc(28, 12, 6, 6, 270, 90);
+                            gp.AddArc(28, 26, 6, 6, 0, 90);
+                            gp.AddArc(10, 26, 6, 6, 90, 90);
+                            gp.CloseFigure();
+                            g.DrawPath(p, gp);
+                        }
+                    }
                     else if (type == App_Shapes.ShapeType.Circle) g.DrawEllipse(p, 10, 10, 24, 24);
                     else if (type == App_Shapes.ShapeType.Arc) g.DrawArc(p, 10, 10, 24, 24, 180, 180);
                     else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(22, 8), new PointF(36, 22), new PointF(22, 36), new PointF(8, 22) });
                     else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(22, 10), new PointF(34, 32), new PointF(10, 32) });
+                    
+                    // 新增圖示：五邊形
+                    else if (type == App_Shapes.ShapeType.Pentagon) 
+                    {
+                        PointF[] pts = new PointF[5];
+                        for (int i = 0; i < 5; i++) {
+                            double a = Math.PI / 2 + (i * 2 * Math.PI / 5);
+                            pts[i] = new PointF(22 - (float)(12 * Math.Cos(a)), 22 - (float)(12 * Math.Sin(a)));
+                        }
+                        g.DrawPolygon(p, pts);
+                    }
+                    
+                    // 新增圖示：六邊形
+                    else if (type == App_Shapes.ShapeType.Hexagon) 
+                    {
+                        PointF[] pts = new PointF[6];
+                        for (int i = 0; i < 6; i++) {
+                            double a = i * Math.PI / 3;
+                            pts[i] = new PointF(22 + (float)(12 * Math.Cos(a)), 22 + (float)(12 * Math.Sin(a)));
+                        }
+                        g.DrawPolygon(p, pts);
+                    }
+
+                    // 新增圖示：星形
+                    else if (type == App_Shapes.ShapeType.Star) 
+                    {
+                        PointF[] pts = new PointF[10];
+                        for (int i = 0; i < 10; i++) {
+                            double a = Math.PI / 2 + (i * Math.PI / 5);
+                            float r = (i % 2 == 0) ? 14 : 6;
+                            pts[i] = new PointF(22 - (float)(r * Math.Cos(a)), 22 - (float)(r * Math.Sin(a)));
+                        }
+                        g.DrawPolygon(p, pts);
+                    }
+
+                    // 新增圖示：雲朵
+                    else if (type == App_Shapes.ShapeType.Cloud) 
+                    {
+                        g.DrawArc(p, 10, 18, 10, 10, 90, 180);
+                        g.DrawArc(p, 14, 12, 12, 12, 180, 180);
+                        g.DrawArc(p, 22, 14, 12, 12, 270, 180);
+                        g.DrawArc(p, 24, 20, 10, 10, 0, 180);
+                        g.DrawLine(p, 15, 28, 29, 28);
+                    }
+
                     else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 8, 12, 28, 20); g.DrawString("A", new Font("Arial", 10), new SolidBrush(iconColor), 14, 14); }
                     else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 12, 10);
                     else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 10, 10, 24, 24); g.DrawEllipse(p, 14, 14, 4, 4); g.DrawLine(p, 10, 34, 24, 20); }
