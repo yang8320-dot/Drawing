@@ -1,5 +1,5 @@
 /*
- * 檔案功能：處理匯出 PNG (透明)、PDF 與新增的 SVG 功能
+ * 檔案功能：處理匯出 PNG (透明)、PDF 與 SVG 功能
  */
 using System;
 using System.Collections.Generic;
@@ -15,7 +15,6 @@ namespace DrawingApp
 {
     public static class App_Export
     {
-        // 匯出透明 PNG
         public static async Task ExportToPngAsync(Bitmap canvasBitmap, string filePath)
         {
             await Task.Run(() =>
@@ -24,7 +23,6 @@ namespace DrawingApp
             });
         }
 
-        // 匯出 PDF (A4 尺寸)
         public static async Task ExportToPdfAsync(Bitmap canvasBitmap, string filePath, bool isLandscape)
         {
             await Task.Run(() =>
@@ -32,7 +30,6 @@ namespace DrawingApp
                 PdfDocument document = new PdfDocument();
                 PdfPage page = document.AddPage();
                 
-                // 設定 A4 尺寸
                 page.Size = PdfSharp.PageSize.A4;
                 page.Orientation = isLandscape ? PdfSharp.PageOrientation.Landscape : PdfSharp.PageOrientation.Portrait;
 
@@ -43,14 +40,12 @@ namespace DrawingApp
                     ms.Position = 0;
                     XImage image = XImage.FromStream(ms);
                     
-                    // 根據 A4 尺寸繪製圖片 (這裡採等比例縮放)
                     gfx.DrawImage(image, 0, 0, page.Width, page.Height);
                 }
                 document.Save(filePath);
             });
         }
 
-        // --- 新增：匯出 SVG 向量圖 ---
         public static async Task ExportToSvgAsync(List<App_Shapes.ShapeBase> shapes, SizeF pageSize, string filePath)
         {
             await Task.Run(() =>
@@ -61,7 +56,8 @@ namespace DrawingApp
 
                 foreach (var shape in shapes)
                 {
-                    string colorHex = ColorTranslator.ToHtml(shape.ShapeColor);
+                    string strokeHex = ColorTranslator.ToHtml(shape.ShapeColor);
+                    string fillHex = shape.FillColor == Color.Transparent ? "none" : ColorTranslator.ToHtml(shape.FillColor);
                     string fontColorHex = ColorTranslator.ToHtml(shape.FontColor);
                     string dashArray = shape.StrokeDashStyle == System.Drawing.Drawing2D.DashStyle.Dash ? "stroke-dasharray=\"5,5\"" : "";
                     
@@ -74,18 +70,28 @@ namespace DrawingApp
                     
                     string transform = shape.RotationAngle != 0 ? $"transform=\"rotate({shape.RotationAngle},{cx},{cy})\"" : "";
 
-                    if (shape is App_Shapes.RectShape || shape is App_Shapes.TextNodeShape)
+                    if (shape is App_Shapes.RectShape)
                     {
-                        string fill = (shape is App_Shapes.TextNodeShape tns && tns.IsTransparent) ? "none" : "none";
-                        svg.AppendLine($"  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fill}\" stroke=\"{colorHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
+                        svg.AppendLine($"  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
+                    }
+                    // --- 新增：圓角矩形 SVG ---
+                    else if (shape is App_Shapes.RoundedRectShape)
+                    {
+                        float r = Math.Min(w, h) * 0.2f;
+                        svg.AppendLine($"  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" rx=\"{r}\" ry=\"{r}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
+                    }
+                    else if (shape is App_Shapes.TextNodeShape tns)
+                    {
+                        string tnsFill = tns.IsTransparent ? "none" : fillHex;
+                        svg.AppendLine($"  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{tnsFill}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
                     }
                     else if (shape is App_Shapes.CircleShape)
                     {
-                        svg.AppendLine($"  <ellipse cx=\"{cx}\" cy=\"{cy}\" rx=\"{w/2}\" ry=\"{h/2}\" fill=\"none\" stroke=\"{colorHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
+                        svg.AppendLine($"  <ellipse cx=\"{cx}\" cy=\"{cy}\" rx=\"{w/2}\" ry=\"{h/2}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
                     }
                     else if (shape is App_Shapes.ConnectorShape conn)
                     {
-                        svg.AppendLine($"  <line x1=\"{conn.StartPt.X}\" y1=\"{conn.StartPt.Y}\" x2=\"{conn.EndPt.X}\" y2=\"{conn.EndPt.Y}\" stroke=\"{colorHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
+                        svg.AppendLine($"  <line x1=\"{conn.StartPt.X}\" y1=\"{conn.StartPt.Y}\" x2=\"{conn.EndPt.X}\" y2=\"{conn.EndPt.Y}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
                     }
                     else if (shape is App_Shapes.FreehandShape fh)
                     {
@@ -98,11 +104,35 @@ namespace DrawingApp
                                 float py = fh.Bounds.Y + pt.Y;
                                 svg.Append($"{px},{py} ");
                             }
-                            svg.AppendLine($"\" fill=\"none\" stroke=\"{colorHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
+                            svg.AppendLine($"\" fill=\"none\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
                         }
                     }
+                    // --- 新增：支援多邊形 SVG (三角形、菱形、星形、五邊形、六邊形) ---
+                    else if (shape is App_Shapes.TriangleShape || shape is App_Shapes.DiamondShape || 
+                             shape is App_Shapes.StarShape || shape is App_Shapes.PentagonShape || shape is App_Shapes.HexagonShape)
+                    {
+                        PointF[] pts = ((dynamic)shape).GetPolygonPoints();
+                        svg.Append($"  <polygon points=\"");
+                        foreach (var pt in pts) svg.Append($"{pt.X},{pt.Y} ");
+                        svg.AppendLine($"\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
+                    }
+                    // --- 新增：雲朵 SVG (多個橢圓組合) ---
+                    else if (shape is App_Shapes.CloudShape)
+                    {
+                        svg.AppendLine($"  <g {transform}>");
+                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.35f}\" cy=\"{y + h * 0.45f}\" rx=\"{w * 0.2f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
+                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.60f}\" cy=\"{y + h * 0.40f}\" rx=\"{w * 0.25f}\" ry=\"{h * 0.30f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
+                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.75f}\" cy=\"{y + h * 0.60f}\" rx=\"{w * 0.17f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
+                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.50f}\" cy=\"{y + h * 0.65f}\" rx=\"{w * 0.25f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
+                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.25f}\" cy=\"{y + h * 0.60f}\" rx=\"{w * 0.15f}\" ry=\"{h * 0.20f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
+                        
+                        // 用一個沒有邊框的橢圓填補中間的線條空隙
+                        if (shape.FillColor != Color.Transparent) {
+                            svg.AppendLine($"    <ellipse cx=\"{x + w * 0.5f}\" cy=\"{y + h * 0.55f}\" rx=\"{w * 0.3f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"none\" />");
+                        }
+                        svg.AppendLine($"  </g>");
+                    }
 
-                    // 處理文字
                     if (!string.IsNullOrEmpty(shape.Text))
                     {
                         string fw = shape.FontBold ? "bold" : "normal";
