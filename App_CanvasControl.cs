@@ -32,7 +32,6 @@ namespace DrawingApp
         private enum InteractionState { Idle, Drawing, Moving, Resizing, Rotating, Connecting, BoxSelecting }
         private InteractionState _currentState = InteractionState.Idle;
 
-        // --- 修正：新增 CurrentTool 的屬性設定，確保切換成拖曳模式時游標正確顯示 ---
         private App_Shapes.ShapeType _currentTool = App_Shapes.ShapeType.Pointer;
         public App_Shapes.ShapeType CurrentTool 
         { 
@@ -95,7 +94,6 @@ namespace DrawingApp
             InitializeInlineEditor();
         }
 
-        // --- 修正：原生攔截 Windows 觸控板水平滑動訊號 (WM_MOUSEHWHEEL) ---
         protected override void WndProc(ref Message m)
         {
             const int WM_MOUSEHWHEEL = 0x020E;
@@ -318,7 +316,6 @@ namespace DrawingApp
             this.Invalidate();
         }
 
-        // --- 修正：支援 Shift + 滑鼠滾輪 進行水平移動 ---
         private void Canvas_MouseWheel(object sender, MouseEventArgs e)
         {
             if (Control.ModifierKeys == Keys.Control)
@@ -461,8 +458,29 @@ namespace DrawingApp
             }
         }
 
+        // --- 修正：貼上邏輯反轉，優先判定內部向量剪貼簿，解決灰底圖片問題 ---
         private void Paste()
         {
+            if (_clipboard.Count > 0)
+            {
+                SelectedShapes.ForEach(s => s.IsSelected = false);
+                SelectedShapes.Clear();
+                
+                var newClones = App_SaveLoad.CloneShapes(_clipboard);
+                foreach (var s in newClones)
+                {
+                    s.Id = Guid.NewGuid();
+                    s.IsLocked = false; 
+                    s.Move(20, 20);
+                    s.IsSelected = true;
+                    CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, s));
+                    SelectedShapes.Add(s);
+                }
+                OnSelectionChanged?.Invoke();
+                this.Invalidate();
+                return;
+            }
+
             if (Clipboard.ContainsImage())
             {
                 Image img = Clipboard.GetImage();
@@ -480,26 +498,8 @@ namespace DrawingApp
                     
                     OnSelectionChanged?.Invoke();
                     this.Invalidate();
-                    return;
                 }
             }
-
-            if (_clipboard.Count == 0) return;
-            SelectedShapes.ForEach(s => s.IsSelected = false);
-            SelectedShapes.Clear();
-            
-            var newClones = App_SaveLoad.CloneShapes(_clipboard);
-            foreach (var s in newClones)
-            {
-                s.Id = Guid.NewGuid();
-                s.IsLocked = false; 
-                s.Move(20, 20);
-                s.IsSelected = true;
-                CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, s));
-                SelectedShapes.Add(s);
-            }
-            OnSelectionChanged?.Invoke();
-            this.Invalidate();
         }
 
         private void Canvas_MouseDown(object sender, MouseEventArgs e)
@@ -518,7 +518,6 @@ namespace DrawingApp
                 return;
             }
 
-            // --- 修正：整合 HandPan (拖曳畫布工具) 觸發 ---
             if (e.Button == MouseButtons.Middle || 
                (e.Button == MouseButtons.Left && Control.ModifierKeys == Keys.Space) ||
                (e.Button == MouseButtons.Left && CurrentTool == App_Shapes.ShapeType.HandPan))
@@ -1065,7 +1064,9 @@ namespace DrawingApp
                 float sw = shape.Bounds.Width * minimapScale;
                 float sh = shape.Bounds.Height * minimapScale;
                 
-                using (Brush b = new SolidBrush(shape.ShapeColor))
+                // 修正小地圖顯示：考慮 FillColor
+                Color renderColor = (shape.FillColor != Color.Transparent) ? shape.FillColor : shape.ShapeColor;
+                using (Brush b = new SolidBrush(renderColor))
                     g.FillRectangle(b, sx, sy, sw, sh);
             }
 
