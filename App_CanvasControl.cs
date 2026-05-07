@@ -393,6 +393,13 @@ namespace DrawingApp
             return (float)Math.Round(value / GridSize) * GridSize;
         }
 
+        // 補回遺失的方法：用於旋轉角度吸附 (15度角)
+        private float Snap(float angle, float step)
+        {
+            if (Control.ModifierKeys == Keys.Alt) return angle; 
+            return (float)Math.Round(angle / step) * step;
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (_inlineTextBox.Focused) return base.ProcessCmdKey(ref msg, keyData);
