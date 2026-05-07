@@ -25,6 +25,7 @@ namespace DrawingApp
         private NumericUpDown _nudStroke;
         private ComboBox _cbDash;
         private Button _btnShapeColor;
+        private Button _btnFillColor; // 新增：填充顏色按鈕
         private Button _btnFontColor;
         
         private Button _btnBold;
@@ -161,7 +162,6 @@ namespace DrawingApp
                 if (CurrentCanvas != null) ShowPdfExportDialog();
             }));
 
-            // --- 新增：SVG 匯出按鈕 ---
             _topBar.Controls.Add(CreateTextButton("匯出 SVG", 90, async (s, e) => {
                 if (CurrentCanvas == null) return;
                 using (var sfd = new SaveFileDialog() { Filter = "SVG 向量圖|*.svg" })
@@ -177,6 +177,9 @@ namespace DrawingApp
             _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n(可框選、旋轉、縮放)");
             SetActiveButton(_btnPointer);
             
+            // --- 新增：拖曳畫布工具按鈕 ---
+            CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (Hand Tool)\n(可用滑鼠左鍵直接平移畫面)");
+            
             CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭線");
             CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線");
             CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "90度折線");
@@ -188,7 +191,6 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框");
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
-            // --- 新增：自由畫筆按鈕 ---
             CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆");
 
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 220, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10), AutoScroll = true };
@@ -228,7 +230,6 @@ namespace DrawingApp
                 App_SaveLoad.DeleteAutoSave();
             }
 
-            // --- 修正：程式關閉時釋放所有圖形的資源，避免 Memory Leak ---
             if (!e.Cancel)
             {
                 foreach (TabPage tab in _tabControl.TabPages)
@@ -283,7 +284,6 @@ namespace DrawingApp
                         {
                             if (_tabControl.TabCount > 1)
                             {
-                                // --- 修正：分頁關閉時釋放資源 ---
                                 if (tabToClose.Controls.Count > 0 && tabToClose.Controls[0] is App_CanvasControl canvas)
                                 {
                                     foreach (var shape in canvas.Shapes) shape.Dispose();
@@ -435,7 +435,6 @@ namespace DrawingApp
             var project = App_SaveLoad.LoadProject();
             if (project != null && project.Pages.Count > 0)
             {
-                // 讀取新檔前，先清空並釋放舊的資源
                 foreach (TabPage tab in _tabControl.TabPages)
                 {
                     if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl oldCanvas)
@@ -496,14 +495,20 @@ namespace DrawingApp
             _cbDash.SelectedIndexChanged += PropertyChanged;
             _rightPanel.Controls.Add(_cbDash); startY += 50;
 
-            _btnShapeColor = new Button() { Text = "外框 / 圖形顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
+            _btnShapeColor = new Button() { Text = "線條 / 外框顏色", Location = new Point(10, startY), Width = 190, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
             _btnShapeColor.FlatAppearance.BorderColor = Color.Gray;
-            _btnShapeColor.Click += (s, e) => ChangeColor(true);
-            _rightPanel.Controls.Add(_btnShapeColor); startY += 45;
+            _btnShapeColor.Click += (s, e) => ChangeColor("Stroke");
+            _rightPanel.Controls.Add(_btnShapeColor); startY += 35;
 
-            _btnFontColor = new Button() { Text = "文字顏色", Location = new Point(10, startY), Width = 190, Height = 35, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
+            // --- 新增：填充顏色按鈕 ---
+            _btnFillColor = new Button() { Text = "圖形填充顏色", Location = new Point(10, startY), Width = 190, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
+            _btnFillColor.FlatAppearance.BorderColor = Color.Gray;
+            _btnFillColor.Click += (s, e) => ChangeColor("Fill");
+            _rightPanel.Controls.Add(_btnFillColor); startY += 35;
+
+            _btnFontColor = new Button() { Text = "文字顏色", Location = new Point(10, startY), Width = 190, Height = 30, FlatStyle = FlatStyle.Flat, BackColor = Color.White, Cursor = Cursors.Hand };
             _btnFontColor.FlatAppearance.BorderColor = Color.Gray;
-            _btnFontColor.Click += (s, e) => ChangeColor(false);
+            _btnFontColor.Click += (s, e) => ChangeColor("Font");
             _rightPanel.Controls.Add(_btnFontColor); startY += 50;
 
             Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(10, startY), AutoSize = true };
@@ -676,23 +681,35 @@ namespace DrawingApp
             UpdateWindowTitle();
         }
 
-        private void ChangeColor(bool isShapeColor)
+        // --- 修正：區分更改 外框色、填充色、字體色 ---
+        private void ChangeColor(string target)
         {
             if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count != 1) return;
             var shape = CurrentCanvas.SelectedShapes[0];
 
-            using (ColorDialog cd = new ColorDialog() { Color = isShapeColor ? shape.ShapeColor : shape.FontColor })
+            Color currentColor = Color.Black;
+            if (target == "Stroke") currentColor = shape.ShapeColor;
+            else if (target == "Fill") currentColor = shape.FillColor == Color.Transparent ? Color.White : shape.FillColor;
+            else if (target == "Font") currentColor = shape.FontColor;
+
+            using (ColorDialog cd = new ColorDialog() { Color = currentColor })
             {
                 if (cd.ShowDialog() == DialogResult.OK)
                 {
-                    if (isShapeColor)
+                    if (target == "Stroke")
                     {
                         shape.ShapeColor = cd.Color;
                         _btnShapeColor.BackColor = cd.Color;
                         _btnShapeColor.ForeColor = GetContrastColor(cd.Color);
                         CurrentCanvas.CurrentColor = cd.Color; 
                     }
-                    else
+                    else if (target == "Fill")
+                    {
+                        shape.FillColor = cd.Color;
+                        _btnFillColor.BackColor = cd.Color;
+                        _btnFillColor.ForeColor = GetContrastColor(cd.Color);
+                    }
+                    else if (target == "Font")
                     {
                         shape.FontColor = cd.Color;
                         _btnFontColor.BackColor = cd.Color;
@@ -705,7 +722,7 @@ namespace DrawingApp
             }
         }
 
-        private Color GetContrastColor(Color bg) => (bg.R * 0.299 + bg.G * 0.587 + bg.B * 0.114) > 186 ? Color.Black : Color.White;
+        private Color GetContrastColor(Color bg) => (bg.A < 128) ? Color.Black : ((bg.R * 0.299 + bg.G * 0.587 + bg.B * 0.114) > 186 ? Color.Black : Color.White);
 
         private void RefreshPropertyPanel()
         {
@@ -725,6 +742,11 @@ namespace DrawingApp
 
                     _btnShapeColor.BackColor = shape.ShapeColor;
                     _btnShapeColor.ForeColor = GetContrastColor(shape.ShapeColor);
+                    
+                    _btnFillColor.BackColor = shape.FillColor == Color.Transparent ? Color.White : shape.FillColor;
+                    _btnFillColor.ForeColor = GetContrastColor(_btnFillColor.BackColor);
+                    _btnFillColor.Text = shape.FillColor == Color.Transparent ? "無填充 (透明)" : "圖形填充顏色";
+
                     _btnFontColor.BackColor = shape.FontColor;
                     _btnFontColor.ForeColor = GetContrastColor(shape.FontColor);
 
@@ -753,7 +775,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 修正：自動壓縮過大圖片，防 OOM，同時加入資源釋放 ---
         private void HandleImageInsert(PointF pt)
         {
             if (CurrentCanvas == null) return;
@@ -781,7 +802,6 @@ namespace DrawingApp
                         CurrentCanvas.CmdManager.ExecuteCommand(new AddShapeCommand(CurrentCanvas.Shapes, imgShape));
                         CurrentCanvas.Invalidate();
                         
-                        // 若圖片經過壓縮，釋放記憶體中的壓縮圖實體
                         if (finalImg != originalImg) finalImg.Dispose();
                     }
                 }
@@ -871,6 +891,15 @@ namespace DrawingApp
                 using (Pen p = new Pen(iconColor, 2))
                 {
                     if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(14, 12), new Point(14, 32), new Point(20, 24), new Point(27, 24) });
+                    // --- 新增：拖曳畫布工具 (手掌圖示) ---
+                    else if (type == App_Shapes.ShapeType.HandPan) 
+                    { 
+                        g.DrawLine(p, 16, 26, 16, 14); g.DrawArc(p, 14, 12, 4, 4, 180, 180); 
+                        g.DrawLine(p, 20, 26, 20, 10); g.DrawArc(p, 18, 8, 4, 4, 180, 180); 
+                        g.DrawLine(p, 24, 26, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
+                        g.DrawLine(p, 28, 26, 28, 16); g.DrawArc(p, 26, 14, 4, 4, 180, 180); 
+                        g.DrawArc(p, 14, 26, 18, 12, 0, 180);
+                    }
                     else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 10, 32, 32, 10); g.DrawLine(p, 22, 10, 32, 10); g.DrawLine(p, 32, 10, 32, 20); }
                     else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 10, 32, 32, 10);
                     else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(10, 32), new PointF(22, 32), new PointF(22, 12), new PointF(32, 12) });
@@ -882,7 +911,6 @@ namespace DrawingApp
                     else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 8, 12, 28, 20); g.DrawString("A", new Font("Arial", 10), new SolidBrush(iconColor), 14, 14); }
                     else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 12, 10);
                     else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 10, 10, 24, 24); g.DrawEllipse(p, 14, 14, 4, 4); g.DrawLine(p, 10, 34, 24, 20); }
-                    // --- 新增：自由畫筆按鈕的 Icon 繪製 ---
                     else if (type == App_Shapes.ShapeType.Freehand) { g.DrawBezier(p, new Point(10, 22), new Point(20, 10), new Point(25, 34), new Point(35, 22)); }
                 }
             };
