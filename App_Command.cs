@@ -13,15 +13,27 @@ namespace DrawingApp
 
     public class CommandManager
     {
-        private Stack<ICommand> _undoStack = new Stack<ICommand>();
-        private Stack<ICommand> _redoStack = new Stack<ICommand>();
+        // 優化：使用 LinkedList 取代 Stack，以實作最大步數限制，避免記憶體溢出
+        private LinkedList<ICommand> _undoStack = new LinkedList<ICommand>();
+        private LinkedList<ICommand> _redoStack = new LinkedList<ICommand>();
+        
+        // 設定最大復原步數
+        public int MaxUndoSteps { get; set; } = 50;
 
         public event Action OnStateChanged;
 
         public void ExecuteCommand(ICommand command)
         {
             command.Execute();
-            _undoStack.Push(command);
+            
+            _undoStack.AddLast(command);
+            
+            // 優化：如果超過最大步數，捨棄最舊的紀錄釋放記憶體
+            if (_undoStack.Count > MaxUndoSteps)
+            {
+                _undoStack.RemoveFirst();
+            }
+
             _redoStack.Clear(); 
             OnStateChanged?.Invoke();
         }
@@ -30,9 +42,12 @@ namespace DrawingApp
         {
             if (_undoStack.Count > 0)
             {
-                var command = _undoStack.Pop();
+                var command = _undoStack.Last.Value;
+                _undoStack.RemoveLast();
+                
                 command.Undo();
-                _redoStack.Push(command);
+                
+                _redoStack.AddLast(command);
                 OnStateChanged?.Invoke();
             }
         }
@@ -41,9 +56,12 @@ namespace DrawingApp
         {
             if (_redoStack.Count > 0)
             {
-                var command = _redoStack.Pop();
+                var command = _redoStack.Last.Value;
+                _redoStack.RemoveLast();
+                
                 command.Execute();
-                _undoStack.Push(command);
+                
+                _undoStack.AddLast(command);
                 OnStateChanged?.Invoke();
             }
         }
