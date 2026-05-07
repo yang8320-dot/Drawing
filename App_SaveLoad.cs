@@ -21,13 +21,15 @@ namespace DrawingApp
     {
         private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
         
-        // --- 新增：定義自動存檔的路徑 ---
+        // 定義自動存檔的路徑
         private static string AutoSavePath => Path.Combine(SaveDirectory, "autosave.draw");
 
+        // 優化：加入 NullValueHandling.Ignore 以縮減 JSON 存檔體積
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
         {
             TypeNameHandling = TypeNameHandling.All, 
-            Formatting = Formatting.Indented
+            Formatting = Formatting.Indented,
+            NullValueHandling = NullValueHandling.Ignore 
         };
 
         private static void EnsureDirectory()
@@ -100,7 +102,7 @@ namespace DrawingApp
             return null;
         }
 
-        // --- 新增：背景自動存檔邏輯 ---
+        // 背景自動存檔邏輯
         public static void PerformAutoSave(DrawProject project)
         {
             try
@@ -112,7 +114,7 @@ namespace DrawingApp
             catch { /* 背景存檔出錯時不干擾使用者 */ }
         }
 
-        // --- 新增：檢測是否有未正常關閉的備份檔 ---
+        // 檢測是否有未正常關閉的備份檔
         public static DrawProject CheckAndLoadAutoSave()
         {
             if (File.Exists(AutoSavePath))
