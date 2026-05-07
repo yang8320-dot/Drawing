@@ -20,7 +20,7 @@ namespace DrawingApp
             [Category("3. 座標與尺寸")]
             [DisplayName("物件邊界 (Bounds)")]
             [Description("修改物件的 X, Y 座標與寬高。")]
-            public RectangleF Bounds;
+            public RectangleF Bounds { get; set; } // <--- 修正：加上 { get; set; } 變成屬性
 
             [Category("1. 外觀屬性")]
             [DisplayName("外框/線條顏色")]
@@ -158,7 +158,8 @@ namespace DrawingApp
             public virtual void Move(float dx, float dy)
             {
                 if (IsLocked) return;
-                Bounds.Offset(dx, dy);
+                // <--- 修正：屬性為 Struct 不能直接呼叫 Offset，需重新賦值
+                Bounds = new RectangleF(Bounds.X + dx, Bounds.Y + dy, Bounds.Width, Bounds.Height);
             }
 
             public PointF GetCenter()
@@ -759,7 +760,8 @@ namespace DrawingApp
                     img.Save(ms, System.Drawing.Imaging.ImageFormat.Png);
                     Base64Image = Convert.ToBase64String(ms.ToArray());
                 }
-                Bounds.Width = img.Width; Bounds.Height = img.Height;
+                // <--- 修正：屬性為 Struct 不能直接呼叫 Width = ...，需重新賦值
+                Bounds = new RectangleF(Bounds.X, Bounds.Y, img.Width, img.Height); 
             }
 
             public override void Dispose()
