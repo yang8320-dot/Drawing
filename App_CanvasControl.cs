@@ -32,7 +32,18 @@ namespace DrawingApp
         private enum InteractionState { Idle, Drawing, Moving, Resizing, Rotating, Connecting, BoxSelecting }
         private InteractionState _currentState = InteractionState.Idle;
 
-        public App_Shapes.ShapeType CurrentTool { get; set; } = App_Shapes.ShapeType.Pointer;
+        // --- 修正：新增 CurrentTool 的屬性設定，確保切換成拖曳模式時游標正確顯示 ---
+        private App_Shapes.ShapeType _currentTool = App_Shapes.ShapeType.Pointer;
+        public App_Shapes.ShapeType CurrentTool 
+        { 
+            get => _currentTool; 
+            set 
+            { 
+                _currentTool = value;
+                this.Cursor = (_currentTool == App_Shapes.ShapeType.HandPan) ? Cursors.Hand : Cursors.Default;
+            } 
+        }
+
         public Color CurrentColor { get; set; } = Color.Black;
         
         public bool SnapToGrid { get; set; } = true;
@@ -84,6 +95,22 @@ namespace DrawingApp
             InitializeInlineEditor();
         }
 
+        // --- 修正：原生攔截 Windows 觸控板水平滑動訊號 (WM_MOUSEHWHEEL) ---
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_MOUSEHWHEEL = 0x020E;
+            if (m.Msg == WM_MOUSEHWHEEL)
+            {
+                int delta = (short)((m.WParam.ToInt64() >> 16) & 0xFFFF);
+                _cameraOffset.X += delta > 0 ? -50 : 50; 
+                if (_inlineTextBox.Visible) CancelInlineText();
+                this.Invalidate();
+                m.Result = (IntPtr)1;
+                return;
+            }
+            base.WndProc(ref m);
+        }
+
         private void Canvas_DragEnter(object sender, DragEventArgs e)
         {
             if (e.Data.GetDataPresent(typeof(App_Shapes.ShapeType)))
@@ -102,17 +129,20 @@ namespace DrawingApp
                 
                 PointF snapPt = new PointF(Snap(realPt.X), Snap(realPt.Y));
                 var newShape = App_Shapes.ShapeFactory.CreateShape(type, snapPt, CurrentColor);
-                newShape.UpdateEndPoint(new PointF(snapPt.X + 80, snapPt.Y + 80)); 
-                
-                CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, newShape));
-                
-                SelectedShapes.ForEach(s => s.IsSelected = false);
-                SelectedShapes.Clear();
-                newShape.IsSelected = true;
-                SelectedShapes.Add(newShape);
-                OnSelectionChanged?.Invoke();
-                
-                this.Invalidate();
+                if (newShape != null)
+                {
+                    newShape.UpdateEndPoint(new PointF(snapPt.X + 80, snapPt.Y + 80)); 
+                    
+                    CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, newShape));
+                    
+                    SelectedShapes.ForEach(s => s.IsSelected = false);
+                    SelectedShapes.Clear();
+                    newShape.IsSelected = true;
+                    SelectedShapes.Add(newShape);
+                    OnSelectionChanged?.Invoke();
+                    
+                    this.Invalidate();
+                }
             }
         }
 
@@ -168,7 +198,6 @@ namespace DrawingApp
             bool hasSingleSelection = SelectedShapes.Count == 1;
             bool hasGroupSelection = SelectedShapes.Count == 1 && SelectedShapes[0] is App_Shapes.GroupShape;
             
-            // 剪貼簿整合判斷
             bool hasClipboard = _clipboard.Count > 0 || Clipboard.ContainsImage();
 
             menu.Items[0].Enabled = hasSelection; 
@@ -289,6 +318,7 @@ namespace DrawingApp
             this.Invalidate();
         }
 
+        // --- 修正：支援 Shift + 滑鼠滾輪 進行水平移動 ---
         private void Canvas_MouseWheel(object sender, MouseEventArgs e)
         {
             if (Control.ModifierKeys == Keys.Control)
@@ -303,9 +333,16 @@ namespace DrawingApp
                 if (_inlineTextBox.Visible) CancelInlineText();
                 this.Invalidate();
             }
+            else if (Control.ModifierKeys == Keys.Shift)
+            {
+                _cameraOffset.X += e.Delta > 0 ? 50 : -50;
+                if (_inlineTextBox.Visible) CancelInlineText();
+                this.Invalidate();
+            }
             else
             {
                 _cameraOffset.Y += e.Delta > 0 ? 50 : -50;
+                if (_inlineTextBox.Visible) CancelInlineText();
                 this.Invalidate();
             }
         }
@@ -384,7 +421,6 @@ namespace DrawingApp
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        // --- 新增：將圖形存入內部剪貼簿與系統剪貼簿 (供外部使用) ---
         private void Copy() 
         { 
             if (SelectedShapes.Count > 0) 
@@ -421,11 +457,10 @@ namespace DrawingApp
                         Clipboard.SetImage(bmp);
                     }
                 }
-                catch { /* 忽略系統剪貼簿可能的衝突 */ }
+                catch { }
             }
         }
 
-        // --- 新增：優先從系統剪貼簿讀取圖片，若無則讀取內部剪貼簿 ---
         private void Paste()
         {
             if (Clipboard.ContainsImage())
@@ -483,7 +518,10 @@ namespace DrawingApp
                 return;
             }
 
-            if (e.Button == MouseButtons.Middle || (e.Button == MouseButtons.Left && Control.ModifierKeys == Keys.Space))
+            // --- 修正：整合 HandPan (拖曳畫布工具) 觸發 ---
+            if (e.Button == MouseButtons.Middle || 
+               (e.Button == MouseButtons.Left && Control.ModifierKeys == Keys.Space) ||
+               (e.Button == MouseButtons.Left && CurrentTool == App_Shapes.ShapeType.HandPan))
             {
                 _isPanning = true;
                 this.Cursor = Cursors.SizeAll;
@@ -598,10 +636,9 @@ namespace DrawingApp
                         }
                     }
                 }
-                else
+                else if (CurrentTool != App_Shapes.ShapeType.HandPan)
                 {
                     _currentState = InteractionState.Drawing;
-                    // --- 修正：自由畫筆不吸附網格 ---
                     PointF snapPt = CurrentTool == App_Shapes.ShapeType.Freehand ? realPt : new PointF(Snap(realPt.X), Snap(realPt.Y));
                     _tempShape = App_Shapes.ShapeFactory.CreateShape(CurrentTool, snapPt, CurrentColor);
                 }
@@ -797,7 +834,6 @@ namespace DrawingApp
                 }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
-                    // --- 修正：區分 Freehand 與一般圖形 ---
                     if (_tempShape is App_Shapes.FreehandShape fh)
                     {
                         fh.AddPoint(realPt);
@@ -846,7 +882,7 @@ namespace DrawingApp
             if (_isPanning)
             {
                 _isPanning = false;
-                this.Cursor = Cursors.Default;
+                this.Cursor = (CurrentTool == App_Shapes.ShapeType.HandPan) ? Cursors.Hand : Cursors.Default;
             }
 
             _smartGuides.Clear();
@@ -881,7 +917,6 @@ namespace DrawingApp
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
                     _tempShape.NormalizeBounds();
-                    // 修正：Freehand 若有點擊也算數
                     if (_tempShape.Bounds.Width > 5 && _tempShape.Bounds.Height > 5 || _tempShape is App_Shapes.FreehandShape)
                     {
                         CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, _tempShape));
