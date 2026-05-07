@@ -52,7 +52,6 @@ namespace DrawingApp
 
         private List<Tuple<PointF, PointF>> _smartGuides = new List<Tuple<PointF, PointF>>();
 
-        // --- 新增：小地圖狀態變數 ---
         private Rectangle _minimapRect;
         private bool _isDraggingMinimap = false;
         private const int MINIMAP_WIDTH = 200;
@@ -168,7 +167,9 @@ namespace DrawingApp
             bool hasSelection = SelectedShapes.Count > 0;
             bool hasSingleSelection = SelectedShapes.Count == 1;
             bool hasGroupSelection = SelectedShapes.Count == 1 && SelectedShapes[0] is App_Shapes.GroupShape;
-            bool hasClipboard = _clipboard.Count > 0;
+            
+            // 剪貼簿整合判斷
+            bool hasClipboard = _clipboard.Count > 0 || Clipboard.ContainsImage();
 
             menu.Items[0].Enabled = hasSelection; 
             menu.Items[1].Enabled = hasClipboard; 
@@ -193,7 +194,6 @@ namespace DrawingApp
             this.Invalidate();
         }
 
-        // --- 優化：使用 ChangeZIndexCommand 取代直接操作，支援 Undo/Redo ---
         public void ChangeZIndex(int direction)
         {
             if (SelectedShapes.Count == 0) return;
@@ -244,7 +244,6 @@ namespace DrawingApp
             _editingShape = shape;
             _inlineTextBox.Text = shape.Text;
             
-            // 套用字體樣式到行內編輯器
             FontStyle style = FontStyle.Regular;
             if (shape.FontBold) style |= FontStyle.Bold;
             if (shape.FontItalic) style |= FontStyle.Italic;
@@ -385,9 +384,71 @@ namespace DrawingApp
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private void Copy() { if (SelectedShapes.Count > 0) _clipboard = App_SaveLoad.CloneShapes(SelectedShapes); }
+        // --- 新增：將圖形存入內部剪貼簿與系統剪貼簿 (供外部使用) ---
+        private void Copy() 
+        { 
+            if (SelectedShapes.Count > 0) 
+            {
+                _clipboard = App_SaveLoad.CloneShapes(SelectedShapes); 
+
+                try
+                {
+                    float minX = SelectedShapes.Min(s => Math.Min(s.Bounds.Left, s.Bounds.Right));
+                    float minY = SelectedShapes.Min(s => Math.Min(s.Bounds.Top, s.Bounds.Bottom));
+                    float maxX = SelectedShapes.Max(s => Math.Max(s.Bounds.Left, s.Bounds.Right));
+                    float maxY = SelectedShapes.Max(s => Math.Max(s.Bounds.Top, s.Bounds.Bottom));
+
+                    int w = (int)(maxX - minX + 20);
+                    int h = (int)(maxY - minY + 20);
+                    
+                    if (w > 0 && h > 0)
+                    {
+                        Bitmap bmp = new Bitmap(w, h);
+                        using (Graphics g = Graphics.FromImage(bmp))
+                        {
+                            g.Clear(Color.Transparent);
+                            g.SmoothingMode = SmoothingMode.AntiAlias;
+                            g.TranslateTransform(-minX + 10, -minY + 10);
+                            
+                            foreach(var s in SelectedShapes) 
+                            {
+                                bool wasSelected = s.IsSelected;
+                                s.IsSelected = false; 
+                                s.DrawWithTransform(g);
+                                s.IsSelected = wasSelected;
+                            }
+                        }
+                        Clipboard.SetImage(bmp);
+                    }
+                }
+                catch { /* 忽略系統剪貼簿可能的衝突 */ }
+            }
+        }
+
+        // --- 新增：優先從系統剪貼簿讀取圖片，若無則讀取內部剪貼簿 ---
         private void Paste()
         {
+            if (Clipboard.ContainsImage())
+            {
+                Image img = Clipboard.GetImage();
+                if (img != null)
+                {
+                    PointF pt = GetRealPoint(_lastMousePos == Point.Empty ? new Point(50, 50) : _lastMousePos);
+                    var newImgShape = App_Shapes.ShapeFactory.CreateShape(App_Shapes.ShapeType.Image, pt, Color.Black, new Bitmap(img));
+                    
+                    SelectedShapes.ForEach(s => s.IsSelected = false);
+                    SelectedShapes.Clear();
+                    
+                    newImgShape.IsSelected = true;
+                    CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, newImgShape));
+                    SelectedShapes.Add(newImgShape);
+                    
+                    OnSelectionChanged?.Invoke();
+                    this.Invalidate();
+                    return;
+                }
+            }
+
             if (_clipboard.Count == 0) return;
             SelectedShapes.ForEach(s => s.IsSelected = false);
             SelectedShapes.Clear();
@@ -415,7 +476,6 @@ namespace DrawingApp
             PointF realPt = GetRealPoint(e.Location);
             _lastMousePos = e.Location;
 
-            // --- 新增：小地圖點擊偵測 ---
             if (e.Button == MouseButtons.Left && _minimapRect.Contains(e.Location))
             {
                 _isDraggingMinimap = true;
@@ -541,7 +601,8 @@ namespace DrawingApp
                 else
                 {
                     _currentState = InteractionState.Drawing;
-                    PointF snapPt = new PointF(Snap(realPt.X), Snap(realPt.Y));
+                    // --- 修正：自由畫筆不吸附網格 ---
+                    PointF snapPt = CurrentTool == App_Shapes.ShapeType.Freehand ? realPt : new PointF(Snap(realPt.X), Snap(realPt.Y));
                     _tempShape = App_Shapes.ShapeFactory.CreateShape(CurrentTool, snapPt, CurrentColor);
                 }
                 this.Invalidate();
@@ -560,14 +621,12 @@ namespace DrawingApp
 
         private float Distance(PointF p1, PointF p2) => (float)Math.Sqrt(Math.Pow(p1.X - p2.X, 2) + Math.Pow(p1.Y - p2.Y, 2));
 
-        // --- 新增：從地圖點擊反推回畫布 Camera 的方法 ---
         private void UpdateCameraFromMinimap(Point mouseLoc)
         {
             float minimapScale = MINIMAP_WIDTH / PageSize.Width;
             float targetX = (mouseLoc.X - _minimapRect.X) / minimapScale;
             float targetY = (mouseLoc.Y - _minimapRect.Y) / minimapScale;
 
-            // 將點擊處設為視窗的「中心點」
             _cameraOffset.X = -(targetX * ZoomFactor - this.Width / 2f);
             _cameraOffset.Y = -(targetY * ZoomFactor - this.Height / 2f);
             
@@ -579,7 +638,6 @@ namespace DrawingApp
             PointF realPt = GetRealPoint(e.Location);
             _smartGuides.Clear();
 
-            // --- 新增：小地圖拖曳邏輯 ---
             if (_isDraggingMinimap)
             {
                 UpdateCameraFromMinimap(e.Location);
@@ -739,7 +797,15 @@ namespace DrawingApp
                 }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
-                    _tempShape.UpdateEndPoint(new PointF(Snap(realPt.X), Snap(realPt.Y)));
+                    // --- 修正：區分 Freehand 與一般圖形 ---
+                    if (_tempShape is App_Shapes.FreehandShape fh)
+                    {
+                        fh.AddPoint(realPt);
+                    }
+                    else
+                    {
+                        _tempShape.UpdateEndPoint(new PointF(Snap(realPt.X), Snap(realPt.Y)));
+                    }
                 }
                 else if (_currentState == InteractionState.Connecting && _tempShape is App_Shapes.ConnectorShape c)
                 {
@@ -815,7 +881,8 @@ namespace DrawingApp
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
                     _tempShape.NormalizeBounds();
-                    if (_tempShape.Bounds.Width > 5 && _tempShape.Bounds.Height > 5)
+                    // 修正：Freehand 若有點擊也算數
+                    if (_tempShape.Bounds.Width > 5 && _tempShape.Bounds.Height > 5 || _tempShape is App_Shapes.FreehandShape)
                     {
                         CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, _tempShape));
                     }
@@ -852,9 +919,6 @@ namespace DrawingApp
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
             
-            // ===========================
-            // 1. 繪製真實畫布內容
-            // ===========================
             var oldTransform = g.Transform;
 
             g.TranslateTransform(_cameraOffset.X, _cameraOffset.Y);
@@ -949,21 +1013,16 @@ namespace DrawingApp
                 }
             }
 
-            // ===========================
-            // 2. 繪製右下角小地圖 (Minimap)
-            // ===========================
             g.Transform = oldTransform; 
 
             float minimapScale = MINIMAP_WIDTH / PageSize.Width;
             int minimapHeight = (int)(PageSize.Height * minimapScale);
             _minimapRect = new Rectangle(this.Width - MINIMAP_WIDTH - 20, this.Height - minimapHeight - 20, MINIMAP_WIDTH, minimapHeight);
 
-            // 畫小地圖底色與邊框
             using (Brush bgBrush = new SolidBrush(Color.FromArgb(220, 245, 245, 245)))
                 g.FillRectangle(bgBrush, _minimapRect);
             g.DrawRectangle(Pens.Gray, _minimapRect);
 
-            // 畫小地圖上的所有圖形 (用簡單色塊表示)
             foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape)))
             {
                 float sx = _minimapRect.X + shape.Bounds.X * minimapScale;
@@ -975,13 +1034,11 @@ namespace DrawingApp
                     g.FillRectangle(b, sx, sy, sw, sh);
             }
 
-            // 畫當前視圖框 (紅框)
             float vx = _minimapRect.X + (-_cameraOffset.X / ZoomFactor) * minimapScale;
             float vy = _minimapRect.Y + (-_cameraOffset.Y / ZoomFactor) * minimapScale;
             float vw = (this.Width / ZoomFactor) * minimapScale;
             float vh = (this.Height / ZoomFactor) * minimapScale;
             
-            // 限制紅框不要超出小地圖範圍
             vx = Math.Max(_minimapRect.Left, Math.Min(vx, _minimapRect.Right - vw));
             vy = Math.Max(_minimapRect.Top, Math.Min(vy, _minimapRect.Bottom - vh));
             
