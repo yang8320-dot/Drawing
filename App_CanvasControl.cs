@@ -458,7 +458,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 修正：貼上邏輯反轉，優先判定內部向量剪貼簿，解決灰底圖片問題 ---
         private void Paste()
         {
             if (_clipboard.Count > 0)
@@ -500,6 +499,111 @@ namespace DrawingApp
                     this.Invalidate();
                 }
             }
+        }
+
+        // --- 優化：新增局部重繪計算器 ---
+        private void InvalidateWorldRect(RectangleF worldRect)
+        {
+            if (worldRect == RectangleF.Empty) return;
+            float x = worldRect.X * ZoomFactor + _cameraOffset.X;
+            float y = worldRect.Y * ZoomFactor + _cameraOffset.Y;
+            float w = worldRect.Width * ZoomFactor;
+            float h = worldRect.Height * ZoomFactor;
+            
+            // 放大重繪範圍，涵蓋控制節點與邊框粗細
+            Rectangle screenRect = new Rectangle((int)x - 50, (int)y - 50, (int)w + 100, (int)h + 100);
+            this.Invalidate(screenRect);
+        }
+
+        // --- 優化：取得指定圖形及其連線的總邊界 ---
+        private RectangleF GetShapesAndConnectorsBounds(List<App_Shapes.ShapeBase> shapes)
+        {
+            if (shapes == null || shapes.Count == 0) return RectangleF.Empty;
+            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
+            
+            var allAffected = new HashSet<App_Shapes.ShapeBase>(shapes);
+            foreach (var c in Shapes.OfType<App_Shapes.ConnectorShape>())
+            {
+                if (shapes.Any(s => s.Id == c.SourceId || s.Id == c.TargetId))
+                    allAffected.Add(c);
+            }
+
+            bool hasValidPoints = false;
+            foreach (var s in allAffected)
+            {
+                if (s is App_Shapes.ConnectorShape cs)
+                {
+                    minX = Math.Min(minX, Math.Min(cs.StartPt.X, cs.EndPt.X));
+                    minY = Math.Min(minY, Math.Min(cs.StartPt.Y, cs.EndPt.Y));
+                    maxX = Math.Max(maxX, Math.Max(cs.StartPt.X, cs.EndPt.X));
+                    maxY = Math.Max(maxY, Math.Max(cs.StartPt.Y, cs.EndPt.Y));
+                    hasValidPoints = true;
+                }
+                else
+                {
+                    minX = Math.Min(minX, s.Bounds.Left);
+                    minY = Math.Min(minY, s.Bounds.Top);
+                    maxX = Math.Max(maxX, s.Bounds.Right);
+                    maxY = Math.Max(maxY, s.Bounds.Bottom);
+                    hasValidPoints = true;
+                }
+            }
+            if (!hasValidPoints) return RectangleF.Empty;
+            return new RectangleF(minX, minY, maxX - minX, maxY - minY);
+        }
+
+        // --- 優化：智慧游標變更邏輯 ---
+        private void UpdateCursor(PointF realPt)
+        {
+            if (_currentState != InteractionState.Idle) return; 
+
+            if (CurrentTool == App_Shapes.ShapeType.HandPan)
+            {
+                this.Cursor = Cursors.Hand;
+                return;
+            }
+
+            if (CurrentTool != App_Shapes.ShapeType.Pointer)
+            {
+                this.Cursor = Cursors.Cross; 
+                return;
+            }
+
+            if (SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
+            {
+                var handle = SelectedShapes[0].HitTestHandle(realPt);
+                switch (handle)
+                {
+                    case App_Shapes.HandlePosition.NW:
+                    case App_Shapes.HandlePosition.SE:
+                        this.Cursor = Cursors.SizeNWSE; return;
+                    case App_Shapes.HandlePosition.NE:
+                    case App_Shapes.HandlePosition.SW:
+                        this.Cursor = Cursors.SizeNESW; return;
+                    case App_Shapes.HandlePosition.N:
+                    case App_Shapes.HandlePosition.S:
+                        this.Cursor = Cursors.SizeNS; return;
+                    case App_Shapes.HandlePosition.E:
+                    case App_Shapes.HandlePosition.W:
+                        this.Cursor = Cursors.SizeWE; return;
+                    case App_Shapes.HandlePosition.Rotate:
+                        this.Cursor = Cursors.Hand; return; 
+                    case App_Shapes.HandlePosition.StartPoint:
+                    case App_Shapes.HandlePosition.EndPoint:
+                        this.Cursor = Cursors.SizeAll; return;
+                }
+            }
+
+            for (int i = Shapes.Count - 1; i >= 0; i--)
+            {
+                if (Shapes[i].HitTest(realPt))
+                {
+                    this.Cursor = Shapes[i].IsLocked ? Cursors.No : Cursors.SizeAll;
+                    return;
+                }
+            }
+
+            this.Cursor = Cursors.Default;
         }
 
         private void Canvas_MouseDown(object sender, MouseEventArgs e)
@@ -674,6 +778,9 @@ namespace DrawingApp
             PointF realPt = GetRealPoint(e.Location);
             _smartGuides.Clear();
 
+            // 觸發游標優化判斷
+            UpdateCursor(realPt);
+
             if (_isDraggingMinimap)
             {
                 UpdateCameraFromMinimap(e.Location);
@@ -698,6 +805,9 @@ namespace DrawingApp
                 {
                     var movableShapes = SelectedShapes.Where(s => !s.IsLocked).ToList();
                     
+                    // 記錄移動前的髒點範圍
+                    RectangleF oldBounds = GetShapesAndConnectorsBounds(movableShapes);
+
                     if (movableShapes.Count == 1)
                     {
                         var me = movableShapes[0];
@@ -729,16 +839,36 @@ namespace DrawingApp
                     _dragTotalDx += dx;
                     _dragTotalDy += dy;
                     foreach (var s in movableShapes) s.Move(dx, dy);
+
+                    // 記錄移動後的髒點範圍
+                    RectangleF newBounds = GetShapesAndConnectorsBounds(movableShapes);
+
+                    // 優化：有導引線時全畫面重繪以消除導引線殘留，否則只做局部重繪 (Partial Invalidation)
+                    if (_smartGuides.Count > 0)
+                    {
+                        this.Invalidate();
+                    }
+                    else
+                    {
+                        InvalidateWorldRect(oldBounds);
+                        InvalidateWorldRect(newBounds);
+                        if (_minimapRect != Rectangle.Empty) this.Invalidate(_minimapRect); // 確保小地圖同步更新
+                    }
                 }
                 else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
                     var me = SelectedShapes[0];
+                    RectangleF oldBounds = me.Bounds;
                     PointF center = me.GetCenter();
                     float angle = (float)(Math.Atan2(realPt.Y - center.Y, realPt.X - center.X) * 180 / Math.PI) + 90;
                     me.RotationAngle = Snap(angle, 15f); 
+                    
+                    InvalidateWorldRect(oldBounds);
+                    InvalidateWorldRect(me.Bounds);
                 }
                 else if (_currentState == InteractionState.BoxSelecting)
                 {
+                    RectangleF oldBox = _boxSelectRect;
                     _boxSelectRect = new RectangleF(
                         Math.Min(_boxSelectRect.X, realPt.X),
                         Math.Min(_boxSelectRect.Y, realPt.Y),
@@ -765,10 +895,14 @@ namespace DrawingApp
                     }
                     
                     OnSelectionChanged?.Invoke();
+                    
+                    InvalidateWorldRect(oldBox);
+                    InvalidateWorldRect(_boxSelectRect);
                 }
                 else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
                     var shape = SelectedShapes[0];
+                    RectangleF oldBounds = GetShapesAndConnectorsBounds(new List<App_Shapes.ShapeBase> { shape });
 
                     if (shape is App_Shapes.ConnectorShape conn)
                     {
@@ -830,9 +964,15 @@ namespace DrawingApp
                         }
                         if (b.Width > 5 && b.Height > 5) shape.SetBounds(b);
                     }
+
+                    RectangleF newBounds = GetShapesAndConnectorsBounds(new List<App_Shapes.ShapeBase> { shape });
+                    InvalidateWorldRect(oldBounds);
+                    InvalidateWorldRect(newBounds);
+                    if (_minimapRect != Rectangle.Empty) this.Invalidate(_minimapRect);
                 }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
+                    RectangleF oldBounds = _tempShape.Bounds;
                     if (_tempShape is App_Shapes.FreehandShape fh)
                     {
                         fh.AddPoint(realPt);
@@ -841,9 +981,12 @@ namespace DrawingApp
                     {
                         _tempShape.UpdateEndPoint(new PointF(Snap(realPt.X), Snap(realPt.Y)));
                     }
+                    InvalidateWorldRect(oldBounds);
+                    InvalidateWorldRect(_tempShape.Bounds);
                 }
                 else if (_currentState == InteractionState.Connecting && _tempShape is App_Shapes.ConnectorShape c)
                 {
+                    RectangleF oldBounds = GetShapesAndConnectorsBounds(new List<App_Shapes.ShapeBase> { c });
                     c.UpdateEndPoint(realPt);
                     _hoveredShapeForConnection = null;
                     _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
@@ -857,10 +1000,13 @@ namespace DrawingApp
                             break;
                         }
                     }
+                    RectangleF newBounds = GetShapesAndConnectorsBounds(new List<App_Shapes.ShapeBase> { c });
+                    InvalidateWorldRect(oldBounds);
+                    InvalidateWorldRect(newBounds);
                 }
                 
                 _lastMousePos = new Point((int)(_lastMousePos.X + dx * ZoomFactor), (int)(_lastMousePos.Y + dy * ZoomFactor));
-                this.Invalidate();
+                // 如果沒有進入任何特定狀態，我們仍然可能需要全面刷新，但上面的特定邏輯已經精準覆蓋
             }
         }
 
@@ -884,7 +1030,11 @@ namespace DrawingApp
                 this.Cursor = (CurrentTool == App_Shapes.ShapeType.HandPan) ? Cursors.Hand : Cursors.Default;
             }
 
-            _smartGuides.Clear();
+            if (_smartGuides.Count > 0)
+            {
+                _smartGuides.Clear();
+                this.Invalidate(); 
+            }
 
             if (e.Button == MouseButtons.Left)
             {
@@ -958,6 +1108,14 @@ namespace DrawingApp
             g.TranslateTransform(_cameraOffset.X, _cameraOffset.Y);
             g.ScaleTransform(ZoomFactor, ZoomFactor);
 
+            // 優化：取得目前實際需要重繪的裁切範圍，只畫範圍內的物件
+            RectangleF clipWorldBounds = new RectangleF(
+                (e.ClipRectangle.X - _cameraOffset.X) / ZoomFactor,
+                (e.ClipRectangle.Y - _cameraOffset.Y) / ZoomFactor,
+                e.ClipRectangle.Width / ZoomFactor,
+                e.ClipRectangle.Height / ZoomFactor
+            );
+
             RectangleF viewRect = new RectangleF(
                 -_cameraOffset.X / ZoomFactor, 
                 -_cameraOffset.Y / ZoomFactor, 
@@ -971,7 +1129,8 @@ namespace DrawingApp
 
             foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape)))
             {
-                if (viewRect.IntersectsWith(shape.Bounds)) shape.DrawWithTransform(g);
+                // 優化：只重繪在裁切範圍內的物件
+                if (clipWorldBounds.IntersectsWith(shape.Bounds)) shape.DrawWithTransform(g);
             }
 
             List<LineSegment> drawnLines = new List<LineSegment>();
@@ -1064,7 +1223,6 @@ namespace DrawingApp
                 float sw = shape.Bounds.Width * minimapScale;
                 float sh = shape.Bounds.Height * minimapScale;
                 
-                // 修正小地圖顯示：考慮 FillColor
                 Color renderColor = (shape.FillColor != Color.Transparent) ? shape.FillColor : shape.ShapeColor;
                 using (Brush b = new SolidBrush(renderColor))
                     g.FillRectangle(b, sx, sy, sw, sh);
