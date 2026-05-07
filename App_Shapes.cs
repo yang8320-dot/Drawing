@@ -10,7 +10,8 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        public enum ShapeType { Pointer, HandPan, ArrowLine, StraightLine, OrthogonalLine, Rectangle, Circle, Arc, Diamond, Triangle, TextNode, Text, Image, Freehand }
+        // --- 修正：擴充 ShapeType 支援新的幾何圖形 ---
+        public enum ShapeType { Pointer, HandPan, ArrowLine, StraightLine, OrthogonalLine, Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, TextNode, Text, Image, Freehand }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
 
@@ -25,7 +26,6 @@ namespace DrawingApp
             [DisplayName("外框/線條顏色")]
             public Color ShapeColor { get; set; }
 
-            // --- 新增：填充顏色 ---
             [Category("1. 外觀屬性")]
             [DisplayName("填充顏色")]
             [Description("圖形內部的顏色，預設為透明 (Transparent)。")]
@@ -448,12 +448,39 @@ namespace DrawingApp
             public RectShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
-                // --- 修改：加入填充繪製 ---
                 if (FillColor != Color.Transparent)
                 {
                     using (Brush fillBrush = new SolidBrush(FillColor)) g.FillRectangle(fillBrush, Bounds);
                 }
                 using (Pen p = CreatePen()) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
+                DrawText(g);
+            }
+        }
+
+        // --- 新增：圓角矩形 ---
+        public class RoundedRectShape : ShapeBase
+        {
+            public RoundedRectShape() { }
+            public RoundedRectShape(PointF start, Color color) : base(start, color) { }
+            public override void Draw(Graphics g)
+            {
+                float radius = Math.Min(Bounds.Width, Bounds.Height) * 0.2f;
+                if (radius <= 0) return;
+
+                using (GraphicsPath path = new GraphicsPath())
+                {
+                    path.AddArc(Bounds.X, Bounds.Y, radius * 2, radius * 2, 180, 90);
+                    path.AddArc(Bounds.Right - radius * 2, Bounds.Y, radius * 2, radius * 2, 270, 90);
+                    path.AddArc(Bounds.Right - radius * 2, Bounds.Bottom - radius * 2, radius * 2, radius * 2, 0, 90);
+                    path.AddArc(Bounds.X, Bounds.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
+                    path.CloseFigure();
+
+                    if (FillColor != Color.Transparent)
+                    {
+                        using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPath(fillBrush, path);
+                    }
+                    using (Pen p = CreatePen()) g.DrawPath(p, path);
+                }
                 DrawText(g);
             }
         }
@@ -464,7 +491,6 @@ namespace DrawingApp
             public CircleShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
-                // --- 修改：加入填充繪製 ---
                 if (FillColor != Color.Transparent)
                 {
                     using (Brush fillBrush = new SolidBrush(FillColor)) g.FillEllipse(fillBrush, Bounds);
@@ -508,22 +534,25 @@ namespace DrawingApp
         {
             public DiamondShape() { }
             public DiamondShape(PointF start, Color color) : base(start, color) { }
-            public override void Draw(Graphics g)
+
+            public PointF[] GetPolygonPoints()
             {
-                PointF[] pts = new PointF[]
+                return new PointF[]
                 {
                     new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y),
                     new PointF(Bounds.Right, Bounds.Y + Bounds.Height / 2),
                     new PointF(Bounds.X + Bounds.Width / 2, Bounds.Bottom),
                     new PointF(Bounds.X, Bounds.Y + Bounds.Height / 2)
                 };
-                
-                // --- 修改：加入填充繪製 ---
+            }
+
+            public override void Draw(Graphics g)
+            {
+                PointF[] pts = GetPolygonPoints();
                 if (FillColor != Color.Transparent)
                 {
                     using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
                 }
-                
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
             }
@@ -533,22 +562,156 @@ namespace DrawingApp
         {
             public TriangleShape() { }
             public TriangleShape(PointF start, Color color) : base(start, color) { }
-            public override void Draw(Graphics g)
+
+            public PointF[] GetPolygonPoints()
             {
-                PointF[] pts = new PointF[]
+                return new PointF[]
                 {
                     new PointF(Bounds.X + Bounds.Width / 2, Bounds.Y),
                     new PointF(Bounds.Right, Bounds.Bottom),
                     new PointF(Bounds.X, Bounds.Bottom)
                 };
+            }
 
-                // --- 修改：加入填充繪製 ---
+            public override void Draw(Graphics g)
+            {
+                PointF[] pts = GetPolygonPoints();
                 if (FillColor != Color.Transparent)
                 {
                     using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
                 }
-
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
+                DrawText(g);
+            }
+        }
+
+        // --- 新增：五邊形 ---
+        public class PentagonShape : ShapeBase
+        {
+            public PentagonShape() { }
+            public PentagonShape(PointF start, Color color) : base(start, color) { }
+
+            public PointF[] GetPolygonPoints()
+            {
+                PointF center = GetCenter();
+                float rx = Bounds.Width / 2f;
+                float ry = Bounds.Height / 2f;
+                PointF[] pts = new PointF[5];
+                for (int i = 0; i < 5; i++)
+                {
+                    double angle = Math.PI / 2 + (i * 2 * Math.PI / 5);
+                    pts[i] = new PointF(center.X - (float)(rx * Math.Cos(angle)), center.Y - (float)(ry * Math.Sin(angle)));
+                }
+                return pts;
+            }
+
+            public override void Draw(Graphics g)
+            {
+                PointF[] pts = GetPolygonPoints();
+                if (FillColor != Color.Transparent)
+                {
+                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                }
+                using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
+                DrawText(g);
+            }
+        }
+
+        // --- 新增：六邊形 ---
+        public class HexagonShape : ShapeBase
+        {
+            public HexagonShape() { }
+            public HexagonShape(PointF start, Color color) : base(start, color) { }
+
+            public PointF[] GetPolygonPoints()
+            {
+                PointF center = GetCenter();
+                float rx = Bounds.Width / 2f;
+                float ry = Bounds.Height / 2f;
+                PointF[] pts = new PointF[6];
+                for (int i = 0; i < 6; i++)
+                {
+                    double angle = i * Math.PI / 3;
+                    pts[i] = new PointF(center.X + (float)(rx * Math.Cos(angle)), center.Y + (float)(ry * Math.Sin(angle)));
+                }
+                return pts;
+            }
+
+            public override void Draw(Graphics g)
+            {
+                PointF[] pts = GetPolygonPoints();
+                if (FillColor != Color.Transparent)
+                {
+                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                }
+                using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
+                DrawText(g);
+            }
+        }
+
+        // --- 新增：星形 ---
+        public class StarShape : ShapeBase
+        {
+            public StarShape() { }
+            public StarShape(PointF start, Color color) : base(start, color) { }
+
+            public PointF[] GetPolygonPoints()
+            {
+                PointF center = GetCenter();
+                float outerRx = Bounds.Width / 2f;
+                float outerRy = Bounds.Height / 2f;
+                float innerRx = outerRx * 0.4f;
+                float innerRy = outerRy * 0.4f;
+                PointF[] pts = new PointF[10];
+
+                for (int i = 0; i < 10; i++)
+                {
+                    double angle = Math.PI / 2 + (i * Math.PI / 5);
+                    float rx = (i % 2 == 0) ? outerRx : innerRx;
+                    float ry = (i % 2 == 0) ? outerRy : innerRy;
+                    pts[i] = new PointF(center.X - (float)(rx * Math.Cos(angle)), center.Y - (float)(ry * Math.Sin(angle)));
+                }
+                return pts;
+            }
+
+            public override void Draw(Graphics g)
+            {
+                PointF[] pts = GetPolygonPoints();
+                if (FillColor != Color.Transparent)
+                {
+                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                }
+                using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
+                DrawText(g);
+            }
+        }
+
+        // --- 新增：雲朵形狀 ---
+        public class CloudShape : ShapeBase
+        {
+            public CloudShape() { }
+            public CloudShape(PointF start, Color color) : base(start, color) { }
+
+            public override void Draw(Graphics g)
+            {
+                if (Bounds.Width <= 0 || Bounds.Height <= 0) return;
+
+                using (GraphicsPath path = new GraphicsPath())
+                {
+                    path.FillMode = FillMode.Winding;
+                    
+                    float x = Bounds.X, y = Bounds.Y, w = Bounds.Width, h = Bounds.Height;
+                    path.AddEllipse(x + w * 0.15f, y + h * 0.2f, w * 0.4f, h * 0.5f);
+                    path.AddEllipse(x + w * 0.35f, y + h * 0.1f, w * 0.5f, h * 0.6f);
+                    path.AddEllipse(x + w * 0.55f, y + h * 0.3f, w * 0.35f, h * 0.5f);
+                    path.AddEllipse(x + w * 0.25f, y + h * 0.4f, w * 0.5f, h * 0.5f);
+
+                    if (FillColor != Color.Transparent)
+                    {
+                        using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPath(fillBrush, path);
+                    }
+                    using (Pen p = CreatePen()) g.DrawPath(p, path);
+                }
                 DrawText(g);
             }
         }
@@ -568,7 +731,6 @@ namespace DrawingApp
             {
                 if (!IsTransparent)
                 {
-                    // --- 修改：加入填充繪製 ---
                     if (FillColor != Color.Transparent)
                     {
                         using (Brush fillBrush = new SolidBrush(FillColor)) g.FillRectangle(fillBrush, Bounds);
@@ -770,10 +932,15 @@ namespace DrawingApp
                     case ShapeType.StraightLine: return new ConnectorShape(start, color, false, false);
                     case ShapeType.OrthogonalLine: return new ConnectorShape(start, color, true, true);
                     case ShapeType.Rectangle: return new RectShape(start, color);
+                    case ShapeType.RoundedRectangle: return new RoundedRectShape(start, color);
                     case ShapeType.Circle: return new CircleShape(start, color);
                     case ShapeType.Arc: return new ArcShape(start, color);
                     case ShapeType.Diamond: return new DiamondShape(start, color);
                     case ShapeType.Triangle: return new TriangleShape(start, color);
+                    case ShapeType.Pentagon: return new PentagonShape(start, color);
+                    case ShapeType.Hexagon: return new HexagonShape(start, color);
+                    case ShapeType.Star: return new StarShape(start, color);
+                    case ShapeType.Cloud: return new CloudShape(start, color);
                     case ShapeType.TextNode: return new TextNodeShape(start, color, false);
                     case ShapeType.Text: return new TextNodeShape(start, color, true);
                     case ShapeType.Image: return new ImageShape(start, img);
