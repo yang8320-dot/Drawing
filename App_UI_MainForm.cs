@@ -18,17 +18,33 @@ namespace DrawingApp
 
         private Button _activeToolBtn;
         private Button _btnPointer; 
+        private Button _btnFormatPainter; // --- 新增格式刷按鈕 ---
 
-        // 優化：使用 PropertyGrid 替換手刻的 UI，自動映射圖形屬性
-        private PropertyGrid _propertyGrid;
+        // --- 新增：自訂屬性面板的控制項 ---
         private FlowLayoutPanel _alignmentPanel;
         private FlowLayoutPanel _zIndexPanel;
+        private Panel _customPropertiesPanel;
+        private Button _btnShapeColor;
+        private Button _btnFillColor;
+        private Button _btnFontColor;
+        private TrackBar _tbStrokeWidth;
+        private Label _lblStrokeWidthValue;
+        private ComboBox _cbFontName;
+        private NumericUpDown _nudFontSize;
+        private CheckBox _chkBold, _chkItalic, _chkUnderline;
+        private ComboBox _cbTextAlign;
+        private ComboBox _cbDashStyle;
+        private bool _isUpdatingUI = false;
 
         private TextBox _tabEditBox;
 
         private int _tabCounter = 1;
         private bool _isDirty = false;
         private Timer _autoSaveTimer;
+
+        // --- 新增：F11 全螢幕模式 ---
+        private bool _isZenMode = false;
+        private FormWindowState _previousWindowState;
 
         public App_UI_MainForm()
         {
@@ -50,6 +66,39 @@ namespace DrawingApp
             _autoSaveTimer.Interval = 300000; 
             _autoSaveTimer.Tick += AutoSaveTimer_Tick;
             _autoSaveTimer.Start();
+        }
+
+        // --- 新增：攔截 F11 鍵切換 Zen Mode ---
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == Keys.F11)
+            {
+                ToggleZenMode();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private void ToggleZenMode()
+        {
+            _isZenMode = !_isZenMode;
+            if (_isZenMode)
+            {
+                _previousWindowState = this.WindowState;
+                this.FormBorderStyle = FormBorderStyle.None;
+                this.WindowState = FormWindowState.Maximized;
+                _topBar.Visible = false;
+                _leftPanel.Visible = false;
+                _rightPanel.Visible = false;
+            }
+            else
+            {
+                this.FormBorderStyle = FormBorderStyle.Sizable;
+                this.WindowState = _previousWindowState;
+                _topBar.Visible = true;
+                _leftPanel.Visible = true;
+                _rightPanel.Visible = true;
+            }
         }
 
         private void AutoSaveTimer_Tick(object sender, EventArgs e)
@@ -158,6 +207,10 @@ namespace DrawingApp
                         MessageBox.Show("當前畫布 SVG 匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     }
             }));
+            
+            // 加入全螢幕提示
+            Label lblZenMode = new Label() { Text = "💡 按 F11 進入全螢幕", ForeColor = Color.Gray, AutoSize = true, Margin = new Padding(20, 10, 0, 0) };
+            _topBar.Controls.Add(lblZenMode);
 
             _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 65, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
             
@@ -165,6 +218,24 @@ namespace DrawingApp
             SetActiveButton(_btnPointer);
             
             CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (Hand Tool)\n(可用滑鼠左鍵直接平移畫面)");
+            
+            // --- 新增：格式刷工具 ---
+            _btnFormatPainter = CreateToolButton(App_Shapes.ShapeType.FormatPainter, "格式刷\n(先選取圖形，點擊此按鈕後，再點擊其他圖形以套用格式)");
+            _btnFormatPainter.Click += (s, e) => {
+                if (CurrentCanvas != null && CurrentCanvas.SelectedShapes.Count > 0)
+                {
+                    CurrentCanvas.FormatSourceShape = CurrentCanvas.SelectedShapes[0];
+                    CurrentCanvas.CurrentTool = App_Shapes.ShapeType.FormatPainter;
+                    SetActiveButton(_btnFormatPainter);
+                }
+                else
+                {
+                    MessageBox.Show("請先選取一個要複製格式的圖形！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer;
+                    SetActiveButton(_btnPointer);
+                }
+            };
+
             CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭線");
             CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線");
             CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "90度折線 (智慧避障)");
@@ -185,7 +256,7 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
             CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆");
 
-            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 280, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
+            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 300, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
             BuildPropertyPanel();
 
             Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
@@ -358,11 +429,6 @@ namespace DrawingApp
 
             canvas.OnSelectionChanged += () => RefreshPropertyPanel();
             
-            // 使用 PropertyGrid 後，不需要彈出獨立視窗了，直接引導看右側
-            canvas.OnShapePropertyRequested += (shape) => {
-                MessageBox.Show("請直接在右側「屬性控制面板」修改進階設定！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            };
-            
             canvas.OnToolResetRequested += () => { 
                 if (CurrentCanvas != null) CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer; 
                 SetActiveButton(_btnPointer); 
@@ -425,7 +491,7 @@ namespace DrawingApp
             }
         }
 
-        // 優化：建立基於 PropertyGrid 的動態屬性面板
+        // --- 優化：移除 PropertyGrid，改用自製精美面板 ---
         private void BuildPropertyPanel()
         {
             _rightPanel.Controls.Clear();
@@ -435,7 +501,7 @@ namespace DrawingApp
             Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 10), AutoSize = true };
             actionsPanel.Controls.Add(alignTitle);
 
-            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(0, 35), Width = 260, Height = 70, WrapContents = true };
+            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(0, 35), Width = 280, Height = 70, WrapContents = true };
             _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
             _alignmentPanel.Controls.Add(CreateAlignButton("置中", (s, e) => AlignShapes("Center")));
             _alignmentPanel.Controls.Add(CreateAlignButton("靠右", (s, e) => AlignShapes("Right")));
@@ -449,35 +515,143 @@ namespace DrawingApp
             Label zIndexTitle = new Label() { Text = "圖層順序", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 115), AutoSize = true };
             actionsPanel.Controls.Add(zIndexTitle);
 
-            _zIndexPanel = new FlowLayoutPanel() { Location = new Point(0, 140), Width = 260, Height = 35, WrapContents = true };
+            _zIndexPanel = new FlowLayoutPanel() { Location = new Point(0, 140), Width = 280, Height = 35, WrapContents = true };
             _zIndexPanel.Controls.Add(CreateAlignButton("移到最上層", (s, e) => CurrentCanvas?.ChangeZIndex(0)));
             _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => CurrentCanvas?.ChangeZIndex(-99)));
             actionsPanel.Controls.Add(_zIndexPanel);
 
-            _propertyGrid = new PropertyGrid()
-            {
-                Dock = DockStyle.Fill,
-                ToolbarVisible = false,
-                PropertySort = PropertySort.Categorized,
-                HelpVisible = true
-            };
+            // --- 新增：自訂屬性區塊 ---
+            _customPropertiesPanel = new Panel() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(0, 10, 0, 0) };
 
-            // 當使用者透過 PropertyGrid 更改數值時，更新畫布並標記未存檔
-            _propertyGrid.PropertyValueChanged += (s, e) => {
-                if (CurrentCanvas != null)
-                {
-                    CurrentCanvas.Invalidate();
-                    _isDirty = true;
-                    UpdateWindowTitle();
-                }
-            };
+            int yOffset = 0;
+            
+            // 外觀設定
+            Label lblAppearance = new Label() { Text = "外觀設定", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, yOffset), AutoSize = true };
+            _customPropertiesPanel.Controls.Add(lblAppearance);
+            yOffset += 30;
 
-            _rightPanel.Controls.Add(_propertyGrid);
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "邊框顏色", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _btnShapeColor = new Button() { Location = new Point(80, yOffset), Size = new Size(160, 25), FlatStyle = FlatStyle.Flat };
+            _btnShapeColor.Click += (s, e) => PickColor(_btnShapeColor, c => ApplyPropertyChange(cmd => cmd.ShapeColor = c));
+            _customPropertiesPanel.Controls.Add(_btnShapeColor);
+            yOffset += 35;
+
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "填充顏色", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _btnFillColor = new Button() { Location = new Point(80, yOffset), Size = new Size(160, 25), FlatStyle = FlatStyle.Flat };
+            _btnFillColor.Click += (s, e) => PickColor(_btnFillColor, c => ApplyPropertyChange(cmd => cmd.FillColor = c), true);
+            _customPropertiesPanel.Controls.Add(_btnFillColor);
+            yOffset += 40;
+
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "線條粗細", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _tbStrokeWidth = new TrackBar() { Location = new Point(80, yOffset), Size = new Size(130, 30), Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
+            _lblStrokeWidthValue = new Label() { Location = new Point(220, yOffset + 5), AutoSize = true };
+            _tbStrokeWidth.ValueChanged += (s, e) => {
+                _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
+                ApplyPropertyChange(cmd => cmd.StrokeWidth = _tbStrokeWidth.Value);
+            };
+            _customPropertiesPanel.Controls.Add(_tbStrokeWidth);
+            _customPropertiesPanel.Controls.Add(_lblStrokeWidthValue);
+            yOffset += 40;
+
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "線條樣式", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _cbDashStyle = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(160, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbDashStyle.Items.AddRange(new string[] { "實線 (Solid)", "虛線 (Dash)", "點線 (Dot)", "點虛線 (DashDot)" });
+            _cbDashStyle.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.StrokeDashStyle = (DashStyle)_cbDashStyle.SelectedIndex);
+            _customPropertiesPanel.Controls.Add(_cbDashStyle);
+            yOffset += 40;
+
+            // 畫一條分隔線
+            Panel div1 = new Panel() { BackColor = Color.LightGray, Height = 1, Width = 260, Location = new Point(0, yOffset) };
+            _customPropertiesPanel.Controls.Add(div1);
+            yOffset += 15;
+
+            // 文字設定
+            Label lblText = new Label() { Text = "文字設定", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, yOffset), AutoSize = true };
+            _customPropertiesPanel.Controls.Add(lblText);
+            yOffset += 30;
+
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "字體顏色", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _btnFontColor = new Button() { Location = new Point(80, yOffset), Size = new Size(160, 25), FlatStyle = FlatStyle.Flat };
+            _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
+            _customPropertiesPanel.Controls.Add(_btnFontColor);
+            yOffset += 35;
+
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "字體/大小", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _cbFontName = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(100, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
+            _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
+            _customPropertiesPanel.Controls.Add(_cbFontName);
+
+            _nudFontSize = new NumericUpDown() { Location = new Point(190, yOffset), Size = new Size(50, 25), Minimum = 6, Maximum = 144 };
+            _nudFontSize.ValueChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontSize = (float)_nudFontSize.Value);
+            _customPropertiesPanel.Controls.Add(_nudFontSize);
+            yOffset += 35;
+
+            _chkBold = new CheckBox() { Text = "粗體", Location = new Point(80, yOffset), AutoSize = true };
+            _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
+            _chkItalic = new CheckBox() { Text = "斜體", Location = new Point(140, yOffset), AutoSize = true };
+            _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
+            _chkUnderline = new CheckBox() { Text = "底線", Location = new Point(200, yOffset), AutoSize = true };
+            _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
+            _customPropertiesPanel.Controls.Add(_chkBold);
+            _customPropertiesPanel.Controls.Add(_chkItalic);
+            _customPropertiesPanel.Controls.Add(_chkUnderline);
+            yOffset += 35;
+
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "對齊方式", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _cbTextAlign = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(160, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
+            _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
+            _customPropertiesPanel.Controls.Add(_cbTextAlign);
+
+            _rightPanel.Controls.Add(_customPropertiesPanel);
             _rightPanel.Controls.Add(actionsPanel);
 
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
-            _propertyGrid.Enabled = false;
+            _customPropertiesPanel.Enabled = false;
+        }
+
+        private void PickColor(Button btn, Action<Color> applyAction, bool allowTransparent = false)
+        {
+            using (ColorDialog cd = new ColorDialog())
+            {
+                cd.Color = btn.BackColor;
+                if (cd.ShowDialog() == DialogResult.OK)
+                {
+                    btn.BackColor = cd.Color;
+                    btn.Text = "";
+                    applyAction(cd.Color);
+                }
+            }
+            // 補充：右鍵點擊可清除填色 (變透明)
+            btn.MouseUp += (s, e) => {
+                if (e.Button == MouseButtons.Right && allowTransparent)
+                {
+                    btn.BackColor = Color.Transparent;
+                    btn.Text = "透明";
+                    applyAction(Color.Transparent);
+                }
+            };
+        }
+
+        // --- 新增：套用屬性變更，並支援 Undo/Redo ---
+        private void ApplyPropertyChange(Action<dynamic> propertySetter)
+        {
+            if (_isUpdatingUI || CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
+
+            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
+            if (shapes.Count == 0) return;
+
+            var cmd = new ChangeFormatCommand(shapes);
+            foreach (var s in shapes) propertySetter(s);
+            cmd.CaptureNewState();
+
+            CurrentCanvas.CmdManager.ExecuteCommand(cmd);
+            CurrentCanvas.Invalidate();
+            
+            _isDirty = true;
+            UpdateWindowTitle();
         }
 
         private Button CreateAlignButton(string text, EventHandler onClick)
@@ -485,7 +659,7 @@ namespace DrawingApp
             Button btn = new Button()
             {
                 Text = text,
-                Size = new Size(80, 28),
+                Size = new Size(85, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White,
                 Cursor = Cursors.Hand,
@@ -591,7 +765,7 @@ namespace DrawingApp
             CurrentCanvas.Invalidate();
         }
 
-        // 優化：直接將選中的圖形丟給 PropertyGrid 顯示
+        // --- 優化：當選擇改變時，更新自訂 UI 面板的值 ---
         private void RefreshPropertyPanel()
         {
             if (CurrentCanvas != null)
@@ -603,22 +777,44 @@ namespace DrawingApp
                 
                 if (selCount > 0)
                 {
-                    _propertyGrid.Enabled = true;
-                    // PropertyGrid 支援多選編輯，直接傳入陣列即可！
-                    _propertyGrid.SelectedObjects = CurrentCanvas.SelectedShapes.ToArray();
+                    _customPropertiesPanel.Enabled = true;
+                    
+                    // 以第一個選取物件為基準顯示屬性
+                    var shape = CurrentCanvas.SelectedShapes[0];
+                    
+                    _isUpdatingUI = true;
+                    
+                    _btnShapeColor.BackColor = shape.ShapeColor;
+                    _btnFillColor.BackColor = shape.FillColor;
+                    _btnFillColor.Text = shape.FillColor == Color.Transparent ? "透明 (右鍵清除)" : "";
+                    
+                    _tbStrokeWidth.Value = Math.Max(1, Math.Min(20, (int)shape.StrokeWidth));
+                    _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
+                    
+                    _cbDashStyle.SelectedIndex = (int)shape.StrokeDashStyle;
+
+                    _btnFontColor.BackColor = shape.FontColor;
+                    if (_cbFontName.Items.Contains(shape.FontName)) _cbFontName.SelectedItem = shape.FontName;
+                    _nudFontSize.Value = (decimal)shape.FontSize;
+                    
+                    _chkBold.Checked = shape.FontBold;
+                    _chkItalic.Checked = shape.FontItalic;
+                    _chkUnderline.Checked = shape.FontUnderline;
+
+                    _cbTextAlign.SelectedIndex = (int)shape.TextAlignment;
+
+                    _isUpdatingUI = false;
                 }
                 else
                 {
-                    _propertyGrid.Enabled = false;
-                    _propertyGrid.SelectedObject = null;
+                    _customPropertiesPanel.Enabled = false;
                 }
             }
             else
             {
                 _alignmentPanel.Enabled = false;
                 _zIndexPanel.Enabled = false;
-                _propertyGrid.Enabled = false;
-                _propertyGrid.SelectedObject = null;
+                _customPropertiesPanel.Enabled = false;
             }
         }
 
@@ -718,14 +914,15 @@ namespace DrawingApp
                 {
                     if (Math.Abs(e.X - mouseDownLocation.X) > 5 || Math.Abs(e.Y - mouseDownLocation.Y) > 5)
                     {
-                        btn.DoDragDrop(type, DragDropEffects.Copy);
+                        if (type != App_Shapes.ShapeType.FormatPainter) // 格式刷不支援拖拉創建
+                            btn.DoDragDrop(type, DragDropEffects.Copy);
                         mouseDownLocation = Point.Empty;
                     }
                 }
             };
 
             btn.MouseUp += (s, e) => {
-                if (e.Button == MouseButtons.Left)
+                if (e.Button == MouseButtons.Left && type != App_Shapes.ShapeType.FormatPainter)
                 {
                     if (CurrentCanvas != null) CurrentCanvas.CurrentTool = type;
                     SetActiveButton(btn);
@@ -745,6 +942,12 @@ namespace DrawingApp
                         g.DrawLine(p, 24, 26, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
                         g.DrawLine(p, 28, 26, 28, 16); g.DrawArc(p, 26, 14, 4, 4, 180, 180); 
                         g.DrawArc(p, 14, 26, 18, 12, 0, 180);
+                    }
+                    else if (type == App_Shapes.ShapeType.FormatPainter) // 繪製刷子圖示
+                    {
+                        g.FillRectangle(new SolidBrush(iconColor), 14, 10, 16, 8);
+                        g.DrawRectangle(p, 16, 18, 12, 4);
+                        g.DrawLine(p, 22, 22, 22, 34);
                     }
                     else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 10, 32, 32, 10); g.DrawLine(p, 22, 10, 32, 10); g.DrawLine(p, 32, 10, 32, 20); }
                     else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 10, 32, 32, 10);
