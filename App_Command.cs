@@ -13,13 +13,10 @@ namespace DrawingApp
 
     public class CommandManager
     {
-        // 優化：使用 LinkedList 取代 Stack，以實作最大步數限制，避免記憶體溢出
         private LinkedList<ICommand> _undoStack = new LinkedList<ICommand>();
         private LinkedList<ICommand> _redoStack = new LinkedList<ICommand>();
         
-        // 設定最大復原步數
         public int MaxUndoSteps { get; set; } = 50;
-
         public event Action OnStateChanged;
 
         public void ExecuteCommand(ICommand command)
@@ -28,7 +25,6 @@ namespace DrawingApp
             
             _undoStack.AddLast(command);
             
-            // 優化：如果超過最大步數，捨棄最舊的紀錄釋放記憶體
             if (_undoStack.Count > MaxUndoSteps)
             {
                 _undoStack.RemoveFirst();
@@ -83,6 +79,22 @@ namespace DrawingApp
 
         public void Execute() { _canvasShapes.Add(_shape); }
         public void Undo() { _canvasShapes.Remove(_shape); }
+    }
+
+    // --- 新增：批次加入圖形命令 (用於原地複製與貼上) ---
+    public class AddShapesCommand : ICommand
+    {
+        private List<App_Shapes.ShapeBase> _canvasShapes;
+        private List<App_Shapes.ShapeBase> _shapes;
+
+        public AddShapesCommand(List<App_Shapes.ShapeBase> canvasShapes, List<App_Shapes.ShapeBase> shapes)
+        {
+            _canvasShapes = canvasShapes;
+            _shapes = shapes.ToList();
+        }
+
+        public void Execute() { _canvasShapes.AddRange(_shapes); }
+        public void Undo() { foreach (var s in _shapes) _canvasShapes.Remove(s); }
     }
 
     public class RemoveShapesCommand : ICommand
@@ -185,6 +197,86 @@ namespace DrawingApp
 
         public void Execute() { _shape.RotationAngle = _newAngle; }
         public void Undo() { _shape.RotationAngle = _oldAngle; }
+    }
+
+    // --- 新增：變更格式命令 (用於格式刷與屬性面板變更) ---
+    public class ChangeFormatCommand : ICommand
+    {
+        private class FormatState
+        {
+            public Color ShapeColor { get; set; }
+            public Color FillColor { get; set; }
+            public float StrokeWidth { get; set; }
+            public System.Drawing.Drawing2D.DashStyle StrokeDashStyle { get; set; }
+            public string FontName { get; set; }
+            public float FontSize { get; set; }
+            public Color FontColor { get; set; }
+            public bool FontBold { get; set; }
+            public bool FontItalic { get; set; }
+            public bool FontUnderline { get; set; }
+            public App_Shapes.TextAlign TextAlignment { get; set; }
+
+            public FormatState(App_Shapes.ShapeBase shape)
+            {
+                ShapeColor = shape.ShapeColor;
+                FillColor = shape.FillColor;
+                StrokeWidth = shape.StrokeWidth;
+                StrokeDashStyle = shape.StrokeDashStyle;
+                FontName = shape.FontName;
+                FontSize = shape.FontSize;
+                FontColor = shape.FontColor;
+                FontBold = shape.FontBold;
+                FontItalic = shape.FontItalic;
+                FontUnderline = shape.FontUnderline;
+                TextAlignment = shape.TextAlignment;
+            }
+
+            public void ApplyTo(App_Shapes.ShapeBase shape)
+            {
+                shape.ShapeColor = ShapeColor;
+                shape.FillColor = FillColor;
+                shape.StrokeWidth = StrokeWidth;
+                shape.StrokeDashStyle = StrokeDashStyle;
+                shape.FontName = FontName;
+                shape.FontSize = FontSize;
+                shape.FontColor = FontColor;
+                shape.FontBold = FontBold;
+                shape.FontItalic = FontItalic;
+                shape.FontUnderline = FontUnderline;
+                shape.TextAlignment = TextAlignment;
+            }
+        }
+
+        private List<App_Shapes.ShapeBase> _shapes;
+        private List<FormatState> _oldStates;
+        private FormatState _newState; // 單一目標格式 (如格式刷)，或可以替換為個別 newState
+
+        public ChangeFormatCommand(List<App_Shapes.ShapeBase> shapes)
+        {
+            _shapes = shapes.ToList();
+            _oldStates = shapes.Select(s => new FormatState(s)).ToList();
+        }
+
+        public void CaptureNewState()
+        {
+            _newState = new FormatState(_shapes[0]); // 假設套用同一個格式
+        }
+
+        public void Execute()
+        {
+            if (_newState != null)
+            {
+                foreach (var s in _shapes) _newState.ApplyTo(s);
+            }
+        }
+
+        public void Undo()
+        {
+            for (int i = 0; i < _shapes.Count; i++)
+            {
+                _oldStates[i].ApplyTo(_shapes[i]);
+            }
+        }
     }
 
     public class AdjustConnectorCommand : ICommand
@@ -296,8 +388,8 @@ namespace DrawingApp
             foreach (var s in _targetShapes)
             {
                 _canvasShapes.Remove(s);
-                if (_direction == 0) _canvasShapes.Add(s); // 移到最後 (最上層)
-                else if (_direction == -99) _canvasShapes.Insert(0, s); // 移到最前 (最下層)
+                if (_direction == 0) _canvasShapes.Add(s); 
+                else if (_direction == -99) _canvasShapes.Insert(0, s); 
             }
         }
 
@@ -305,7 +397,6 @@ namespace DrawingApp
         {
             foreach (var s in _targetShapes) _canvasShapes.Remove(s);
             
-            // 根據原本的索引重新插入，確保順序從大到小插入避免跑位
             var restoreList = _targetShapes.Zip(_oldIndices, (shape, index) => new { shape, index }).OrderBy(x => x.index).ToList();
             foreach (var item in restoreList)
             {
