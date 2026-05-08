@@ -131,7 +131,8 @@ namespace DrawingApp
             this.MouseMove += Canvas_MouseMove;
             this.MouseUp += Canvas_MouseUp;
             this.MouseWheel += Canvas_MouseWheel;
-            this.DoubleClick += Canvas_DoubleClick;
+            // 修正編譯錯誤 1：將 DoubleClick 改為 MouseDoubleClick 以取得滑鼠座標
+            this.MouseDoubleClick += Canvas_DoubleClick;
 
             CmdManager.OnStateChanged += () => this.Invalidate();
 
@@ -329,8 +330,8 @@ namespace DrawingApp
             return null;
         }
 
-        // 【優化功能】：支援雙擊穿透群組進行文字編輯
-        private void Canvas_DoubleClick(object sender, EventArgs e)
+        // 【優化功能】：支援雙擊穿透群組進行文字編輯 (修正型別為 MouseEventArgs)
+        private void Canvas_DoubleClick(object sender, MouseEventArgs e)
         {
             if (SelectedShapes.Count == 1)
             {
@@ -1174,7 +1175,6 @@ namespace DrawingApp
                                 break;
                         }
 
-                        // 避免寬高為負數或太小導致報錯
                         if (b.Width > 5 && b.Height > 5) shape.SetBounds(b);
                     }
 
@@ -1192,18 +1192,18 @@ namespace DrawingApp
                     }
                     else
                     {
-                        // 繪圖時加入 Shift 等比例功能
+                        // 修正編譯錯誤 2 & 3：將 dx, dy 重新命名為 diffX, diffY 避免衝突
                         bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
                         float snapX = Snap(realPt.X);
                         float snapY = Snap(realPt.Y);
                         
                         if (keepRatio)
                         {
-                            float dx = snapX - _tempShape.Bounds.X;
-                            float dy = snapY - _tempShape.Bounds.Y;
-                            float maxDim = Math.Max(Math.Abs(dx), Math.Abs(dy));
-                            snapX = _tempShape.Bounds.X + maxDim * Math.Sign(dx);
-                            snapY = _tempShape.Bounds.Y + maxDim * Math.Sign(dy);
+                            float diffX = snapX - _tempShape.Bounds.X;
+                            float diffY = snapY - _tempShape.Bounds.Y;
+                            float maxDim = (float)Math.Max(Math.Abs(diffX), Math.Abs(diffY));
+                            snapX = _tempShape.Bounds.X + maxDim * Math.Sign(diffX);
+                            snapY = _tempShape.Bounds.Y + maxDim * Math.Sign(diffY);
                         }
                         
                         _tempShape.UpdateEndPoint(new PointF(snapX, snapY));
