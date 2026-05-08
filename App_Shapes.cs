@@ -1086,7 +1086,8 @@ namespace DrawingApp
                 return cleanPath.ToArray();
             }
 
-            public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null)
+            // 【重點效能優化】：加入 isFastMode 旗標。拖曳時忽略 A* 避障以確保 60FPS。
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null, bool isFastMode = false)
             {
                 using (Pen p = CreatePen())
                 {
@@ -1100,7 +1101,17 @@ namespace DrawingApp
 
                     if (IsOrthogonal)
                     {
-                        PointF[] pts = CalculateOrthogonalPath(p1, p2, allShapes);
+                        PointF[] pts;
+                        // 快速模式下使用簡易直角連線，放開滑鼠或靜止時才跑 A* 避障
+                        if (isFastMode)
+                        {
+                            pts = BasicOrthogonalPath(p1, p2);
+                        }
+                        else
+                        {
+                            pts = CalculateOrthogonalPath(p1, p2, allShapes);
+                        }
+                        
                         _cachedPath = pts; 
                         g.DrawLines(p, pts);
                     }
@@ -1112,7 +1123,8 @@ namespace DrawingApp
                 }
             }
 
-            public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null);
+            // 為了相容其他無參數呼叫，預設將 isFastMode 設為 false
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null, false);
             public override void Draw(Graphics g) { }
 
             public override void DrawSelection(Graphics g)
