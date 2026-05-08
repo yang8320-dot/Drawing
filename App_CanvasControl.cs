@@ -31,8 +31,10 @@ namespace DrawingApp
                 float maxX = _basePageSize.Width;
                 float maxY = _basePageSize.Height;
 
-                foreach (var s in Shapes)
+                // 效能優化：使用 for 迴圈取代 foreach
+                for (int i = 0; i < Shapes.Count; i++)
                 {
+                    var s = Shapes[i];
                     if (s is App_Shapes.ConnectorShape cs)
                     {
                         maxX = Math.Max(maxX, Math.Max(cs.StartPt.X, cs.EndPt.X) + 100);
@@ -176,7 +178,7 @@ namespace DrawingApp
                     
                     CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, newShape));
                     
-                    SelectedShapes.ForEach(s => s.IsSelected = false);
+                    for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
                     SelectedShapes.Clear();
                     newShape.IsSelected = true;
                     SelectedShapes.Add(newShape);
@@ -268,7 +270,7 @@ namespace DrawingApp
         {
             if (SelectedShapes.Count == 0) return;
             bool isAllLocked = SelectedShapes.All(s => s.IsLocked);
-            foreach (var s in SelectedShapes) s.IsLocked = !isAllLocked;
+            for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsLocked = !isAllLocked;
             this.Invalidate();
         }
 
@@ -464,13 +466,27 @@ namespace DrawingApp
 
             if (keyData == Keys.Delete && SelectedShapes.Count > 0)
             {
-                var toRemove = new List<App_Shapes.ShapeBase>(SelectedShapes.Where(s => !s.IsLocked));
+                var toRemove = new List<App_Shapes.ShapeBase>();
+                for (int i = 0; i < SelectedShapes.Count; i++)
+                {
+                    if (!SelectedShapes[i].IsLocked) toRemove.Add(SelectedShapes[i]);
+                }
+                
                 if (toRemove.Count == 0) return true;
 
-                foreach (var s in toRemove.ToList())
+                int initialCount = toRemove.Count;
+                for (int i = 0; i < initialCount; i++)
                 {
-                    toRemove.AddRange(Shapes.OfType<App_Shapes.ConnectorShape>().Where(c => c.SourceId == s.Id || c.TargetId == s.Id));
+                    var s = toRemove[i];
+                    for (int j = 0; j < Shapes.Count; j++)
+                    {
+                        if (Shapes[j] is App_Shapes.ConnectorShape c && (c.SourceId == s.Id || c.TargetId == s.Id))
+                        {
+                            if (!toRemove.Contains(c)) toRemove.Add(c);
+                        }
+                    }
                 }
+                
                 CmdManager.ExecuteCommand(new RemoveShapesCommand(Shapes, toRemove));
                 SelectedShapes.RemoveAll(s => !s.IsLocked);
                 OnSelectionChanged?.Invoke();
@@ -509,8 +525,9 @@ namespace DrawingApp
                             g.SmoothingMode = SmoothingMode.AntiAlias;
                             g.TranslateTransform(-minX + 10, -minY + 10);
                             
-                            foreach(var s in SelectedShapes) 
+                            for (int i = 0; i < SelectedShapes.Count; i++)
                             {
+                                var s = SelectedShapes[i];
                                 bool wasSelected = s.IsSelected;
                                 s.IsSelected = false; 
                                 s.DrawWithTransform(g);
@@ -528,7 +545,7 @@ namespace DrawingApp
         {
             if (_clipboard.Count > 0)
             {
-                SelectedShapes.ForEach(s => s.IsSelected = false);
+                for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
                 SelectedShapes.Clear();
                 
                 var newClones = App_SaveLoad.CloneShapes(_clipboard);
@@ -554,7 +571,7 @@ namespace DrawingApp
                     PointF pt = GetRealPoint(_lastMousePos == Point.Empty ? new Point(50, 50) : _lastMousePos);
                     var newImgShape = App_Shapes.ShapeFactory.CreateShape(App_Shapes.ShapeType.Image, pt, Color.Black, new Bitmap(img));
                     
-                    SelectedShapes.ForEach(s => s.IsSelected = false);
+                    for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
                     SelectedShapes.Clear();
                     
                     newImgShape.IsSelected = true;
@@ -581,7 +598,7 @@ namespace DrawingApp
 
             CmdManager.ExecuteCommand(new AddShapesCommand(Shapes, clones));
 
-            SelectedShapes.ForEach(s => s.IsSelected = false);
+            for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
             SelectedShapes.Clear();
 
             foreach (var c in clones)
@@ -612,10 +629,13 @@ namespace DrawingApp
             float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
             
             var allAffected = new HashSet<App_Shapes.ShapeBase>(shapes);
-            foreach (var c in Shapes.OfType<App_Shapes.ConnectorShape>())
+            for (int i = 0; i < Shapes.Count; i++)
             {
-                if (shapes.Any(s => s.Id == c.SourceId || s.Id == c.TargetId))
-                    allAffected.Add(c);
+                if (Shapes[i] is App_Shapes.ConnectorShape c)
+                {
+                    if (shapes.Any(s => s.Id == c.SourceId || s.Id == c.TargetId))
+                        allAffected.Add(c);
+                }
             }
 
             bool hasValidPoints = false;
@@ -807,7 +827,7 @@ namespace DrawingApp
                         {
                             if (!SelectedShapes.Contains(hit))
                             {
-                                SelectedShapes.ForEach(s => s.IsSelected = false);
+                                for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
                                 SelectedShapes.Clear();
                                 hit.IsSelected = true;
                                 SelectedShapes.Add(hit);
@@ -824,7 +844,7 @@ namespace DrawingApp
                     }
                     else
                     {
-                        SelectedShapes.ForEach(s => s.IsSelected = false);
+                        for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
                         SelectedShapes.Clear();
                         OnSelectionChanged?.Invoke();
                         
@@ -933,8 +953,11 @@ namespace DrawingApp
                         float futureCenterX = myCenter.X + dx;
                         float futureCenterY = myCenter.Y + dy;
 
-                        foreach (var other in Shapes.Where(s => s != me && !(s is App_Shapes.ConnectorShape)))
+                        for (int i = 0; i < Shapes.Count; i++)
                         {
+                            var other = Shapes[i];
+                            if (other == me || other is App_Shapes.ConnectorShape) continue;
+
                             PointF otherCenter = other.GetCenter();
                             if (Math.Abs(futureCenterX - otherCenter.X) < snapThreshold)
                             {
@@ -953,7 +976,7 @@ namespace DrawingApp
 
                     _dragTotalDx += dx;
                     _dragTotalDy += dy;
-                    foreach (var s in movableShapes) s.Move(dx, dy);
+                    for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(dx, dy);
 
                     RectangleF newBounds = GetShapesAndConnectorsBounds(movableShapes);
 
@@ -992,18 +1015,20 @@ namespace DrawingApp
                     bool isMultiSelectKey = (Control.ModifierKeys == Keys.Control || Control.ModifierKeys == Keys.Shift);
                     if (!isMultiSelectKey) 
                     {
-                        SelectedShapes.ForEach(s => s.IsSelected = false);
+                        for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
                         SelectedShapes.Clear();
                     }
 
-                    var newlySelected = Shapes.Where(s => s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds)).ToList();
-                    
-                    foreach(var ns in newlySelected)
+                    for (int i = 0; i < Shapes.Count; i++)
                     {
-                        if (!SelectedShapes.Contains(ns))
+                        var s = Shapes[i];
+                        if (s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds))
                         {
-                            ns.IsSelected = true;
-                            SelectedShapes.Add(ns);
+                            if (!SelectedShapes.Contains(s))
+                            {
+                                s.IsSelected = true;
+                                SelectedShapes.Add(s);
+                            }
                         }
                     }
                     
@@ -1153,7 +1178,7 @@ namespace DrawingApp
 
                 if (_currentState == InteractionState.Moving && movableShapes.Count > 0 && (_dragTotalDx != 0 || _dragTotalDy != 0))
                 {
-                    foreach (var s in movableShapes) s.Move(-_dragTotalDx, -_dragTotalDy);
+                    for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(-_dragTotalDx, -_dragTotalDy);
                     CmdManager.ExecuteCommand(new MoveShapesCommand(movableShapes, _dragTotalDx, _dragTotalDy));
                     this.Invalidate();
                 }
@@ -1241,53 +1266,74 @@ namespace DrawingApp
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
-            foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape)))
+            // 效能優化：完全拔除 LINQ (Where, OfType)，使用原生的 for 迴圈與型別檢查 (減少 GC 觸發)
+            for (int i = 0; i < Shapes.Count; i++)
             {
-                if (clipWorldBounds.IntersectsWith(shape.Bounds)) shape.DrawWithTransform(g);
+                var shape = Shapes[i];
+                if (!(shape is App_Shapes.ConnectorShape))
+                {
+                    if (clipWorldBounds.IntersectsWith(shape.Bounds)) shape.DrawWithTransform(g);
+                }
             }
 
+            // 決定連線是否處於 "FastMode" (拖曳圖形或視窗時降級)
+            bool isFastMode = (_currentState == InteractionState.Moving || _currentState == InteractionState.Resizing);
+
             List<LineSegment> drawnLines = new List<LineSegment>();
-            foreach (var shape in Shapes.OfType<App_Shapes.ConnectorShape>())
+            for (int i = 0; i < Shapes.Count; i++)
             {
-                var src = Shapes.FirstOrDefault(x => x.Id == shape.SourceId);
-                var tgt = Shapes.FirstOrDefault(x => x.Id == shape.TargetId);
-                
-                PointF p1 = shape.StartPt;
-                PointF p2 = shape.EndPt;
-
-                if (src != null)
-                    p1 = shape.SourceAnchor == App_Shapes.AnchorPosition.Auto ? src.GetIntersection(tgt != null ? tgt.GetCenter() : shape.EndPt) : src.GetAnchorPoint(shape.SourceAnchor);
-                
-                if (tgt != null)
-                    p2 = shape.TargetAnchor == App_Shapes.AnchorPosition.Auto ? tgt.GetIntersection(p1) : tgt.GetAnchorPoint(shape.TargetAnchor);
-
-                if (!shape.IsOrthogonal)
+                if (Shapes[i] is App_Shapes.ConnectorShape shape)
                 {
-                    foreach (var oldLine in drawnLines)
+                    App_Shapes.ShapeBase src = null;
+                    App_Shapes.ShapeBase tgt = null;
+
+                    for (int j = 0; j < Shapes.Count; j++)
                     {
-                        if (Math.Abs(p1.X - p2.X) < 10 && Math.Abs(oldLine.P1.Y - oldLine.P2.Y) < 10)
+                        if (Shapes[j].Id == shape.SourceId) src = Shapes[j];
+                        if (Shapes[j].Id == shape.TargetId) tgt = Shapes[j];
+                        if (src != null && tgt != null) break;
+                    }
+
+                    PointF p1 = shape.StartPt;
+                    PointF p2 = shape.EndPt;
+
+                    if (src != null)
+                        p1 = shape.SourceAnchor == App_Shapes.AnchorPosition.Auto ? src.GetIntersection(tgt != null ? tgt.GetCenter() : shape.EndPt) : src.GetAnchorPoint(shape.SourceAnchor);
+                    
+                    if (tgt != null)
+                        p2 = shape.TargetAnchor == App_Shapes.AnchorPosition.Auto ? tgt.GetIntersection(p1) : tgt.GetAnchorPoint(shape.TargetAnchor);
+
+                    // 處理非直角連線時的「跳線 (Line Jump)」效果
+                    if (!shape.IsOrthogonal)
+                    {
+                        for (int k = 0; k < drawnLines.Count; k++)
                         {
-                            float minX = Math.Min(oldLine.P1.X, oldLine.P2.X);
-                            float maxX = Math.Max(oldLine.P1.X, oldLine.P2.X);
-                            float minY = Math.Min(p1.Y, p2.Y);
-                            float maxY = Math.Max(p1.Y, p2.Y);
-                            
-                            if (p1.X > minX && p1.X < maxX && oldLine.P1.Y > minY && oldLine.P1.Y < maxY)
+                            var oldLine = drawnLines[k];
+                            if (Math.Abs(p1.X - p2.X) < 10 && Math.Abs(oldLine.P1.Y - oldLine.P2.Y) < 10)
                             {
-                                float ix = p1.X; float iy = oldLine.P1.Y;
-                                g.FillEllipse(Brushes.White, ix - 8, iy - 8, 16, 16);
-                                using (Pen arcPen = new Pen(shape.ShapeColor, shape.StrokeWidth)) g.DrawArc(arcPen, ix - 8, iy - 8, 16, 16, 180, 180);
+                                float minX = Math.Min(oldLine.P1.X, oldLine.P2.X);
+                                float maxX = Math.Max(oldLine.P1.X, oldLine.P2.X);
+                                float minY = Math.Min(p1.Y, p2.Y);
+                                float maxY = Math.Max(p1.Y, p2.Y);
+                                
+                                if (p1.X > minX && p1.X < maxX && oldLine.P1.Y > minY && oldLine.P1.Y < maxY)
+                                {
+                                    float ix = p1.X; float iy = oldLine.P1.Y;
+                                    g.FillEllipse(Brushes.White, ix - 8, iy - 8, 16, 16);
+                                    using (Pen arcPen = new Pen(shape.ShapeColor, shape.StrokeWidth)) g.DrawArc(arcPen, ix - 8, iy - 8, 16, 16, 180, 180);
+                                }
                             }
                         }
                     }
+                    
+                    // 傳遞 FastMode，加速 A* 迴避運算
+                    shape.DrawDynamic(g, p1, p2, Shapes, isFastMode);
+                    if (!shape.IsOrthogonal) drawnLines.Add(new LineSegment(p1, p2));
                 }
-                
-                shape.DrawDynamic(g, p1, p2, Shapes);
-                if (!shape.IsOrthogonal) drawnLines.Add(new LineSegment(p1, p2));
             }
 
             _tempShape?.DrawWithTransform(g);
-            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes); 
+            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes, true); 
             
             if ((_currentState == InteractionState.Connecting || _currentState == InteractionState.Resizing) && _hoveredShapeForConnection != null)
             {
@@ -1299,7 +1345,7 @@ namespace DrawingApp
                 g.DrawEllipse(Pens.Red, anchorPt.X - 5, anchorPt.Y - 5, 10, 10);
             }
 
-            foreach (var s in SelectedShapes) s.DrawSelection(g);
+            for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].DrawSelection(g);
             
             if (_currentState == InteractionState.BoxSelecting)
             {
@@ -1313,9 +1359,9 @@ namespace DrawingApp
 
             using (Pen guidePen = new Pen(Color.DeepPink, 1.5f) { DashStyle = DashStyle.Dash })
             {
-                foreach (var line in _smartGuides)
+                for (int i = 0; i < _smartGuides.Count; i++)
                 {
-                    g.DrawLine(guidePen, line.Item1, line.Item2);
+                    g.DrawLine(guidePen, _smartGuides[i].Item1, _smartGuides[i].Item2);
                 }
             }
 
@@ -1329,16 +1375,21 @@ namespace DrawingApp
                 g.FillRectangle(bgBrush, _minimapRect);
             g.DrawRectangle(Pens.Gray, _minimapRect);
 
-            foreach (var shape in Shapes.Where(s => !(s is App_Shapes.ConnectorShape)))
+            // 效能優化：MiniMap 渲染也改為原生 for 迴圈
+            for (int i = 0; i < Shapes.Count; i++)
             {
-                float sx = _minimapRect.X + shape.Bounds.X * minimapScale;
-                float sy = _minimapRect.Y + shape.Bounds.Y * minimapScale;
-                float sw = shape.Bounds.Width * minimapScale;
-                float sh = shape.Bounds.Height * minimapScale;
-                
-                Color renderColor = (shape.FillColor != Color.Transparent) ? shape.FillColor : shape.ShapeColor;
-                using (Brush b = new SolidBrush(renderColor))
-                    g.FillRectangle(b, sx, sy, sw, sh);
+                var shape = Shapes[i];
+                if (!(shape is App_Shapes.ConnectorShape))
+                {
+                    float sx = _minimapRect.X + shape.Bounds.X * minimapScale;
+                    float sy = _minimapRect.Y + shape.Bounds.Y * minimapScale;
+                    float sw = shape.Bounds.Width * minimapScale;
+                    float sh = shape.Bounds.Height * minimapScale;
+                    
+                    Color renderColor = (shape.FillColor != Color.Transparent) ? shape.FillColor : shape.ShapeColor;
+                    using (Brush b = new SolidBrush(renderColor))
+                        g.FillRectangle(b, sx, sy, sw, sh);
+                }
             }
 
             float vx = _minimapRect.X + (-_cameraOffset.X / ZoomFactor) * minimapScale;
@@ -1367,14 +1418,14 @@ namespace DrawingApp
 
         public Bitmap GetTransparentCanvasRender()
         {
-            SelectedShapes.ForEach(s => s.IsSelected = false);
+            for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].IsSelected = false;
             float maxX = ActualPageSize.Width;
             float maxY = ActualPageSize.Height;
             Bitmap bmp = new Bitmap(Math.Max((int)maxX + 50, (int)PageSize.Width), Math.Max((int)maxY + 50, (int)PageSize.Height)); 
             using (Graphics g = Graphics.FromImage(bmp))
             {
                 g.Clear(Color.Transparent); g.SmoothingMode = SmoothingMode.AntiAlias;
-                foreach (var s in Shapes) s.DrawWithTransform(g);
+                for (int i = 0; i < Shapes.Count; i++) Shapes[i].DrawWithTransform(g);
             }
             return bmp;
         }
