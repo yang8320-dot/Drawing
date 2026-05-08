@@ -78,7 +78,7 @@ namespace DrawingApp
                 if (_currentTool == App_Shapes.ShapeType.HandPan)
                     this.Cursor = Cursors.Hand;
                 else if (_currentTool == App_Shapes.ShapeType.FormatPainter)
-                    this.Cursor = Cursors.UpArrow; // 格式刷游標提示
+                    this.Cursor = Cursors.UpArrow; 
                 else
                     this.Cursor = Cursors.Default;
             } 
@@ -95,7 +95,6 @@ namespace DrawingApp
         public List<App_Shapes.ShapeBase> SelectedShapes { get; private set; } = new List<App_Shapes.ShapeBase>();
         private List<App_Shapes.ShapeBase> _clipboard = new List<App_Shapes.ShapeBase>();
         
-        // --- 新增：格式刷來源圖形 ---
         public App_Shapes.ShapeBase FormatSourceShape { get; set; }
 
         private App_Shapes.HandlePosition _resizingHandle = App_Shapes.HandlePosition.None;
@@ -111,7 +110,6 @@ namespace DrawingApp
         private bool _isDraggingMinimap = false;
         private const int MINIMAP_WIDTH = 200;
 
-        public event Action<App_Shapes.ShapeBase> OnShapePropertyRequested;
         public event Action<PointF> OnImageInsertRequested;
         public event Action OnToolResetRequested;
         public event Action OnSelectionChanged;
@@ -332,7 +330,6 @@ namespace DrawingApp
             _inlineTextBox.Font = new Font(shape.FontName, shape.FontSize * ZoomFactor, style);
             _inlineTextBox.ForeColor = shape.FontColor;
 
-            // --- 新增：將對齊屬性映射到內嵌編輯器 ---
             if (shape.TextAlignment == App_Shapes.TextAlign.TopLeft || shape.TextAlignment == App_Shapes.TextAlign.MiddleLeft || shape.TextAlignment == App_Shapes.TextAlign.BottomLeft)
                 _inlineTextBox.TextAlign = HorizontalAlignment.Left;
             else if (shape.TextAlignment == App_Shapes.TextAlign.TopRight || shape.TextAlignment == App_Shapes.TextAlign.MiddleRight || shape.TextAlignment == App_Shapes.TextAlign.BottomRight)
@@ -570,7 +567,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 新增：原地複製圖形 (Ctrl+D) ---
         private void DuplicateSelected()
         {
             if (SelectedShapes.Count == 0) return;
@@ -658,7 +654,7 @@ namespace DrawingApp
 
             if (CurrentTool == App_Shapes.ShapeType.FormatPainter)
             {
-                this.Cursor = Cursors.UpArrow; // 格式刷游標
+                this.Cursor = Cursors.UpArrow; 
                 return;
             }
 
@@ -732,7 +728,6 @@ namespace DrawingApp
 
             if (e.Button == MouseButtons.Left)
             {
-                // --- 新增：格式刷套用邏輯 ---
                 if (CurrentTool == App_Shapes.ShapeType.FormatPainter)
                 {
                     if (FormatSourceShape != null)
