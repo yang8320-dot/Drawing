@@ -31,7 +31,6 @@ namespace DrawingApp
                 float maxX = _basePageSize.Width;
                 float maxY = _basePageSize.Height;
 
-                // 效能優化：使用 for 迴圈取代 foreach
                 for (int i = 0; i < Shapes.Count; i++)
                 {
                     var s = Shapes[i];
@@ -311,11 +310,46 @@ namespace DrawingApp
             }
         }
 
+        // 【新增功能】：遞迴尋找群組內被點擊的子圖形
+        private App_Shapes.ShapeBase GetHitChild(App_Shapes.GroupShape group, PointF pt)
+        {
+            for (int i = group.Children.Count - 1; i >= 0; i--)
+            {
+                var child = group.Children[i];
+                if (child is App_Shapes.GroupShape subGroup)
+                {
+                    var hit = GetHitChild(subGroup, pt);
+                    if (hit != null) return hit;
+                }
+                else if (child.HitTest(pt))
+                {
+                    return child;
+                }
+            }
+            return null;
+        }
+
+        // 【優化功能】：支援雙擊穿透群組進行文字編輯
         private void Canvas_DoubleClick(object sender, EventArgs e)
         {
-            if (SelectedShapes.Count == 1 && !(SelectedShapes[0] is App_Shapes.ConnectorShape))
+            if (SelectedShapes.Count == 1)
             {
-                StartInlineEditing(SelectedShapes[0]);
+                PointF realPt = GetRealPoint(e.Location);
+                App_Shapes.ShapeBase targetShape = SelectedShapes[0];
+
+                if (targetShape is App_Shapes.GroupShape group)
+                {
+                    var hitChild = GetHitChild(group, realPt);
+                    if (hitChild != null && !(hitChild is App_Shapes.ConnectorShape))
+                    {
+                        targetShape = hitChild;
+                    }
+                }
+
+                if (!(targetShape is App_Shapes.ConnectorShape) && !(targetShape is App_Shapes.GroupShape))
+                {
+                    StartInlineEditing(targetShape);
+                }
             }
         }
 
@@ -1089,17 +1123,58 @@ namespace DrawingApp
                         float ldy = currentLocal.Y - lastLocal.Y;
 
                         RectangleF b = shape.Bounds;
+                        
+                        // 【優化功能】：加入 Shift 鍵等比例縮放邏輯
+                        bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
+                        float ratio = 1.0f;
+                        if (keepRatio && _initialBounds.Height != 0) 
+                            ratio = _initialBounds.Width / _initialBounds.Height;
+
                         switch (_resizingHandle)
                         {
-                            case App_Shapes.HandlePosition.NW: b = new RectangleF(b.X + ldx, b.Y + ldy, b.Width - ldx, b.Height - ldy); break;
-                            case App_Shapes.HandlePosition.N:  b = new RectangleF(b.X, b.Y + ldy, b.Width, b.Height - ldy); break;
-                            case App_Shapes.HandlePosition.NE: b = new RectangleF(b.X, b.Y + ldy, b.Width + ldx, b.Height - ldy); break;
-                            case App_Shapes.HandlePosition.E:  b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height); break;
-                            case App_Shapes.HandlePosition.SE: b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height + ldy); break;
-                            case App_Shapes.HandlePosition.S:  b = new RectangleF(b.X, b.Y, b.Width, b.Height + ldy); break;
-                            case App_Shapes.HandlePosition.SW: b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height + ldy); break;
-                            case App_Shapes.HandlePosition.W:  b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height); break;
+                            case App_Shapes.HandlePosition.NW: 
+                                float newW_NW = b.Width - ldx;
+                                float newH_NW = b.Height - ldy;
+                                if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_NW = newW_NW / ratio; else newW_NW = newH_NW * ratio; }
+                                b = new RectangleF(b.Right - newW_NW, b.Bottom - newH_NW, newW_NW, newH_NW);
+                                break;
+                            case App_Shapes.HandlePosition.N:  
+                                b = new RectangleF(b.X, b.Y + ldy, b.Width, b.Height - ldy); 
+                                if (keepRatio) { float oldC = b.X + b.Width/2; b.Width = b.Height * ratio; b.X = oldC - b.Width/2; }
+                                break;
+                            case App_Shapes.HandlePosition.NE: 
+                                float newW_NE = b.Width + ldx;
+                                float newH_NE = b.Height - ldy;
+                                if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_NE = newW_NE / ratio; else newW_NE = newH_NE * ratio; }
+                                b = new RectangleF(b.X, b.Bottom - newH_NE, newW_NE, newH_NE);
+                                break;
+                            case App_Shapes.HandlePosition.E:  
+                                b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height); 
+                                if (keepRatio) { float oldC = b.Y + b.Height/2; b.Height = b.Width / ratio; b.Y = oldC - b.Height/2; }
+                                break;
+                            case App_Shapes.HandlePosition.SE: 
+                                float newW_SE = b.Width + ldx;
+                                float newH_SE = b.Height + ldy;
+                                if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_SE = newW_SE / ratio; else newW_SE = newH_SE * ratio; }
+                                b = new RectangleF(b.X, b.Y, newW_SE, newH_SE);
+                                break;
+                            case App_Shapes.HandlePosition.S:  
+                                b = new RectangleF(b.X, b.Y, b.Width, b.Height + ldy); 
+                                if (keepRatio) { float oldC = b.X + b.Width/2; b.Width = b.Height * ratio; b.X = oldC - b.Width/2; }
+                                break;
+                            case App_Shapes.HandlePosition.SW: 
+                                float newW_SW = b.Width - ldx;
+                                float newH_SW = b.Height + ldy;
+                                if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_SW = newW_SW / ratio; else newW_SW = newH_SW * ratio; }
+                                b = new RectangleF(b.Right - newW_SW, b.Y, newW_SW, newH_SW);
+                                break;
+                            case App_Shapes.HandlePosition.W:  
+                                b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height); 
+                                if (keepRatio) { float oldC = b.Y + b.Height/2; b.Height = b.Width / ratio; b.Y = oldC - b.Height/2; }
+                                break;
                         }
+
+                        // 避免寬高為負數或太小導致報錯
                         if (b.Width > 5 && b.Height > 5) shape.SetBounds(b);
                     }
 
@@ -1117,7 +1192,21 @@ namespace DrawingApp
                     }
                     else
                     {
-                        _tempShape.UpdateEndPoint(new PointF(Snap(realPt.X), Snap(realPt.Y)));
+                        // 繪圖時加入 Shift 等比例功能
+                        bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
+                        float snapX = Snap(realPt.X);
+                        float snapY = Snap(realPt.Y);
+                        
+                        if (keepRatio)
+                        {
+                            float dx = snapX - _tempShape.Bounds.X;
+                            float dy = snapY - _tempShape.Bounds.Y;
+                            float maxDim = Math.Max(Math.Abs(dx), Math.Abs(dy));
+                            snapX = _tempShape.Bounds.X + maxDim * Math.Sign(dx);
+                            snapY = _tempShape.Bounds.Y + maxDim * Math.Sign(dy);
+                        }
+                        
+                        _tempShape.UpdateEndPoint(new PointF(snapX, snapY));
                     }
                     InvalidateWorldRect(oldBounds);
                     InvalidateWorldRect(_tempShape.Bounds);
@@ -1266,7 +1355,6 @@ namespace DrawingApp
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
-            // 效能優化：完全拔除 LINQ (Where, OfType)，使用原生的 for 迴圈與型別檢查 (減少 GC 觸發)
             for (int i = 0; i < Shapes.Count; i++)
             {
                 var shape = Shapes[i];
@@ -1276,7 +1364,6 @@ namespace DrawingApp
                 }
             }
 
-            // 決定連線是否處於 "FastMode" (拖曳圖形或視窗時降級)
             bool isFastMode = (_currentState == InteractionState.Moving || _currentState == InteractionState.Resizing);
 
             List<LineSegment> drawnLines = new List<LineSegment>();
@@ -1303,7 +1390,6 @@ namespace DrawingApp
                     if (tgt != null)
                         p2 = shape.TargetAnchor == App_Shapes.AnchorPosition.Auto ? tgt.GetIntersection(p1) : tgt.GetAnchorPoint(shape.TargetAnchor);
 
-                    // 處理非直角連線時的「跳線 (Line Jump)」效果
                     if (!shape.IsOrthogonal)
                     {
                         for (int k = 0; k < drawnLines.Count; k++)
@@ -1326,7 +1412,6 @@ namespace DrawingApp
                         }
                     }
                     
-                    // 傳遞 FastMode，加速 A* 迴避運算
                     shape.DrawDynamic(g, p1, p2, Shapes, isFastMode);
                     if (!shape.IsOrthogonal) drawnLines.Add(new LineSegment(p1, p2));
                 }
@@ -1375,7 +1460,6 @@ namespace DrawingApp
                 g.FillRectangle(bgBrush, _minimapRect);
             g.DrawRectangle(Pens.Gray, _minimapRect);
 
-            // 效能優化：MiniMap 渲染也改為原生 for 迴圈
             for (int i = 0; i < Shapes.Count; i++)
             {
                 var shape = Shapes[i];
