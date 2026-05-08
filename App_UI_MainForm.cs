@@ -18,9 +18,8 @@ namespace DrawingApp
 
         private Button _activeToolBtn;
         private Button _btnPointer; 
-        private Button _btnFormatPainter; // --- 新增格式刷按鈕 ---
+        private Button _btnFormatPainter;
 
-        // --- 新增：自訂屬性面板的控制項 ---
         private FlowLayoutPanel _alignmentPanel;
         private FlowLayoutPanel _zIndexPanel;
         private Panel _customPropertiesPanel;
@@ -42,7 +41,6 @@ namespace DrawingApp
         private bool _isDirty = false;
         private Timer _autoSaveTimer;
 
-        // --- 新增：F11 全螢幕模式 ---
         private bool _isZenMode = false;
         private FormWindowState _previousWindowState;
 
@@ -68,7 +66,6 @@ namespace DrawingApp
             _autoSaveTimer.Start();
         }
 
-        // --- 新增：攔截 F11 鍵切換 Zen Mode ---
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (keyData == Keys.F11)
@@ -208,7 +205,6 @@ namespace DrawingApp
                     }
             }));
             
-            // 加入全螢幕提示
             Label lblZenMode = new Label() { Text = "💡 按 F11 進入全螢幕", ForeColor = Color.Gray, AutoSize = true, Margin = new Padding(20, 10, 0, 0) };
             _topBar.Controls.Add(lblZenMode);
 
@@ -219,7 +215,6 @@ namespace DrawingApp
             
             CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (Hand Tool)\n(可用滑鼠左鍵直接平移畫面)");
             
-            // --- 新增：格式刷工具 ---
             _btnFormatPainter = CreateToolButton(App_Shapes.ShapeType.FormatPainter, "格式刷\n(先選取圖形，點擊此按鈕後，再點擊其他圖形以套用格式)");
             _btnFormatPainter.Click += (s, e) => {
                 if (CurrentCanvas != null && CurrentCanvas.SelectedShapes.Count > 0)
@@ -491,7 +486,6 @@ namespace DrawingApp
             }
         }
 
-        // --- 優化：移除 PropertyGrid，改用自製精美面板 ---
         private void BuildPropertyPanel()
         {
             _rightPanel.Controls.Clear();
@@ -520,12 +514,10 @@ namespace DrawingApp
             _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => CurrentCanvas?.ChangeZIndex(-99)));
             actionsPanel.Controls.Add(_zIndexPanel);
 
-            // --- 新增：自訂屬性區塊 ---
             _customPropertiesPanel = new Panel() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(0, 10, 0, 0) };
 
             int yOffset = 0;
             
-            // 外觀設定
             Label lblAppearance = new Label() { Text = "外觀設定", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, yOffset), AutoSize = true };
             _customPropertiesPanel.Controls.Add(lblAppearance);
             yOffset += 30;
@@ -560,12 +552,10 @@ namespace DrawingApp
             _customPropertiesPanel.Controls.Add(_cbDashStyle);
             yOffset += 40;
 
-            // 畫一條分隔線
             Panel div1 = new Panel() { BackColor = Color.LightGray, Height = 1, Width = 260, Location = new Point(0, yOffset) };
             _customPropertiesPanel.Controls.Add(div1);
             yOffset += 15;
 
-            // 文字設定
             Label lblText = new Label() { Text = "文字設定", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, yOffset), AutoSize = true };
             _customPropertiesPanel.Controls.Add(lblText);
             yOffset += 30;
@@ -624,7 +614,6 @@ namespace DrawingApp
                     applyAction(cd.Color);
                 }
             }
-            // 補充：右鍵點擊可清除填色 (變透明)
             btn.MouseUp += (s, e) => {
                 if (e.Button == MouseButtons.Right && allowTransparent)
                 {
@@ -635,8 +624,8 @@ namespace DrawingApp
             };
         }
 
-        // --- 新增：套用屬性變更，並支援 Undo/Redo ---
-        private void ApplyPropertyChange(Action<dynamic> propertySetter)
+        // --- 修正：將動態型別 (dynamic) 替換為明確的 App_Shapes.ShapeBase ---
+        private void ApplyPropertyChange(Action<App_Shapes.ShapeBase> propertySetter)
         {
             if (_isUpdatingUI || CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
 
@@ -765,7 +754,6 @@ namespace DrawingApp
             CurrentCanvas.Invalidate();
         }
 
-        // --- 優化：當選擇改變時，更新自訂 UI 面板的值 ---
         private void RefreshPropertyPanel()
         {
             if (CurrentCanvas != null)
@@ -779,7 +767,6 @@ namespace DrawingApp
                 {
                     _customPropertiesPanel.Enabled = true;
                     
-                    // 以第一個選取物件為基準顯示屬性
                     var shape = CurrentCanvas.SelectedShapes[0];
                     
                     _isUpdatingUI = true;
@@ -914,7 +901,7 @@ namespace DrawingApp
                 {
                     if (Math.Abs(e.X - mouseDownLocation.X) > 5 || Math.Abs(e.Y - mouseDownLocation.Y) > 5)
                     {
-                        if (type != App_Shapes.ShapeType.FormatPainter) // 格式刷不支援拖拉創建
+                        if (type != App_Shapes.ShapeType.FormatPainter) 
                             btn.DoDragDrop(type, DragDropEffects.Copy);
                         mouseDownLocation = Point.Empty;
                     }
@@ -943,7 +930,7 @@ namespace DrawingApp
                         g.DrawLine(p, 28, 26, 28, 16); g.DrawArc(p, 26, 14, 4, 4, 180, 180); 
                         g.DrawArc(p, 14, 26, 18, 12, 0, 180);
                     }
-                    else if (type == App_Shapes.ShapeType.FormatPainter) // 繪製刷子圖示
+                    else if (type == App_Shapes.ShapeType.FormatPainter) 
                     {
                         g.FillRectangle(new SolidBrush(iconColor), 14, 10, 16, 8);
                         g.DrawRectangle(p, 16, 18, 12, 4);
