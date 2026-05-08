@@ -10,9 +10,12 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        public enum ShapeType { Pointer, HandPan, ArrowLine, StraightLine, OrthogonalLine, Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, TextNode, Text, Image, Freehand }
+        public enum ShapeType { Pointer, HandPan, FormatPainter, ArrowLine, StraightLine, OrthogonalLine, Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, TextNode, Text, Image, Freehand }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
+        
+        // --- 新增：文字對齊列舉 ---
+        public enum TextAlign { TopLeft, TopCenter, TopRight, MiddleLeft, MiddleCenter, MiddleRight, BottomLeft, BottomCenter, BottomRight }
 
         public abstract class ShapeBase : IDisposable
         {
@@ -82,6 +85,11 @@ namespace DrawingApp
             [DisplayName("底線")]
             public virtual bool FontUnderline { get; set; } = false;
 
+            // --- 新增：文字對齊屬性 ---
+            [Category("2. 文字屬性")]
+            [DisplayName("對齊方式")]
+            public virtual TextAlign TextAlignment { get; set; } = TextAlign.MiddleCenter;
+
             public ShapeBase() { }
 
             public ShapeBase(PointF start, Color color)
@@ -91,6 +99,23 @@ namespace DrawingApp
             }
 
             public virtual void Dispose() { }
+
+            // --- 新增：格式刷套用方法 ---
+            public virtual void ApplyFormatFrom(ShapeBase source)
+            {
+                if (source == null) return;
+                this.ShapeColor = source.ShapeColor;
+                this.FillColor = source.FillColor;
+                this.StrokeWidth = source.StrokeWidth;
+                this.StrokeDashStyle = source.StrokeDashStyle;
+                this.FontName = source.FontName;
+                this.FontSize = source.FontSize;
+                this.FontColor = source.FontColor;
+                this.FontBold = source.FontBold;
+                this.FontItalic = source.FontItalic;
+                this.FontUnderline = source.FontUnderline;
+                this.TextAlignment = source.TextAlignment;
+            }
 
             public void DrawWithTransform(Graphics g)
             {
@@ -112,6 +137,7 @@ namespace DrawingApp
                 return new Pen(ShapeColor, StrokeWidth) { DashStyle = StrokeDashStyle };
             }
 
+            // --- 優化：支援文字換行與自動對齊設定 ---
             protected void DrawText(Graphics g)
             {
                 if (string.IsNullOrEmpty(Text)) return;
@@ -125,9 +151,29 @@ namespace DrawingApp
                 using (Brush b = new SolidBrush(FontColor))
                 using (StringFormat sf = new StringFormat())
                 {
-                    sf.Alignment = StringAlignment.Center;
-                    sf.LineAlignment = StringAlignment.Center;
-                    g.DrawString(Text, font, b, Bounds, sf);
+                    // 解析對齊方式
+                    switch (TextAlignment)
+                    {
+                        case TextAlign.TopLeft: sf.Alignment = StringAlignment.Near; sf.LineAlignment = StringAlignment.Near; break;
+                        case TextAlign.TopCenter: sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Near; break;
+                        case TextAlign.TopRight: sf.Alignment = StringAlignment.Far; sf.LineAlignment = StringAlignment.Near; break;
+                        case TextAlign.MiddleLeft: sf.Alignment = StringAlignment.Near; sf.LineAlignment = StringAlignment.Center; break;
+                        case TextAlign.MiddleCenter: sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Center; break;
+                        case TextAlign.MiddleRight: sf.Alignment = StringAlignment.Far; sf.LineAlignment = StringAlignment.Center; break;
+                        case TextAlign.BottomLeft: sf.Alignment = StringAlignment.Near; sf.LineAlignment = StringAlignment.Far; break;
+                        case TextAlign.BottomCenter: sf.Alignment = StringAlignment.Center; sf.LineAlignment = StringAlignment.Far; break;
+                        case TextAlign.BottomRight: sf.Alignment = StringAlignment.Far; sf.LineAlignment = StringAlignment.Far; break;
+                    }
+                    
+                    // 啟用自動換行，並加入微小的 Padding 避免貼齊邊框
+                    sf.Trimming = StringTrimming.Word;
+                    sf.FormatFlags = 0; 
+                    
+                    RectangleF textBounds = Bounds;
+                    textBounds.Inflate(-5, -5); // Padding
+                    if (textBounds.Width <= 0 || textBounds.Height <= 0) textBounds = Bounds;
+
+                    g.DrawString(Text, font, b, textBounds, sf);
                 }
             }
 
@@ -755,6 +801,7 @@ namespace DrawingApp
             [Browsable(false)] public override bool FontBold { get; set; } = false;
             [Browsable(false)] public override bool FontItalic { get; set; } = false;
             [Browsable(false)] public override bool FontUnderline { get; set; } = false;
+            [Browsable(false)] public override TextAlign TextAlignment { get; set; } = TextAlign.MiddleCenter;
 
             [Browsable(false)]
             public string Base64Image { get; set; }
@@ -798,7 +845,6 @@ namespace DrawingApp
 
         public class ConnectorShape : ShapeBase
         {
-            // --- 屬性過濾：連線不需要內部填充與文字 ---
             [Browsable(false)] public override Color FillColor { get; set; } = Color.Transparent;
             [Browsable(false)] public override float RotationAngle { get; set; } = 0f;
             [Browsable(false)] public override string Text { get; set; } = "";
@@ -808,6 +854,7 @@ namespace DrawingApp
             [Browsable(false)] public override bool FontBold { get; set; } = false;
             [Browsable(false)] public override bool FontItalic { get; set; } = false;
             [Browsable(false)] public override bool FontUnderline { get; set; } = false;
+            [Browsable(false)] public override TextAlign TextAlignment { get; set; } = TextAlign.MiddleCenter;
 
             [Browsable(false)] public Guid SourceId { get; set; }
             [Browsable(false)] public Guid TargetId { get; set; }
@@ -883,11 +930,8 @@ namespace DrawingApp
                 return (float)Math.Sqrt(Math.Pow(pt.X - projection.X, 2) + Math.Pow(pt.Y - projection.Y, 2));
             }
 
-            // 優化：A* 避障直角連線演算法 (Orthogonal Routing with Obstacle Avoidance)
-            // 將原本簡單的 midX, midY 判斷替換為基於曼哈頓距離的網格尋路
             private PointF[] CalculateOrthogonalPath(PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes)
             {
-                // 如果兩點距離太近，直接連過去避免計算浪費
                 if (Math.Abs(p1.X - p2.X) < 20 && Math.Abs(p1.Y - p2.Y) < 20)
                 {
                     return new PointF[] { p1, new PointF(p1.X, p2.Y), p2 };
@@ -899,14 +943,12 @@ namespace DrawingApp
                     foreach (var s in allShapes)
                     {
                         if (s is ConnectorShape || s.Id == this.SourceId || s.Id == this.TargetId) continue;
-                        // 將障礙物範圍稍微擴大 (Padding)，避免線條貼緊邊緣
                         RectangleF obs = s.Bounds;
                         obs.Inflate(15, 15);
                         obstacles.Add(obs);
                     }
                 }
 
-                // 產生網格點 (Grid generation) - 使用關鍵點的 X 與 Y 交集來建立尋路網格
                 List<float> xCoords = new List<float> { p1.X, p2.X, p1.X - 30, p1.X + 30, p2.X - 30, p2.X + 30 };
                 List<float> yCoords = new List<float> { p1.Y, p2.Y, p1.Y - 30, p1.Y + 30, p2.Y - 30, p2.Y + 30 };
 
@@ -919,7 +961,6 @@ namespace DrawingApp
                 xCoords = xCoords.Distinct().OrderBy(x => x).ToList();
                 yCoords = yCoords.Distinct().OrderBy(y => y).ToList();
 
-                // 簡單的回退機制：如果圖形太多導致網格過度龐大，改用基本的三段折線避免卡頓
                 if (xCoords.Count * yCoords.Count > 1000) 
                 {
                     return BasicOrthogonalPath(p1, p2);
@@ -928,7 +969,6 @@ namespace DrawingApp
                 PointF startNode = GetClosestNode(p1, xCoords, yCoords);
                 PointF endNode = GetClosestNode(p2, xCoords, yCoords);
 
-                // A* 核心邏輯
                 var openSet = new List<PointF> { startNode };
                 var cameFrom = new Dictionary<PointF, PointF>();
                 var gScore = new Dictionary<PointF, float> { [startNode] = 0 };
@@ -943,10 +983,8 @@ namespace DrawingApp
 
                     foreach (var neighbor in GetNeighbors(current, xCoords, yCoords))
                     {
-                        // 檢查這條連線是否穿過障礙物
                         if (LineIntersectsObstacles(current, neighbor, obstacles)) continue;
 
-                        // 計算轉彎懲罰 (Turn penalty)，鼓勵直走
                         float penalty = 0;
                         if (cameFrom.ContainsKey(current))
                         {
@@ -968,7 +1006,6 @@ namespace DrawingApp
                     }
                 }
 
-                // 如果找不到完全避障的路徑（例如被包圍），回退到基本連線
                 return BasicOrthogonalPath(p1, p2);
             }
 
@@ -1011,11 +1048,11 @@ namespace DrawingApp
 
                 foreach (var obs in obstacles)
                 {
-                    if (p1.X == p2.X) // 垂直線
+                    if (p1.X == p2.X) 
                     {
                         if (p1.X > obs.Left && p1.X < obs.Right && minY < obs.Bottom && maxY > obs.Top) return true;
                     }
-                    else if (p1.Y == p2.Y) // 水平線
+                    else if (p1.Y == p2.Y) 
                     {
                         if (p1.Y > obs.Top && p1.Y < obs.Bottom && minX < obs.Right && maxX > obs.Left) return true;
                     }
@@ -1034,13 +1071,11 @@ namespace DrawingApp
                 path.Add(start);
                 path.Reverse();
 
-                // 移除不需要的共線中繼點，使折線更乾淨
                 List<PointF> cleanPath = new List<PointF> { path[0] };
                 for (int i = 1; i < path.Count - 1; i++)
                 {
                     PointF prev = cleanPath.Last();
                     PointF next = path[i + 1];
-                    // 如果不是在同一直線上，才把這個點加進去 (轉折點)
                     if (prev.X != next.X && prev.Y != next.Y)
                     {
                         cleanPath.Add(path[i]);
@@ -1077,7 +1112,6 @@ namespace DrawingApp
                 }
             }
 
-            // 為了相容原本介面，保留這兩個多載
             public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null);
             public override void Draw(Graphics g) { }
 
