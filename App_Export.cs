@@ -4,8 +4,10 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using PdfSharp.Drawing;
@@ -20,6 +22,45 @@ namespace DrawingApp
             await Task.Run(() =>
             {
                 canvasBitmap.Save(filePath, ImageFormat.Png);
+            });
+        }
+
+        // --- 新增：匯出局部選取圖形為 PNG ---
+        public static async Task ExportSelectionToPngAsync(List<App_Shapes.ShapeBase> selectedShapes, string filePath)
+        {
+            if (selectedShapes == null || selectedShapes.Count == 0) return;
+
+            await Task.Run(() =>
+            {
+                float minX = selectedShapes.Min(s => Math.Min(s.Bounds.Left, s.Bounds.Right));
+                float minY = selectedShapes.Min(s => Math.Min(s.Bounds.Top, s.Bounds.Bottom));
+                float maxX = selectedShapes.Max(s => Math.Max(s.Bounds.Left, s.Bounds.Right));
+                float maxY = selectedShapes.Max(s => Math.Max(s.Bounds.Top, s.Bounds.Bottom));
+
+                int width = (int)(maxX - minX + 40); // 增加 Padding
+                int height = (int)(maxY - minY + 40);
+
+                if (width <= 0 || height <= 0) return;
+
+                using (Bitmap bmp = new Bitmap(width, height))
+                {
+                    using (Graphics g = Graphics.FromImage(bmp))
+                    {
+                        g.Clear(Color.Transparent);
+                        g.SmoothingMode = SmoothingMode.AntiAlias;
+                        g.TranslateTransform(-minX + 20, -minY + 20); // 位移至中心
+
+                        // 暫時取消選取狀態框線，繪製後再恢復
+                        var selectionStates = selectedShapes.ToDictionary(s => s, s => s.IsSelected);
+                        foreach (var s in selectedShapes) s.IsSelected = false;
+
+                        foreach (var s in selectedShapes) s.DrawWithTransform(g);
+
+                        // 恢復狀態
+                        foreach (var s in selectedShapes) s.IsSelected = selectionStates[s];
+                    }
+                    bmp.Save(filePath, ImageFormat.Png);
+                }
             });
         }
 
@@ -74,7 +115,6 @@ namespace DrawingApp
                     {
                         svg.AppendLine($"  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
                     }
-                    // --- 新增：圓角矩形 SVG ---
                     else if (shape is App_Shapes.RoundedRectShape)
                     {
                         float r = Math.Min(w, h) * 0.2f;
@@ -107,7 +147,6 @@ namespace DrawingApp
                             svg.AppendLine($"\" fill=\"none\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
                         }
                     }
-                    // --- 修正：移除 dynamic，改用模式比對來獲取多邊形的節點 ---
                     else if (shape is App_Shapes.TriangleShape || shape is App_Shapes.DiamondShape || 
                              shape is App_Shapes.StarShape || shape is App_Shapes.PentagonShape || shape is App_Shapes.HexagonShape)
                     {
@@ -126,7 +165,6 @@ namespace DrawingApp
                             svg.AppendLine($"\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
                         }
                     }
-                    // --- 新增：雲朵 SVG (多個橢圓組合) ---
                     else if (shape is App_Shapes.CloudShape)
                     {
                         svg.AppendLine($"  <g {transform}>");
@@ -136,7 +174,6 @@ namespace DrawingApp
                         svg.AppendLine($"    <ellipse cx=\"{x + w * 0.50f}\" cy=\"{y + h * 0.65f}\" rx=\"{w * 0.25f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
                         svg.AppendLine($"    <ellipse cx=\"{x + w * 0.25f}\" cy=\"{y + h * 0.60f}\" rx=\"{w * 0.15f}\" ry=\"{h * 0.20f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
                         
-                        // 用一個沒有邊框的橢圓填補中間的線條空隙
                         if (shape.FillColor != Color.Transparent) {
                             svg.AppendLine($"    <ellipse cx=\"{x + w * 0.5f}\" cy=\"{y + h * 0.55f}\" rx=\"{w * 0.3f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"none\" />");
                         }
