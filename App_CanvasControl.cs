@@ -11,7 +11,6 @@ namespace DrawingApp
     {
         public List<App_Shapes.ShapeBase> Shapes { get; set; } = new List<App_Shapes.ShapeBase>();
         
-        // 保留使用者選擇的基礎大小，但將其實作為最小限制
         private SizeF _basePageSize = new SizeF(2100, 2970);
         public SizeF PageSize 
         { 
@@ -23,7 +22,6 @@ namespace DrawingApp
             } 
         }
 
-        // 動態計算實際的畫布大小 (Auto-grow)
         public SizeF ActualPageSize 
         {
             get 
@@ -77,7 +75,12 @@ namespace DrawingApp
             set 
             { 
                 _currentTool = value;
-                this.Cursor = (_currentTool == App_Shapes.ShapeType.HandPan) ? Cursors.Hand : Cursors.Default;
+                if (_currentTool == App_Shapes.ShapeType.HandPan)
+                    this.Cursor = Cursors.Hand;
+                else if (_currentTool == App_Shapes.ShapeType.FormatPainter)
+                    this.Cursor = Cursors.UpArrow; // 格式刷游標提示
+                else
+                    this.Cursor = Cursors.Default;
             } 
         }
 
@@ -91,6 +94,10 @@ namespace DrawingApp
         
         public List<App_Shapes.ShapeBase> SelectedShapes { get; private set; } = new List<App_Shapes.ShapeBase>();
         private List<App_Shapes.ShapeBase> _clipboard = new List<App_Shapes.ShapeBase>();
+        
+        // --- 新增：格式刷來源圖形 ---
+        public App_Shapes.ShapeBase FormatSourceShape { get; set; }
+
         private App_Shapes.HandlePosition _resizingHandle = App_Shapes.HandlePosition.None;
         private App_Shapes.ShapeBase _hoveredShapeForConnection = null;
         private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
@@ -187,7 +194,6 @@ namespace DrawingApp
             _inlineTextBox = new TextBox();
             _inlineTextBox.Multiline = true;
             _inlineTextBox.BorderStyle = BorderStyle.FixedSingle;
-            _inlineTextBox.TextAlign = HorizontalAlignment.Center;
             _inlineTextBox.Visible = false;
             
             _inlineTextBox.Leave += (s, e) => CommitInlineText();
@@ -212,6 +218,7 @@ namespace DrawingApp
             var menu = new ContextMenuStrip();
             menu.Items.Add("複製 (Ctrl+C)", null, (s, e) => Copy());
             menu.Items.Add("貼上 (Ctrl+V)", null, (s, e) => Paste());
+            menu.Items.Add("原地複製 (Ctrl+D)", null, (s, e) => DuplicateSelected());
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("群組 (Ctrl+G)", null, (s, e) => GroupSelected());
             menu.Items.Add("解除群組 (Ctrl+U)", null, (s, e) => UngroupSelected());
@@ -221,8 +228,16 @@ namespace DrawingApp
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("鎖定/解鎖圖形", null, (s, e) => ToggleLock());
             menu.Items.Add(new ToolStripSeparator());
-            menu.Items.Add("進階屬性設定...", null, (s, e) => {
-                if (SelectedShapes.Count == 1) OnShapePropertyRequested?.Invoke(SelectedShapes[0]);
+            menu.Items.Add("匯出選取物件 (PNG)", null, async (s, e) => {
+                if (SelectedShapes.Count == 0) return;
+                using (var sfd = new SaveFileDialog() { Filter = "PNG 圖片|*.png" })
+                {
+                    if (sfd.ShowDialog() == DialogResult.OK)
+                    {
+                        await App_Export.ExportSelectionToPngAsync(SelectedShapes, sfd.FileName);
+                        MessageBox.Show("局部匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
             });
             return menu;
         }
@@ -231,23 +246,23 @@ namespace DrawingApp
         {
             var menu = (ContextMenuStrip)sender;
             bool hasSelection = SelectedShapes.Count > 0;
-            bool hasSingleSelection = SelectedShapes.Count == 1;
             bool hasGroupSelection = SelectedShapes.Count == 1 && SelectedShapes[0] is App_Shapes.GroupShape;
-            
             bool hasClipboard = _clipboard.Count > 0 || Clipboard.ContainsImage();
 
             menu.Items[0].Enabled = hasSelection; 
             menu.Items[1].Enabled = hasClipboard; 
-            menu.Items[3].Enabled = SelectedShapes.Count > 1; 
-            menu.Items[4].Enabled = hasGroupSelection; 
-            menu.Items[6].Enabled = hasSelection; 
+            menu.Items[2].Enabled = hasSelection; 
+            menu.Items[4].Enabled = SelectedShapes.Count > 1; 
+            menu.Items[5].Enabled = hasGroupSelection; 
             menu.Items[7].Enabled = hasSelection; 
-            menu.Items[9].Enabled = hasSelection; 
+            menu.Items[8].Enabled = hasSelection; 
+            menu.Items[10].Enabled = hasSelection; 
+            menu.Items[12].Enabled = hasSelection; 
             
             if (hasSelection)
             {
                 bool isAllLocked = SelectedShapes.All(s => s.IsLocked);
-                menu.Items[9].Text = isAllLocked ? "解鎖圖形" : "鎖定圖形";
+                menu.Items[10].Text = isAllLocked ? "解鎖圖形" : "鎖定圖形";
             }
         }
 
@@ -316,6 +331,14 @@ namespace DrawingApp
             
             _inlineTextBox.Font = new Font(shape.FontName, shape.FontSize * ZoomFactor, style);
             _inlineTextBox.ForeColor = shape.FontColor;
+
+            // --- 新增：將對齊屬性映射到內嵌編輯器 ---
+            if (shape.TextAlignment == App_Shapes.TextAlign.TopLeft || shape.TextAlignment == App_Shapes.TextAlign.MiddleLeft || shape.TextAlignment == App_Shapes.TextAlign.BottomLeft)
+                _inlineTextBox.TextAlign = HorizontalAlignment.Left;
+            else if (shape.TextAlignment == App_Shapes.TextAlign.TopRight || shape.TextAlignment == App_Shapes.TextAlign.MiddleRight || shape.TextAlignment == App_Shapes.TextAlign.BottomRight)
+                _inlineTextBox.TextAlign = HorizontalAlignment.Right;
+            else
+                _inlineTextBox.TextAlign = HorizontalAlignment.Center;
 
             PointF center = shape.GetCenter();
             PointF screenCenter = new PointF(center.X * ZoomFactor + _cameraOffset.X, center.Y * ZoomFactor + _cameraOffset.Y);
@@ -393,7 +416,6 @@ namespace DrawingApp
             return (float)Math.Round(value / GridSize) * GridSize;
         }
 
-        // 補回遺失的方法：用於旋轉角度吸附 (15度角)
         private float Snap(float angle, float step)
         {
             if (Control.ModifierKeys == Keys.Alt) return angle; 
@@ -460,6 +482,8 @@ namespace DrawingApp
             }
             if (keyData == (Keys.Control | Keys.C)) { Copy(); return true; }
             if (keyData == (Keys.Control | Keys.V)) { Paste(); return true; }
+            if (keyData == (Keys.Control | Keys.D)) { DuplicateSelected(); return true; }
+
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
@@ -517,9 +541,9 @@ namespace DrawingApp
                     s.IsLocked = false; 
                     s.Move(20, 20);
                     s.IsSelected = true;
-                    CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, s));
                     SelectedShapes.Add(s);
                 }
+                CmdManager.ExecuteCommand(new AddShapesCommand(Shapes, newClones));
                 OnSelectionChanged?.Invoke();
                 this.Invalidate();
                 return;
@@ -544,6 +568,34 @@ namespace DrawingApp
                     this.Invalidate();
                 }
             }
+        }
+
+        // --- 新增：原地複製圖形 (Ctrl+D) ---
+        private void DuplicateSelected()
+        {
+            if (SelectedShapes.Count == 0) return;
+            
+            var clones = App_SaveLoad.CloneShapes(SelectedShapes);
+            foreach (var c in clones)
+            {
+                c.Id = Guid.NewGuid();
+                c.IsLocked = false;
+                c.Move(10, 10);
+            }
+
+            CmdManager.ExecuteCommand(new AddShapesCommand(Shapes, clones));
+
+            SelectedShapes.ForEach(s => s.IsSelected = false);
+            SelectedShapes.Clear();
+
+            foreach (var c in clones)
+            {
+                c.IsSelected = true;
+                SelectedShapes.Add(c);
+            }
+
+            OnSelectionChanged?.Invoke();
+            this.Invalidate();
         }
 
         private void InvalidateWorldRect(RectangleF worldRect)
@@ -601,6 +653,12 @@ namespace DrawingApp
             if (CurrentTool == App_Shapes.ShapeType.HandPan)
             {
                 this.Cursor = Cursors.Hand;
+                return;
+            }
+
+            if (CurrentTool == App_Shapes.ShapeType.FormatPainter)
+            {
+                this.Cursor = Cursors.UpArrow; // 格式刷游標
                 return;
             }
 
@@ -674,6 +732,29 @@ namespace DrawingApp
 
             if (e.Button == MouseButtons.Left)
             {
+                // --- 新增：格式刷套用邏輯 ---
+                if (CurrentTool == App_Shapes.ShapeType.FormatPainter)
+                {
+                    if (FormatSourceShape != null)
+                    {
+                        App_Shapes.ShapeBase hit = null;
+                        for (int i = Shapes.Count - 1; i >= 0; i--)
+                        {
+                            if (Shapes[i].HitTest(realPt)) { hit = Shapes[i]; break; }
+                        }
+
+                        if (hit != null && !hit.IsLocked)
+                        {
+                            var cmd = new ChangeFormatCommand(new List<App_Shapes.ShapeBase> { hit });
+                            hit.ApplyFormatFrom(FormatSourceShape);
+                            cmd.CaptureNewState();
+                            CmdManager.ExecuteCommand(cmd);
+                            this.Invalidate();
+                        }
+                    }
+                    return;
+                }
+
                 if (CurrentTool == App_Shapes.ShapeType.Pointer)
                 {
                     if (SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
@@ -780,7 +861,7 @@ namespace DrawingApp
                         }
                     }
                 }
-                else if (CurrentTool != App_Shapes.ShapeType.HandPan)
+                else if (CurrentTool != App_Shapes.ShapeType.HandPan && CurrentTool != App_Shapes.ShapeType.FormatPainter)
                 {
                     _currentState = InteractionState.Drawing;
                     PointF snapPt = CurrentTool == App_Shapes.ShapeType.Freehand ? realPt : new PointF(Snap(realPt.X), Snap(realPt.Y));
@@ -1057,7 +1138,12 @@ namespace DrawingApp
             if (_isPanning)
             {
                 _isPanning = false;
-                this.Cursor = (CurrentTool == App_Shapes.ShapeType.HandPan) ? Cursors.Hand : Cursors.Default;
+                if (CurrentTool == App_Shapes.ShapeType.HandPan)
+                    this.Cursor = Cursors.Hand;
+                else if (CurrentTool == App_Shapes.ShapeType.FormatPainter)
+                    this.Cursor = Cursors.UpArrow;
+                else
+                    this.Cursor = Cursors.Default;
             }
 
             if (_smartGuides.Count > 0)
@@ -1074,8 +1160,6 @@ namespace DrawingApp
                 {
                     foreach (var s in movableShapes) s.Move(-_dragTotalDx, -_dragTotalDy);
                     CmdManager.ExecuteCommand(new MoveShapesCommand(movableShapes, _dragTotalDx, _dragTotalDy));
-                    
-                    // 優化：當拖曳結束放開滑鼠時，因為可能觸發畫布擴張 (ActualPageSize 變大)，強制重繪整個畫面與小地圖
                     this.Invalidate();
                 }
                 else if (_currentState == InteractionState.Resizing && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
@@ -1091,7 +1175,7 @@ namespace DrawingApp
                     {
                         CmdManager.ExecuteCommand(new ResizeShapeCommand(SelectedShapes[0], _initialBounds, SelectedShapes[0].Bounds));
                     }
-                    this.Invalidate(); // 同樣觸發畫布可能擴張的重繪
+                    this.Invalidate();
                 }
                 else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
@@ -1149,7 +1233,6 @@ namespace DrawingApp
                 e.ClipRectangle.Height / ZoomFactor
             );
 
-            // 優化：取得自動擴張後的實際畫布尺寸
             SizeF currentCanvasSize = ActualPageSize;
 
             RectangleF viewRect = new RectangleF(
@@ -1160,7 +1243,6 @@ namespace DrawingApp
 
             if (SnapToGrid) DrawGrid(g, viewRect);
 
-            // 優化：繪製畫布邊界，並確保它大到可以包住所有圖形
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
@@ -1205,13 +1287,12 @@ namespace DrawingApp
                     }
                 }
                 
-                // 優化：傳遞所有的 shapes 給連線形狀，讓 A* 演算法可以判斷障礙物
                 shape.DrawDynamic(g, p1, p2, Shapes);
                 if (!shape.IsOrthogonal) drawnLines.Add(new LineSegment(p1, p2));
             }
 
             _tempShape?.DrawWithTransform(g);
-            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes); // 拖曳中也支援避障
+            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes); 
             
             if ((_currentState == InteractionState.Connecting || _currentState == InteractionState.Resizing) && _hoveredShapeForConnection != null)
             {
@@ -1245,7 +1326,6 @@ namespace DrawingApp
 
             g.Transform = oldTransform; 
 
-            // 優化：小地圖也跟著 ActualPageSize 自動擴張比例
             float minimapScale = MINIMAP_WIDTH / currentCanvasSize.Width;
             int minimapHeight = (int)(currentCanvasSize.Height * minimapScale);
             _minimapRect = new Rectangle(this.Width - MINIMAP_WIDTH - 20, this.Height - minimapHeight - 20, MINIMAP_WIDTH, minimapHeight);
