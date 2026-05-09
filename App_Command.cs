@@ -81,7 +81,6 @@ namespace DrawingApp
         public void Undo() { _canvasShapes.Remove(_shape); }
     }
 
-    // --- 新增：批次加入圖形命令 (用於原地複製與貼上) ---
     public class AddShapesCommand : ICommand
     {
         private List<App_Shapes.ShapeBase> _canvasShapes;
@@ -199,13 +198,19 @@ namespace DrawingApp
         public void Undo() { _shape.RotationAngle = _oldAngle; }
     }
 
-    // --- 新增：變更格式命令 (用於格式刷與屬性面板變更) ---
     public class ChangeFormatCommand : ICommand
     {
         private class FormatState
         {
             public Color ShapeColor { get; set; }
             public Color FillColor { get; set; }
+            
+            // --- 擴充：儲存漸層與陰影狀態 ---
+            public App_Shapes.BrushType FillBrushType { get; set; }
+            public Color GradientColor2 { get; set; }
+            public bool EnableShadow { get; set; }
+            // --------------------------------
+
             public float StrokeWidth { get; set; }
             public System.Drawing.Drawing2D.DashStyle StrokeDashStyle { get; set; }
             public string FontName { get; set; }
@@ -220,6 +225,11 @@ namespace DrawingApp
             {
                 ShapeColor = shape.ShapeColor;
                 FillColor = shape.FillColor;
+                
+                FillBrushType = shape.FillBrushType;
+                GradientColor2 = shape.GradientColor2;
+                EnableShadow = shape.EnableShadow;
+
                 StrokeWidth = shape.StrokeWidth;
                 StrokeDashStyle = shape.StrokeDashStyle;
                 FontName = shape.FontName;
@@ -235,6 +245,11 @@ namespace DrawingApp
             {
                 shape.ShapeColor = ShapeColor;
                 shape.FillColor = FillColor;
+                
+                shape.FillBrushType = FillBrushType;
+                shape.GradientColor2 = GradientColor2;
+                shape.EnableShadow = EnableShadow;
+
                 shape.StrokeWidth = StrokeWidth;
                 shape.StrokeDashStyle = StrokeDashStyle;
                 shape.FontName = FontName;
@@ -249,7 +264,7 @@ namespace DrawingApp
 
         private List<App_Shapes.ShapeBase> _shapes;
         private List<FormatState> _oldStates;
-        private FormatState _newState; // 單一目標格式 (如格式刷)，或可以替換為個別 newState
+        private FormatState _newState; 
 
         public ChangeFormatCommand(List<App_Shapes.ShapeBase> shapes)
         {
@@ -259,7 +274,7 @@ namespace DrawingApp
 
         public void CaptureNewState()
         {
-            _newState = new FormatState(_shapes[0]); // 假設套用同一個格式
+            _newState = new FormatState(_shapes[0]); 
         }
 
         public void Execute()
@@ -368,7 +383,7 @@ namespace DrawingApp
         private List<App_Shapes.ShapeBase> _canvasShapes;
         private List<App_Shapes.ShapeBase> _targetShapes;
         private List<int> _oldIndices;
-        private int _direction; // 0 = 頂層, -99 = 底層
+        private int _direction; 
 
         public ChangeZIndexCommand(List<App_Shapes.ShapeBase> canvasShapes, List<App_Shapes.ShapeBase> targetShapes, int direction)
         {
