@@ -17,7 +17,7 @@ namespace DrawingApp
         
         public enum BrushType { Solid, LinearGradient }
 
-        // --- 新增：空間分割四叉樹 (QuadTree) 用於效能優化 ---
+        // --- 空間分割四叉樹 (QuadTree) ---
         public class QuadTree
         {
             private const int MAX_OBJECTS = 10;
@@ -25,14 +25,15 @@ namespace DrawingApp
 
             private int _level;
             private List<ShapeBase> _objects;
-            private RectangleF _bounds;
+            // 修正 CS1061 錯誤：將私有變數 _bounds 變更為對外公開的 Bounds 屬性
+            public RectangleF Bounds { get; private set; } 
             private QuadTree[] _nodes;
 
             public QuadTree(int level, RectangleF bounds)
             {
                 _level = level;
                 _objects = new List<ShapeBase>();
-                _bounds = bounds;
+                Bounds = bounds;
                 _nodes = new QuadTree[4];
             }
 
@@ -51,10 +52,10 @@ namespace DrawingApp
 
             private void Split()
             {
-                float subWidth = _bounds.Width / 2f;
-                float subHeight = _bounds.Height / 2f;
-                float x = _bounds.X;
-                float y = _bounds.Y;
+                float subWidth = Bounds.Width / 2f;
+                float subHeight = Bounds.Height / 2f;
+                float x = Bounds.X;
+                float y = Bounds.Y;
 
                 _nodes[0] = new QuadTree(_level + 1, new RectangleF(x + subWidth, y, subWidth, subHeight));
                 _nodes[1] = new QuadTree(_level + 1, new RectangleF(x, y, subWidth, subHeight));
@@ -65,8 +66,8 @@ namespace DrawingApp
             private int GetIndex(RectangleF pRect)
             {
                 int index = -1;
-                double verticalMidpoint = _bounds.X + (_bounds.Width / 2f);
-                double horizontalMidpoint = _bounds.Y + (_bounds.Height / 2f);
+                double verticalMidpoint = Bounds.X + (Bounds.Width / 2f);
+                double horizontalMidpoint = Bounds.Y + (Bounds.Height / 2f);
 
                 bool topQuadrant = (pRect.Y < horizontalMidpoint && pRect.Y + pRect.Height < horizontalMidpoint);
                 bool bottomQuadrant = (pRect.Y > horizontalMidpoint);
@@ -719,7 +720,6 @@ namespace DrawingApp
                 DrawText(g);
             }
         }
-
         public class CircleShape : ShapeBase
         {
             public CircleShape() { } 
@@ -1222,7 +1222,6 @@ namespace DrawingApp
                 return false;
             }
 
-            // --- 修改：A* 避障演算法使用 QuadTree 取得區域性障礙物 ---
             private PointF[] CalculateOrthogonalPath(PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes, QuadTree quadTree)
             {
                 if (Math.Abs(p1.X - p2.X) < 20 && Math.Abs(p1.Y - p2.Y) < 20)
@@ -1232,7 +1231,6 @@ namespace DrawingApp
 
                 List<RectangleF> obstacles = new List<RectangleF>();
                 
-                // 【QuadTree 效能優化】只取連線周遭的物件，而非整個畫布的物件
                 float minX = Math.Min(p1.X, p2.X) - 100;
                 float minY = Math.Min(p1.Y, p2.Y) - 100;
                 float maxX = Math.Max(p1.X, p2.X) + 100;
@@ -1394,7 +1392,6 @@ namespace DrawingApp
                 return cleanPath.ToArray();
             }
 
-            // --- 修改：加入 QuadTree 參數 ---
             public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null, bool isFastMode = false, QuadTree quadTree = null)
             {
                 PointF[] pts;
@@ -1430,7 +1427,6 @@ namespace DrawingApp
                                 
                                 List<PointF> intersections = new List<PointF>();
 
-                                // 【QuadTree 優化】如果是跳線計算，其實只跟 QuadTree 中附近的連線有關
                                 List<ShapeBase> checkShapes = allShapes.ToList();
                                 if (quadTree != null)
                                 {
