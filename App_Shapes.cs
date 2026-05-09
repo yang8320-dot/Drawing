@@ -13,9 +13,9 @@ namespace DrawingApp
         public enum ShapeType { Pointer, HandPan, FormatPainter, ArrowLine, StraightLine, OrthogonalLine, Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, TextNode, Text, Image, Freehand }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
-        
-        // --- 新增：文字對齊列舉 ---
         public enum TextAlign { TopLeft, TopCenter, TopRight, MiddleLeft, MiddleCenter, MiddleRight, BottomLeft, BottomCenter, BottomRight }
+        
+        public enum BrushType { Solid, LinearGradient }
 
         public abstract class ShapeBase : IDisposable
         {
@@ -33,6 +33,18 @@ namespace DrawingApp
             [Description("圖形內部的顏色，預設為透明 (Transparent)。")]
             public virtual Color FillColor { get; set; } = Color.Transparent;
             
+            [Category("1. 外觀屬性")]
+            [DisplayName("填充筆刷類型")]
+            public virtual BrushType FillBrushType { get; set; } = BrushType.Solid;
+
+            [Category("1. 外觀屬性")]
+            [DisplayName("漸層次色")]
+            public virtual Color GradientColor2 { get; set; } = Color.White;
+
+            [Category("1. 外觀屬性")]
+            [DisplayName("啟用陰影")]
+            public virtual bool EnableShadow { get; set; } = false;
+
             [Category("1. 外觀屬性")]
             [DisplayName("線條粗細")]
             public float StrokeWidth { get; set; } = 2f;
@@ -85,7 +97,6 @@ namespace DrawingApp
             [DisplayName("底線")]
             public virtual bool FontUnderline { get; set; } = false;
 
-            // --- 新增：文字對齊屬性 ---
             [Category("2. 文字屬性")]
             [DisplayName("對齊方式")]
             public virtual TextAlign TextAlignment { get; set; } = TextAlign.MiddleCenter;
@@ -100,12 +111,14 @@ namespace DrawingApp
 
             public virtual void Dispose() { }
 
-            // --- 新增：格式刷套用方法 ---
             public virtual void ApplyFormatFrom(ShapeBase source)
             {
                 if (source == null) return;
                 this.ShapeColor = source.ShapeColor;
                 this.FillColor = source.FillColor;
+                this.FillBrushType = source.FillBrushType;
+                this.GradientColor2 = source.GradientColor2;
+                this.EnableShadow = source.EnableShadow;
                 this.StrokeWidth = source.StrokeWidth;
                 this.StrokeDashStyle = source.StrokeDashStyle;
                 this.FontName = source.FontName;
@@ -115,6 +128,15 @@ namespace DrawingApp
                 this.FontItalic = source.FontItalic;
                 this.FontUnderline = source.FontUnderline;
                 this.TextAlignment = source.TextAlignment;
+            }
+
+            protected Brush CreateFillBrush(RectangleF rect)
+            {
+                if (FillColor == Color.Transparent) return new SolidBrush(Color.Transparent);
+                if (FillBrushType == BrushType.Solid || rect.Width <= 0 || rect.Height <= 0)
+                    return new SolidBrush(FillColor);
+                else
+                    return new LinearGradientBrush(rect, FillColor, GradientColor2, LinearGradientMode.ForwardDiagonal);
             }
 
             public void DrawWithTransform(Graphics g)
@@ -137,7 +159,6 @@ namespace DrawingApp
                 return new Pen(ShapeColor, StrokeWidth) { DashStyle = StrokeDashStyle };
             }
 
-            // --- 優化：支援文字換行與自動對齊設定 ---
             protected void DrawText(Graphics g)
             {
                 if (string.IsNullOrEmpty(Text)) return;
@@ -151,7 +172,6 @@ namespace DrawingApp
                 using (Brush b = new SolidBrush(FontColor))
                 using (StringFormat sf = new StringFormat())
                 {
-                    // 解析對齊方式
                     switch (TextAlignment)
                     {
                         case TextAlign.TopLeft: sf.Alignment = StringAlignment.Near; sf.LineAlignment = StringAlignment.Near; break;
@@ -165,12 +185,11 @@ namespace DrawingApp
                         case TextAlign.BottomRight: sf.Alignment = StringAlignment.Far; sf.LineAlignment = StringAlignment.Far; break;
                     }
                     
-                    // 啟用自動換行，並加入微小的 Padding 避免貼齊邊框
                     sf.Trimming = StringTrimming.Word;
                     sf.FormatFlags = 0; 
                     
                     RectangleF textBounds = Bounds;
-                    textBounds.Inflate(-5, -5); // Padding
+                    textBounds.Inflate(-5, -5); 
                     if (textBounds.Width <= 0 || textBounds.Height <= 0) textBounds = Bounds;
 
                     g.DrawString(Text, font, b, textBounds, sf);
@@ -342,6 +361,11 @@ namespace DrawingApp
                     sinTheta * (pt.X - center.X) + cosTheta * (pt.Y - center.Y) + center.Y
                 );
             }
+
+            public static float Distance(PointF p1, PointF p2)
+            {
+                return (float)Math.Sqrt(Math.Pow(p1.X - p2.X, 2) + Math.Pow(p1.Y - p2.Y, 2));
+            }
         }
 
         public class GroupShape : ShapeBase
@@ -453,7 +477,23 @@ namespace DrawingApp
                         p.EndCap = LineCap.Round;
                         p.LineJoin = LineJoin.Round;
                         PointF[] absPts = LocalPoints.Select(pt => new PointF(Bounds.X + pt.X, Bounds.Y + pt.Y)).ToArray();
-                        g.DrawLines(p, absPts);
+                        
+                        if (EnableShadow)
+                        {
+                            using (Pen shadowPen = new Pen(Color.FromArgb(60, 0, 0, 0), p.Width) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
+                            {
+                                var m = g.Transform.Clone();
+                                g.TranslateTransform(6, 6);
+                                if (absPts.Length > 2) g.DrawCurve(shadowPen, absPts); 
+                                else g.DrawLines(shadowPen, absPts);
+                                g.Transform = m;
+                            }
+                        }
+
+                        if (absPts.Length > 2)
+                            g.DrawCurve(p, absPts); 
+                        else
+                            g.DrawLines(p, absPts);
                     }
                 }
             }
@@ -502,9 +542,14 @@ namespace DrawingApp
             public RectShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
+                if (EnableShadow)
+                {
+                    using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                        g.FillRectangle(shadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
+                }
                 if (FillColor != Color.Transparent)
                 {
-                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillRectangle(fillBrush, Bounds);
+                    using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillRectangle(fillBrush, Bounds);
                 }
                 using (Pen p = CreatePen()) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 DrawText(g);
@@ -528,9 +573,20 @@ namespace DrawingApp
                     path.AddArc(Bounds.X, Bounds.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
                     path.CloseFigure();
 
+                    if (EnableShadow)
+                    {
+                        using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                        {
+                            var m = g.Transform.Clone();
+                            g.TranslateTransform(6, 6);
+                            g.FillPath(shadowBrush, path);
+                            g.Transform = m;
+                        }
+                    }
+
                     if (FillColor != Color.Transparent)
                     {
-                        using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPath(fillBrush, path);
+                        using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillPath(fillBrush, path);
                     }
                     using (Pen p = CreatePen()) g.DrawPath(p, path);
                 }
@@ -544,9 +600,14 @@ namespace DrawingApp
             public CircleShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
+                if (EnableShadow)
+                {
+                    using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                        g.FillEllipse(shadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
+                }
                 if (FillColor != Color.Transparent)
                 {
-                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillEllipse(fillBrush, Bounds);
+                    using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillEllipse(fillBrush, Bounds);
                 }
                 using (Pen p = CreatePen()) g.DrawEllipse(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 DrawText(g);
@@ -578,6 +639,11 @@ namespace DrawingApp
             {
                 if(Bounds.Width > 0 && Bounds.Height > 0)
                 {
+                    if (EnableShadow)
+                    {
+                        using (Pen shadowPen = new Pen(Color.FromArgb(60, 0, 0, 0), StrokeWidth))
+                            g.DrawArc(shadowPen, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height, 180, 180);
+                    }
                     using (Pen p = CreatePen()) g.DrawArc(p, Bounds, 180, 180);
                 }
                 DrawText(g);
@@ -603,9 +669,19 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
+                if (EnableShadow)
+                {
+                    using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                    {
+                        var m = g.Transform.Clone();
+                        g.TranslateTransform(6, 6);
+                        g.FillPolygon(shadowBrush, pts);
+                        g.Transform = m;
+                    }
+                }
                 if (FillColor != Color.Transparent)
                 {
-                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                    using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillPolygon(fillBrush, pts);
                 }
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
@@ -630,9 +706,19 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
+                if (EnableShadow)
+                {
+                    using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                    {
+                        var m = g.Transform.Clone();
+                        g.TranslateTransform(6, 6);
+                        g.FillPolygon(shadowBrush, pts);
+                        g.Transform = m;
+                    }
+                }
                 if (FillColor != Color.Transparent)
                 {
-                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                    using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillPolygon(fillBrush, pts);
                 }
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
@@ -661,9 +747,19 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
+                if (EnableShadow)
+                {
+                    using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                    {
+                        var m = g.Transform.Clone();
+                        g.TranslateTransform(6, 6);
+                        g.FillPolygon(shadowBrush, pts);
+                        g.Transform = m;
+                    }
+                }
                 if (FillColor != Color.Transparent)
                 {
-                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                    using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillPolygon(fillBrush, pts);
                 }
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
@@ -692,9 +788,19 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
+                if (EnableShadow)
+                {
+                    using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                    {
+                        var m = g.Transform.Clone();
+                        g.TranslateTransform(6, 6);
+                        g.FillPolygon(shadowBrush, pts);
+                        g.Transform = m;
+                    }
+                }
                 if (FillColor != Color.Transparent)
                 {
-                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                    using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillPolygon(fillBrush, pts);
                 }
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
@@ -728,9 +834,19 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
+                if (EnableShadow)
+                {
+                    using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                    {
+                        var m = g.Transform.Clone();
+                        g.TranslateTransform(6, 6);
+                        g.FillPolygon(shadowBrush, pts);
+                        g.Transform = m;
+                    }
+                }
                 if (FillColor != Color.Transparent)
                 {
-                    using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPolygon(fillBrush, pts);
+                    using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillPolygon(fillBrush, pts);
                 }
                 using (Pen p = CreatePen()) g.DrawPolygon(p, pts);
                 DrawText(g);
@@ -756,9 +872,20 @@ namespace DrawingApp
                     path.AddEllipse(x + w * 0.55f, y + h * 0.3f, w * 0.35f, h * 0.5f);
                     path.AddEllipse(x + w * 0.25f, y + h * 0.4f, w * 0.5f, h * 0.5f);
 
+                    if (EnableShadow)
+                    {
+                        using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                        {
+                            var m = g.Transform.Clone();
+                            g.TranslateTransform(6, 6);
+                            g.FillPath(shadowBrush, path);
+                            g.Transform = m;
+                        }
+                    }
+
                     if (FillColor != Color.Transparent)
                     {
-                        using (Brush fillBrush = new SolidBrush(FillColor)) g.FillPath(fillBrush, path);
+                        using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillPath(fillBrush, path);
                     }
                     using (Pen p = CreatePen()) g.DrawPath(p, path);
                 }
@@ -781,9 +908,14 @@ namespace DrawingApp
             {
                 if (!IsTransparent)
                 {
+                    if (EnableShadow)
+                    {
+                        using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                            g.FillRectangle(shadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
+                    }
                     if (FillColor != Color.Transparent)
                     {
-                        using (Brush fillBrush = new SolidBrush(FillColor)) g.FillRectangle(fillBrush, Bounds);
+                        using (Brush fillBrush = CreateFillBrush(Bounds)) g.FillRectangle(fillBrush, Bounds);
                     }
                     using (Pen p = CreatePen()) g.DrawRectangle(p, Bounds.X, Bounds.Y, Bounds.Width, Bounds.Height);
                 }
@@ -838,7 +970,15 @@ namespace DrawingApp
                     using (var ms = new System.IO.MemoryStream(Convert.FromBase64String(Base64Image)))
                         _imgCache = new Bitmap(ms);
                 }
-                if (_imgCache != null) g.DrawImage(_imgCache, Bounds);
+                if (_imgCache != null) 
+                {
+                    if (EnableShadow)
+                    {
+                        using (Brush shadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0)))
+                            g.FillRectangle(shadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
+                    }
+                    g.DrawImage(_imgCache, Bounds);
+                }
                 DrawText(g);
             }
         }
@@ -878,8 +1018,14 @@ namespace DrawingApp
             [DisplayName("直角折線")]
             public bool IsOrthogonal { get; set; }
 
+            [Category("5. 連線屬性")]
+            [DisplayName("開啟交錯跳線")]
+            [Description("當連線與其他連線交錯時，是否自動繪製跳線半圓弧。")]
+            public bool EnableLineJumps { get; set; } = true;
+
             [JsonIgnore] 
             [Browsable(false)] 
+            public PointF[] CachedPath => _cachedPath;
             private PointF[] _cachedPath;
 
             public ConnectorShape() { }
@@ -928,6 +1074,26 @@ namespace DrawingApp
                 float t = Math.Max(0, Math.Min(1, ((pt.X - p1.X) * (p2.X - p1.X) + (pt.Y - p1.Y) * (p2.Y - p1.Y)) / l2));
                 PointF projection = new PointF(p1.X + t * (p2.X - p1.X), p1.Y + t * (p2.Y - p1.Y));
                 return (float)Math.Sqrt(Math.Pow(pt.X - projection.X, 2) + Math.Pow(pt.Y - projection.Y, 2));
+            }
+
+            private bool GetIntersection(PointF A, PointF B, PointF C, PointF D, out PointF intersection)
+            {
+                intersection = PointF.Empty;
+                float den = (B.X - A.X) * (D.Y - C.Y) - (B.Y - A.Y) * (D.X - C.X);
+                if (den == 0) return false;
+                
+                float num1 = (A.Y - C.Y) * (D.X - C.X) - (A.X - C.X) * (D.Y - C.Y);
+                float num2 = (A.Y - C.Y) * (B.X - A.X) - (A.X - C.X) * (B.Y - A.Y);
+                
+                float r = num1 / den;
+                float s = num2 / den;
+                
+                if (r > 0.05f && r < 0.95f && s > 0.05f && s < 0.95f) 
+                {
+                    intersection = new PointF(A.X + r * (B.X - A.X), A.Y + r * (B.Y - A.Y));
+                    return true;
+                }
+                return false;
             }
 
             private PointF[] CalculateOrthogonalPath(PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes)
@@ -1086,9 +1252,20 @@ namespace DrawingApp
                 return cleanPath.ToArray();
             }
 
-            // 【重點效能優化】：加入 isFastMode 旗標。拖曳時忽略 A* 避障以確保 60FPS。
             public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null, bool isFastMode = false)
             {
+                PointF[] pts;
+                if (IsOrthogonal)
+                {
+                    if (isFastMode) pts = BasicOrthogonalPath(p1, p2);
+                    else pts = CalculateOrthogonalPath(p1, p2, allShapes);
+                }
+                else
+                {
+                    pts = new PointF[] { p1, p2 };
+                }
+                _cachedPath = pts;
+
                 using (Pen p = CreatePen())
                 {
                     if (HasArrow)
@@ -1099,31 +1276,80 @@ namespace DrawingApp
                         p.CustomEndCap = new CustomLineCap(null, capPath);
                     }
 
-                    if (IsOrthogonal)
+                    if (EnableLineJumps && allShapes != null && !isFastMode)
                     {
-                        PointF[] pts;
-                        // 快速模式下使用簡易直角連線，放開滑鼠或靜止時才跑 A* 避障
-                        if (isFastMode)
+                        using (GraphicsPath mainPath = new GraphicsPath())
                         {
-                            pts = BasicOrthogonalPath(p1, p2);
+                            for (int i = 0; i < pts.Length - 1; i++)
+                            {
+                                PointF segStart = pts[i];
+                                PointF segEnd = pts[i + 1];
+                                
+                                List<PointF> intersections = new List<PointF>();
+
+                                foreach (var other in allShapes)
+                                {
+                                    if (other is ConnectorShape otherConn && otherConn != this && otherConn.CachedPath != null && other.Id.CompareTo(this.Id) < 0)
+                                    {
+                                        for (int j = 0; j < otherConn.CachedPath.Length - 1; j++)
+                                        {
+                                            if (GetIntersection(segStart, segEnd, otherConn.CachedPath[j], otherConn.CachedPath[j + 1], out PointF intersectPt))
+                                            {
+                                                intersections.Add(intersectPt);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (intersections.Count == 0)
+                                {
+                                    mainPath.AddLine(segStart, segEnd);
+                                }
+                                else
+                                {
+                                    intersections = intersections.OrderBy(pt => Distance(segStart, pt)).ToList();
+                                    
+                                    PointF currentPt = segStart;
+                                    float jumpRadius = 6f;
+
+                                    foreach (var ipt in intersections)
+                                    {
+                                        if (Distance(currentPt, ipt) > jumpRadius)
+                                        {
+                                            float ratio = (Distance(segStart, ipt) - jumpRadius) / Distance(segStart, segEnd);
+                                            PointF preJump = new PointF(segStart.X + ratio * (segEnd.X - segStart.X), segStart.Y + ratio * (segEnd.Y - segStart.Y));
+                                            mainPath.AddLine(currentPt, preJump);
+                                            
+                                            bool isHorizontal = Math.Abs(segStart.Y - segEnd.Y) < 1f;
+                                            if (isHorizontal)
+                                            {
+                                                float sweep = segStart.X < segEnd.X ? 180 : -180;
+                                                mainPath.AddArc(ipt.X - jumpRadius, ipt.Y - jumpRadius, jumpRadius * 2, jumpRadius * 2, segStart.X < segEnd.X ? 180 : 0, sweep);
+                                            }
+                                            else
+                                            {
+                                                float sweep = segStart.Y < segEnd.Y ? 180 : -180;
+                                                mainPath.AddArc(ipt.X - jumpRadius, ipt.Y - jumpRadius, jumpRadius * 2, jumpRadius * 2, segStart.Y < segEnd.Y ? 270 : 90, sweep);
+                                            }
+
+                                            ratio = (Distance(segStart, ipt) + jumpRadius) / Distance(segStart, segEnd);
+                                            currentPt = new PointF(segStart.X + ratio * (segEnd.X - segStart.X), segStart.Y + ratio * (segEnd.Y - segStart.Y));
+                                        }
+                                    }
+                                    mainPath.AddLine(currentPt, segEnd);
+                                }
+                            }
+                            g.DrawPath(p, mainPath);
                         }
-                        else
-                        {
-                            pts = CalculateOrthogonalPath(p1, p2, allShapes);
-                        }
-                        
-                        _cachedPath = pts; 
-                        g.DrawLines(p, pts);
                     }
                     else
                     {
-                        _cachedPath = new PointF[] { p1, p2 }; 
-                        g.DrawLine(p, p1, p2);
+                        if (pts.Length > 2) g.DrawLines(p, pts);
+                        else g.DrawLine(p, p1, p2);
                     }
                 }
             }
 
-            // 為了相容其他無參數呼叫，預設將 isFastMode 設為 false
             public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null, false);
             public override void Draw(Graphics g) { }
 
