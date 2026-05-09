@@ -24,12 +24,17 @@ namespace DrawingApp
         private FlowLayoutPanel _zIndexPanel;
         private Panel _customPropertiesPanel;
         
-        // --- 新增：圖層管理面板元件 ---
         private TreeView _tvLayers;
         private bool _isSyncingTree = false;
 
         private Button _btnShapeColor;
         private Button _btnFillColor;
+        // --- 擴充：漸層次色按鈕與筆刷類型下拉選單 ---
+        private Button _btnGradientColor;
+        private ComboBox _cbBrushType;
+        private CheckBox _chkShadow;
+        // ------------------------------------
+
         private Button _btnFontColor;
         private TrackBar _tbStrokeWidth;
         private Label _lblStrokeWidthValue;
@@ -503,12 +508,11 @@ namespace DrawingApp
         {
             _rightPanel.Controls.Clear();
 
-            // 使用 SplitContainer 讓使用者可以調整「屬性」和「圖層」面板的比例
             SplitContainer scRight = new SplitContainer() 
             { 
                 Orientation = Orientation.Horizontal, 
                 Dock = DockStyle.Fill,
-                SplitterDistance = 450,
+                SplitterDistance = 480, 
                 FixedPanel = FixedPanel.Panel1
             };
 
@@ -551,10 +555,21 @@ namespace DrawingApp
             _customPropertiesPanel.Controls.Add(_btnShapeColor);
             yOffset += 35;
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "填充顏色", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _btnFillColor = new Button() { Location = new Point(80, yOffset), Size = new Size(160, 25), FlatStyle = FlatStyle.Flat };
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "填色類型", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _cbBrushType = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(160, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbBrushType.Items.AddRange(new string[] { "純色填充", "線性漸層" });
+            _cbBrushType.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FillBrushType = (App_Shapes.BrushType)_cbBrushType.SelectedIndex);
+            _customPropertiesPanel.Controls.Add(_cbBrushType);
+            yOffset += 35;
+
+            _customPropertiesPanel.Controls.Add(new Label() { Text = "主填充色", Location = new Point(0, yOffset + 5), AutoSize = true });
+            _btnFillColor = new Button() { Location = new Point(80, yOffset), Size = new Size(75, 25), FlatStyle = FlatStyle.Flat };
             _btnFillColor.Click += (s, e) => PickColor(_btnFillColor, c => ApplyPropertyChange(cmd => cmd.FillColor = c), true);
             _customPropertiesPanel.Controls.Add(_btnFillColor);
+
+            _btnGradientColor = new Button() { Location = new Point(165, yOffset), Size = new Size(75, 25), FlatStyle = FlatStyle.Flat };
+            _btnGradientColor.Click += (s, e) => PickColor(_btnGradientColor, c => ApplyPropertyChange(cmd => cmd.GradientColor2 = c));
+            _customPropertiesPanel.Controls.Add(_btnGradientColor);
             yOffset += 40;
 
             _customPropertiesPanel.Controls.Add(new Label() { Text = "線條粗細", Location = new Point(0, yOffset + 5), AutoSize = true });
@@ -573,7 +588,12 @@ namespace DrawingApp
             _cbDashStyle.Items.AddRange(new string[] { "實線 (Solid)", "虛線 (Dash)", "點線 (Dot)", "點虛線 (DashDot)" });
             _cbDashStyle.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.StrokeDashStyle = (DashStyle)_cbDashStyle.SelectedIndex);
             _customPropertiesPanel.Controls.Add(_cbDashStyle);
-            yOffset += 40;
+            yOffset += 35;
+
+            _chkShadow = new CheckBox() { Text = "啟用立體陰影", Location = new Point(80, yOffset), AutoSize = true };
+            _chkShadow.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.EnableShadow = _chkShadow.Checked);
+            _customPropertiesPanel.Controls.Add(_chkShadow);
+            yOffset += 35;
 
             Panel div1 = new Panel() { BackColor = Color.LightGray, Height = 1, Width = 260, Location = new Point(0, yOffset) };
             _customPropertiesPanel.Controls.Add(div1);
@@ -621,7 +641,6 @@ namespace DrawingApp
             topPropPanel.Controls.Add(actionsPanel);
             scRight.Panel1.Controls.Add(topPropPanel);
 
-            // --- 圖層面板 (Layer Panel) ---
             Panel layerPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
             Label lblLayers = new Label() { Text = "圖層管理 (層級由上而下)", Font = new Font("Arial", 10, FontStyle.Bold), Dock = DockStyle.Top, Height = 25 };
             
@@ -636,7 +655,6 @@ namespace DrawingApp
             
             _tvLayers.AfterSelect += TvLayers_AfterSelect;
             
-            // 加入右鍵選單以支援圖層操作
             ContextMenuStrip layerMenu = new ContextMenuStrip();
             layerMenu.Items.Add("鎖定 / 解鎖", null, (s, e) => {
                 if (_tvLayers.SelectedNode?.Tag is App_Shapes.ShapeBase shape)
@@ -673,7 +691,6 @@ namespace DrawingApp
             _customPropertiesPanel.Enabled = false;
         }
 
-        // --- 圖層樹狀面板相關邏輯 ---
         private void RefreshLayerTree()
         {
             if (CurrentCanvas == null) return;
@@ -681,7 +698,6 @@ namespace DrawingApp
             _isSyncingTree = true;
             _tvLayers.Nodes.Clear();
 
-            // 由後往前遍歷，讓最新的圖層 (Z-Index 最高) 顯示在最上面，符合一般圖層軟體邏輯
             for (int i = CurrentCanvas.Shapes.Count - 1; i >= 0; i--)
             {
                 _tvLayers.Nodes.Add(CreateTreeNode(CurrentCanvas.Shapes[i]));
@@ -698,7 +714,6 @@ namespace DrawingApp
             TreeNode node = new TreeNode(GetShapeName(shape));
             node.Tag = shape;
 
-            // 若為群組，遞迴加入子圖形
             if (shape is App_Shapes.GroupShape group)
             {
                 for (int i = group.Children.Count - 1; i >= 0; i--)
@@ -834,7 +849,6 @@ namespace DrawingApp
             _isDirty = true;
             UpdateWindowTitle();
             
-            // 如果修改了文字或影響了外觀，同步更新圖層面板文字
             RefreshLayerTree(); 
         }
 
@@ -967,8 +981,13 @@ namespace DrawingApp
                     _isUpdatingUI = true;
                     
                     _btnShapeColor.BackColor = shape.ShapeColor;
+                    
                     _btnFillColor.BackColor = shape.FillColor;
-                    _btnFillColor.Text = shape.FillColor == Color.Transparent ? "透明 (右鍵清除)" : "";
+                    _btnFillColor.Text = shape.FillColor == Color.Transparent ? "透明" : "";
+                    
+                    _btnGradientColor.BackColor = shape.GradientColor2;
+                    _cbBrushType.SelectedIndex = (int)shape.FillBrushType;
+                    _chkShadow.Checked = shape.EnableShadow;
                     
                     _tbStrokeWidth.Value = Math.Max(1, Math.Min(20, (int)shape.StrokeWidth));
                     _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
