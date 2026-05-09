@@ -70,11 +70,16 @@ namespace DrawingApp
         private InteractionState _currentState = InteractionState.Idle;
 
         private App_Shapes.ShapeType _currentTool = App_Shapes.ShapeType.Pointer;
+        // --- 新增：紀錄暫存工具 (用於空白鍵平移) ---
+        private App_Shapes.ShapeType _previousTool = App_Shapes.ShapeType.Pointer;
+        // ------------------------------------
+
         public App_Shapes.ShapeType CurrentTool 
         { 
             get => _currentTool; 
             set 
             { 
+                if (_currentTool != App_Shapes.ShapeType.HandPan) _previousTool = _currentTool;
                 _currentTool = value;
                 if (_currentTool == App_Shapes.ShapeType.HandPan)
                     this.Cursor = Cursors.Hand;
@@ -112,7 +117,7 @@ namespace DrawingApp
         private const int MINIMAP_WIDTH = 200;
 
         public event Action<PointF> OnImageInsertRequested;
-        public event Action OnToolResetRequested;
+        public event Action<App_Shapes.ShapeType> OnToolChangedRequested;
         public event Action OnSelectionChanged;
 
         public App_CanvasControl()
@@ -131,7 +136,6 @@ namespace DrawingApp
             this.MouseMove += Canvas_MouseMove;
             this.MouseUp += Canvas_MouseUp;
             this.MouseWheel += Canvas_MouseWheel;
-            // 修正編譯錯誤 1：將 DoubleClick 改為 MouseDoubleClick 以取得滑鼠座標
             this.MouseDoubleClick += Canvas_DoubleClick;
 
             CmdManager.OnStateChanged += () => this.Invalidate();
@@ -311,7 +315,6 @@ namespace DrawingApp
             }
         }
 
-        // 【新增功能】：遞迴尋找群組內被點擊的子圖形
         private App_Shapes.ShapeBase GetHitChild(App_Shapes.GroupShape group, PointF pt)
         {
             for (int i = group.Children.Count - 1; i >= 0; i--)
@@ -330,7 +333,6 @@ namespace DrawingApp
             return null;
         }
 
-        // 【優化功能】：支援雙擊穿透群組進行文字編輯 (修正型別為 MouseEventArgs)
         private void Canvas_DoubleClick(object sender, MouseEventArgs e)
         {
             if (SelectedShapes.Count == 1)
@@ -456,6 +458,32 @@ namespace DrawingApp
             return (float)Math.Round(angle / step) * step;
         }
 
+        // --- 擴充：實作全域快捷鍵與空白鍵平移 ---
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            if (_inlineTextBox.Focused) return;
+            
+            if (e.KeyCode == Keys.Space && !_isPanning)
+            {
+                _isPanning = true;
+                this.Cursor = Cursors.Hand;
+            }
+            base.OnKeyDown(e);
+        }
+
+        protected override void OnKeyUp(KeyEventArgs e)
+        {
+            if (_inlineTextBox.Focused) return;
+
+            if (e.KeyCode == Keys.Space)
+            {
+                _isPanning = false;
+                this.Cursor = Cursors.Default;
+                CurrentTool = _previousTool; // 恢復先前的工具
+            }
+            base.OnKeyUp(e);
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (_inlineTextBox.Focused) return base.ProcessCmdKey(ref msg, keyData);
@@ -468,9 +496,17 @@ namespace DrawingApp
                 _currentState = InteractionState.Idle;
                 this.Invalidate();
                 
-                OnToolResetRequested?.Invoke();
+                OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Pointer);
                 return true; 
             }
+
+            // 支援工具快速切換快捷鍵
+            if (keyData == Keys.V) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Pointer); return true; }
+            if (keyData == Keys.H) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.HandPan); return true; }
+            if (keyData == Keys.T) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.TextNode); return true; }
+            if (keyData == Keys.P) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Freehand); return true; }
+            if (keyData == Keys.L) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.OrthogonalLine); return true; }
+            if (keyData == Keys.R) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Rectangle); return true; }
 
             if (keyData == (Keys.Control | Keys.Z)) { CmdManager.Undo(); return true; }
             if (keyData == (Keys.Control | Keys.Y)) { CmdManager.Redo(); return true; }
@@ -701,7 +737,7 @@ namespace DrawingApp
         {
             if (_currentState != InteractionState.Idle) return; 
 
-            if (CurrentTool == App_Shapes.ShapeType.HandPan)
+            if (CurrentTool == App_Shapes.ShapeType.HandPan || _isPanning)
             {
                 this.Cursor = Cursors.Hand;
                 return;
@@ -772,8 +808,7 @@ namespace DrawingApp
                 return;
             }
 
-            if (e.Button == MouseButtons.Middle || 
-               (e.Button == MouseButtons.Left && Control.ModifierKeys == Keys.Space) ||
+            if (e.Button == MouseButtons.Middle || _isPanning ||
                (e.Button == MouseButtons.Left && CurrentTool == App_Shapes.ShapeType.HandPan))
             {
                 _isPanning = true;
@@ -890,7 +925,7 @@ namespace DrawingApp
                 else if (CurrentTool == App_Shapes.ShapeType.Image)
                 {
                     OnImageInsertRequested?.Invoke(realPt);
-                    OnToolResetRequested?.Invoke();
+                    OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Pointer);
                 }
                 else if (CurrentTool == App_Shapes.ShapeType.ArrowLine || CurrentTool == App_Shapes.ShapeType.StraightLine || CurrentTool == App_Shapes.ShapeType.OrthogonalLine)
                 {
@@ -1125,7 +1160,6 @@ namespace DrawingApp
 
                         RectangleF b = shape.Bounds;
                         
-                        // 【優化功能】：加入 Shift 鍵等比例縮放邏輯
                         bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
                         float ratio = 1.0f;
                         if (keepRatio && _initialBounds.Height != 0) 
@@ -1192,7 +1226,6 @@ namespace DrawingApp
                     }
                     else
                     {
-                        // 修正編譯錯誤 2 & 3：將 dx, dy 重新命名為 diffX, diffY 避免衝突
                         bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
                         float snapX = Snap(realPt.X);
                         float snapY = Snap(realPt.Y);
@@ -1244,7 +1277,7 @@ namespace DrawingApp
                 return;
             }
 
-            if (_isPanning)
+            if (_isPanning && e.Button != MouseButtons.Middle && Control.ModifierKeys != Keys.Space)
             {
                 _isPanning = false;
                 if (CurrentTool == App_Shapes.ShapeType.HandPan)
@@ -1300,7 +1333,7 @@ namespace DrawingApp
                     if (_tempShape is App_Shapes.TextNodeShape)
                     {
                         StartInlineEditing(_tempShape);
-                        OnToolResetRequested?.Invoke();
+                        OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Pointer);
                     }
                 }
                 else if (_currentState == InteractionState.Connecting && _tempShape is App_Shapes.ConnectorShape c)
@@ -1311,7 +1344,7 @@ namespace DrawingApp
                         c.TargetAnchor = _hoveredAnchor;
                     }
                     CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, c));
-                    OnToolResetRequested?.Invoke();
+                    OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Pointer);
                 }
 
                 _tempShape = null;
@@ -1366,7 +1399,6 @@ namespace DrawingApp
 
             bool isFastMode = (_currentState == InteractionState.Moving || _currentState == InteractionState.Resizing);
 
-            List<LineSegment> drawnLines = new List<LineSegment>();
             for (int i = 0; i < Shapes.Count; i++)
             {
                 if (Shapes[i] is App_Shapes.ConnectorShape shape)
@@ -1390,30 +1422,7 @@ namespace DrawingApp
                     if (tgt != null)
                         p2 = shape.TargetAnchor == App_Shapes.AnchorPosition.Auto ? tgt.GetIntersection(p1) : tgt.GetAnchorPoint(shape.TargetAnchor);
 
-                    if (!shape.IsOrthogonal)
-                    {
-                        for (int k = 0; k < drawnLines.Count; k++)
-                        {
-                            var oldLine = drawnLines[k];
-                            if (Math.Abs(p1.X - p2.X) < 10 && Math.Abs(oldLine.P1.Y - oldLine.P2.Y) < 10)
-                            {
-                                float minX = Math.Min(oldLine.P1.X, oldLine.P2.X);
-                                float maxX = Math.Max(oldLine.P1.X, oldLine.P2.X);
-                                float minY = Math.Min(p1.Y, p2.Y);
-                                float maxY = Math.Max(p1.Y, p2.Y);
-                                
-                                if (p1.X > minX && p1.X < maxX && oldLine.P1.Y > minY && oldLine.P1.Y < maxY)
-                                {
-                                    float ix = p1.X; float iy = oldLine.P1.Y;
-                                    g.FillEllipse(Brushes.White, ix - 8, iy - 8, 16, 16);
-                                    using (Pen arcPen = new Pen(shape.ShapeColor, shape.StrokeWidth)) g.DrawArc(arcPen, ix - 8, iy - 8, 16, 16, 180, 180);
-                                }
-                            }
-                        }
-                    }
-                    
                     shape.DrawDynamic(g, p1, p2, Shapes, isFastMode);
-                    if (!shape.IsOrthogonal) drawnLines.Add(new LineSegment(p1, p2));
                 }
             }
 
