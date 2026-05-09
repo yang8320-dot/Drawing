@@ -23,6 +23,11 @@ namespace DrawingApp
         private FlowLayoutPanel _alignmentPanel;
         private FlowLayoutPanel _zIndexPanel;
         private Panel _customPropertiesPanel;
+        
+        // --- 新增：圖層管理面板元件 ---
+        private TreeView _tvLayers;
+        private bool _isSyncingTree = false;
+
         private Button _btnShapeColor;
         private Button _btnFillColor;
         private Button _btnFontColor;
@@ -114,14 +119,17 @@ namespace DrawingApp
 
         private void InitializeUI()
         {
-            this.Text = "商業級繪圖系統 (支援多分頁、防多開、連線節點調整、自訂畫布名稱)";
+            this.Text = "商業級繪圖系統 (支援多分頁、防多開、圖層管理、等比縮放)";
             this.Size = new Size(1600, 900);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.KeyPreview = true; 
 
             _tabControl = new TabControl();
             _tabControl.Dock = DockStyle.Fill;
-            _tabControl.SelectedIndexChanged += (s, e) => RefreshPropertyPanel();
+            _tabControl.SelectedIndexChanged += (s, e) => {
+                RefreshPropertyPanel();
+                RefreshLayerTree();
+            };
             _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
             _tabControl.MouseClick += TabControl_MouseClick;
 
@@ -251,7 +259,7 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
             CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆");
 
-            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 300, BackColor = Color.FromArgb(245, 245, 245), Padding = new Padding(10) };
+            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 300, BackColor = Color.FromArgb(245, 245, 245) };
             BuildPropertyPanel();
 
             Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
@@ -302,7 +310,7 @@ namespace DrawingApp
 
         private void UpdateWindowTitle()
         {
-            string baseTitle = "商業級繪圖系統 (支援多分頁、防多開、連線節點調整、自訂畫布名稱)";
+            string baseTitle = "商業級繪圖系統 (支援多分頁、防多開、圖層管理、等比縮放)";
             this.Text = _isDirty ? baseTitle + " [未存檔 *]" : baseTitle;
         }
 
@@ -418,11 +426,15 @@ namespace DrawingApp
             
             canvas.CmdManager.OnStateChanged += () => {
                 RefreshPropertyPanel();
+                RefreshLayerTree();
                 _isDirty = true;
                 UpdateWindowTitle();
             };
 
-            canvas.OnSelectionChanged += () => RefreshPropertyPanel();
+            canvas.OnSelectionChanged += () => { 
+                RefreshPropertyPanel();
+                SyncLayerTreeSelection();
+            };
             
             canvas.OnToolResetRequested += () => { 
                 if (CurrentCanvas != null) CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer; 
@@ -483,6 +495,7 @@ namespace DrawingApp
                 
                 _isDirty = false;
                 UpdateWindowTitle();
+                RefreshLayerTree();
             }
         }
 
@@ -490,6 +503,16 @@ namespace DrawingApp
         {
             _rightPanel.Controls.Clear();
 
+            // 使用 SplitContainer 讓使用者可以調整「屬性」和「圖層」面板的比例
+            SplitContainer scRight = new SplitContainer() 
+            { 
+                Orientation = Orientation.Horizontal, 
+                Dock = DockStyle.Fill,
+                SplitterDistance = 450,
+                FixedPanel = FixedPanel.Panel1
+            };
+
+            Panel topPropPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
             Panel actionsPanel = new Panel() { Dock = DockStyle.Top, Height = 170 };
 
             Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 10), AutoSize = true };
@@ -510,8 +533,8 @@ namespace DrawingApp
             actionsPanel.Controls.Add(zIndexTitle);
 
             _zIndexPanel = new FlowLayoutPanel() { Location = new Point(0, 140), Width = 280, Height = 35, WrapContents = true };
-            _zIndexPanel.Controls.Add(CreateAlignButton("移到最上層", (s, e) => CurrentCanvas?.ChangeZIndex(0)));
-            _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => CurrentCanvas?.ChangeZIndex(-99)));
+            _zIndexPanel.Controls.Add(CreateAlignButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }));
+            _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }));
             actionsPanel.Controls.Add(_zIndexPanel);
 
             _customPropertiesPanel = new Panel() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(0, 10, 0, 0) };
@@ -594,12 +617,182 @@ namespace DrawingApp
             _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
             _customPropertiesPanel.Controls.Add(_cbTextAlign);
 
-            _rightPanel.Controls.Add(_customPropertiesPanel);
-            _rightPanel.Controls.Add(actionsPanel);
+            topPropPanel.Controls.Add(_customPropertiesPanel);
+            topPropPanel.Controls.Add(actionsPanel);
+            scRight.Panel1.Controls.Add(topPropPanel);
+
+            // --- 圖層面板 (Layer Panel) ---
+            Panel layerPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
+            Label lblLayers = new Label() { Text = "圖層管理 (層級由上而下)", Font = new Font("Arial", 10, FontStyle.Bold), Dock = DockStyle.Top, Height = 25 };
+            
+            _tvLayers = new TreeView() 
+            { 
+                Dock = DockStyle.Fill, 
+                HideSelection = false,
+                FullRowSelect = true,
+                ItemHeight = 22,
+                Font = new Font("微軟正黑體", 9)
+            };
+            
+            _tvLayers.AfterSelect += TvLayers_AfterSelect;
+            
+            // 加入右鍵選單以支援圖層操作
+            ContextMenuStrip layerMenu = new ContextMenuStrip();
+            layerMenu.Items.Add("鎖定 / 解鎖", null, (s, e) => {
+                if (_tvLayers.SelectedNode?.Tag is App_Shapes.ShapeBase shape)
+                {
+                    shape.IsLocked = !shape.IsLocked;
+                    CurrentCanvas?.Invalidate();
+                    RefreshLayerTree();
+                }
+            });
+            layerMenu.Items.Add(new ToolStripSeparator());
+            layerMenu.Items.Add("刪除圖層", null, (s, e) => {
+                if (_tvLayers.SelectedNode?.Tag is App_Shapes.ShapeBase shape && CurrentCanvas != null)
+                {
+                    CurrentCanvas.CmdManager.ExecuteCommand(new RemoveShapesCommand(CurrentCanvas.Shapes, new List<App_Shapes.ShapeBase> { shape }));
+                }
+            });
+            
+            _tvLayers.NodeMouseClick += (s, e) => {
+                if (e.Button == MouseButtons.Right)
+                {
+                    _tvLayers.SelectedNode = e.Node;
+                    layerMenu.Show(_tvLayers, e.Location);
+                }
+            };
+
+            layerPanel.Controls.Add(_tvLayers);
+            layerPanel.Controls.Add(lblLayers);
+            scRight.Panel2.Controls.Add(layerPanel);
+
+            _rightPanel.Controls.Add(scRight);
 
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
             _customPropertiesPanel.Enabled = false;
+        }
+
+        // --- 圖層樹狀面板相關邏輯 ---
+        private void RefreshLayerTree()
+        {
+            if (CurrentCanvas == null) return;
+            
+            _isSyncingTree = true;
+            _tvLayers.Nodes.Clear();
+
+            // 由後往前遍歷，讓最新的圖層 (Z-Index 最高) 顯示在最上面，符合一般圖層軟體邏輯
+            for (int i = CurrentCanvas.Shapes.Count - 1; i >= 0; i--)
+            {
+                _tvLayers.Nodes.Add(CreateTreeNode(CurrentCanvas.Shapes[i]));
+            }
+            
+            _tvLayers.ExpandAll();
+            _isSyncingTree = false;
+            
+            SyncLayerTreeSelection();
+        }
+
+        private TreeNode CreateTreeNode(App_Shapes.ShapeBase shape)
+        {
+            TreeNode node = new TreeNode(GetShapeName(shape));
+            node.Tag = shape;
+
+            // 若為群組，遞迴加入子圖形
+            if (shape is App_Shapes.GroupShape group)
+            {
+                for (int i = group.Children.Count - 1; i >= 0; i--)
+                {
+                    node.Nodes.Add(CreateTreeNode(group.Children[i]));
+                }
+            }
+
+            return node;
+        }
+
+        private string GetShapeName(App_Shapes.ShapeBase shape)
+        {
+            string name = "圖形";
+            if (shape is App_Shapes.RectShape) name = "矩形";
+            else if (shape is App_Shapes.RoundedRectShape) name = "圓角矩形";
+            else if (shape is App_Shapes.CircleShape) name = "圓形";
+            else if (shape is App_Shapes.ArcShape) name = "圓弧";
+            else if (shape is App_Shapes.DiamondShape) name = "菱形";
+            else if (shape is App_Shapes.TriangleShape) name = "三角形";
+            else if (shape is App_Shapes.PentagonShape) name = "五邊形";
+            else if (shape is App_Shapes.HexagonShape) name = "六邊形";
+            else if (shape is App_Shapes.StarShape) name = "星形";
+            else if (shape is App_Shapes.CloudShape) name = "雲朵";
+            else if (shape is App_Shapes.ConnectorShape) name = "連線";
+            else if (shape is App_Shapes.TextNodeShape tns) name = tns.IsTransparent ? "純文字" : "文字框";
+            else if (shape is App_Shapes.ImageShape) name = "圖片";
+            else if (shape is App_Shapes.FreehandShape) name = "手繪線條";
+            else if (shape is App_Shapes.GroupShape) name = "📂 群組";
+
+            if (!string.IsNullOrEmpty(shape.Text))
+            {
+                string snippet = shape.Text.Replace("\n", " ").Replace("\r", "");
+                if (snippet.Length > 8) snippet = snippet.Substring(0, 8) + "...";
+                name += $" - {snippet}";
+            }
+
+            if (shape.IsLocked) name = "🔒 " + name;
+
+            return name;
+        }
+
+        private void SyncLayerTreeSelection()
+        {
+            if (_isSyncingTree || CurrentCanvas == null) return;
+            
+            _isSyncingTree = true;
+            _tvLayers.SelectedNode = null;
+
+            if (CurrentCanvas.SelectedShapes.Count > 0)
+            {
+                var targetShape = CurrentCanvas.SelectedShapes[0];
+                TreeNode foundNode = FindNodeByTag(_tvLayers.Nodes, targetShape);
+                if (foundNode != null)
+                {
+                    _tvLayers.SelectedNode = foundNode;
+                    foundNode.EnsureVisible();
+                }
+            }
+            
+            _isSyncingTree = false;
+        }
+
+        private TreeNode FindNodeByTag(TreeNodeCollection nodes, App_Shapes.ShapeBase target)
+        {
+            foreach (TreeNode node in nodes)
+            {
+                if (node.Tag == target) return node;
+                if (node.Nodes.Count > 0)
+                {
+                    TreeNode found = FindNodeByTag(node.Nodes, target);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        private void TvLayers_AfterSelect(object sender, TreeViewEventArgs e)
+        {
+            if (_isSyncingTree || CurrentCanvas == null) return;
+
+            if (e.Node.Tag is App_Shapes.ShapeBase shape)
+            {
+                for (int i = 0; i < CurrentCanvas.SelectedShapes.Count; i++) 
+                    CurrentCanvas.SelectedShapes[i].IsSelected = false;
+                
+                CurrentCanvas.SelectedShapes.Clear();
+                
+                shape.IsSelected = true;
+                CurrentCanvas.SelectedShapes.Add(shape);
+                
+                CurrentCanvas.Invalidate();
+                RefreshPropertyPanel();
+            }
         }
 
         private void PickColor(Button btn, Action<Color> applyAction, bool allowTransparent = false)
@@ -624,7 +817,6 @@ namespace DrawingApp
             };
         }
 
-        // --- 修正：將動態型別 (dynamic) 替換為明確的 App_Shapes.ShapeBase ---
         private void ApplyPropertyChange(Action<App_Shapes.ShapeBase> propertySetter)
         {
             if (_isUpdatingUI || CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
@@ -641,6 +833,9 @@ namespace DrawingApp
             
             _isDirty = true;
             UpdateWindowTitle();
+            
+            // 如果修改了文字或影響了外觀，同步更新圖層面板文字
+            RefreshLayerTree(); 
         }
 
         private Button CreateAlignButton(string text, EventHandler onClick)
