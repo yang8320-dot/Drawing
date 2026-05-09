@@ -21,6 +21,9 @@ namespace DrawingApp
         private Button _btnFormatPainter;
 
         private FlowLayoutPanel _alignmentPanel;
+        // --- 新增：對齊畫布邊緣選項 ---
+        private CheckBox _chkAlignToPage;
+        // ------------------------------------
         private FlowLayoutPanel _zIndexPanel;
         private Panel _customPropertiesPanel;
         
@@ -29,11 +32,9 @@ namespace DrawingApp
 
         private Button _btnShapeColor;
         private Button _btnFillColor;
-        // --- 擴充：漸層次色按鈕與筆刷類型下拉選單 ---
         private Button _btnGradientColor;
         private ComboBox _cbBrushType;
         private CheckBox _chkShadow;
-        // ------------------------------------
 
         private Button _btnFontColor;
         private TrackBar _tbStrokeWidth;
@@ -223,10 +224,10 @@ namespace DrawingApp
 
             _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 65, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
             
-            _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n(可框選、旋轉、縮放)");
+            _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n快捷鍵: V\n(可框選、旋轉、縮放)");
             SetActiveButton(_btnPointer);
             
-            CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (Hand Tool)\n(可用滑鼠左鍵直接平移畫面)");
+            CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (Hand Tool)\n快捷鍵: H 或按住 Space\n(可用滑鼠左鍵直接平移畫面)");
             
             _btnFormatPainter = CreateToolButton(App_Shapes.ShapeType.FormatPainter, "格式刷\n(先選取圖形，點擊此按鈕後，再點擊其他圖形以套用格式)");
             _btnFormatPainter.Click += (s, e) => {
@@ -246,9 +247,9 @@ namespace DrawingApp
 
             CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭線");
             CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線");
-            CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "90度折線 (智慧避障)");
+            CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "90度折線 (智慧避障)\n快捷鍵: L");
 
-            CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形");
+            CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形\n快捷鍵: R");
             CreateToolButton(App_Shapes.ShapeType.RoundedRectangle, "圓角矩形"); 
             CreateToolButton(App_Shapes.ShapeType.Circle, "圓形");
             CreateToolButton(App_Shapes.ShapeType.Arc, "圓弧");
@@ -259,10 +260,10 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.Star, "星形"); 
             CreateToolButton(App_Shapes.ShapeType.Cloud, "雲朵"); 
 
-            CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框");
+            CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框\n快捷鍵: T");
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
-            CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆");
+            CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆 (貝茲曲線)\n快捷鍵: P");
 
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 300, BackColor = Color.FromArgb(245, 245, 245) };
             BuildPropertyPanel();
@@ -441,10 +442,22 @@ namespace DrawingApp
                 SyncLayerTreeSelection();
             };
             
-            canvas.OnToolResetRequested += () => { 
-                if (CurrentCanvas != null) CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer; 
-                SetActiveButton(_btnPointer); 
+            // --- 擴充：接收 Canvas 傳來的工具切換請求 (支援快捷鍵同步 UI) ---
+            canvas.OnToolChangedRequested += (type) => { 
+                if (CurrentCanvas != null) CurrentCanvas.CurrentTool = type; 
+                
+                Button targetBtn = null;
+                foreach (Control c in _leftPanel.Controls)
+                {
+                    if (c is Button btn && btn.Tag != null && (App_Shapes.ShapeType)btn.Tag == type)
+                    {
+                        targetBtn = btn;
+                        break;
+                    }
+                }
+                if (targetBtn != null) SetActiveButton(targetBtn);
             };
+            // -------------------------------------------------------------
             
             canvas.OnImageInsertRequested += HandleImageInsert;
 
@@ -521,6 +534,10 @@ namespace DrawingApp
 
             Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 10), AutoSize = true };
             actionsPanel.Controls.Add(alignTitle);
+            
+            // --- 新增：對齊畫布邊緣選項 ---
+            _chkAlignToPage = new CheckBox() { Text = "對齊至畫布邊緣", Location = new Point(160, 10), AutoSize = true, ForeColor = Color.DimGray };
+            actionsPanel.Controls.Add(_chkAlignToPage);
 
             _alignmentPanel = new FlowLayoutPanel() { Location = new Point(0, 35), Width = 280, Height = 70, WrapContents = true };
             _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
@@ -642,19 +659,25 @@ namespace DrawingApp
             scRight.Panel1.Controls.Add(topPropPanel);
 
             Panel layerPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
-            Label lblLayers = new Label() { Text = "圖層管理 (層級由上而下)", Font = new Font("Arial", 10, FontStyle.Bold), Dock = DockStyle.Top, Height = 25 };
+            Label lblLayers = new Label() { Text = "圖層管理 (支援拖曳排序)", Font = new Font("Arial", 10, FontStyle.Bold), Dock = DockStyle.Top, Height = 25 };
             
+            // --- 擴充：設定 TreeView 支援拖曳 ---
             _tvLayers = new TreeView() 
             { 
                 Dock = DockStyle.Fill, 
                 HideSelection = false,
                 FullRowSelect = true,
                 ItemHeight = 22,
-                Font = new Font("微軟正黑體", 9)
+                Font = new Font("微軟正黑體", 9),
+                AllowDrop = true
             };
             
             _tvLayers.AfterSelect += TvLayers_AfterSelect;
-            
+            _tvLayers.ItemDrag += TvLayers_ItemDrag;
+            _tvLayers.DragEnter += TvLayers_DragEnter;
+            _tvLayers.DragDrop += TvLayers_DragDrop;
+            // ------------------------------------
+
             ContextMenuStrip layerMenu = new ContextMenuStrip();
             layerMenu.Items.Add("鎖定 / 解鎖", null, (s, e) => {
                 if (_tvLayers.SelectedNode?.Tag is App_Shapes.ShapeBase shape)
@@ -690,6 +713,59 @@ namespace DrawingApp
             _zIndexPanel.Enabled = false;
             _customPropertiesPanel.Enabled = false;
         }
+
+        // --- 擴充：圖層拖曳排序邏輯 ---
+        private void TvLayers_ItemDrag(object sender, ItemDragEventArgs e)
+        {
+            if (e.Item is TreeNode node && node.Tag is App_Shapes.ShapeBase shape && !shape.IsLocked)
+            {
+                DoDragDrop(e.Item, DragDropEffects.Move);
+            }
+        }
+
+        private void TvLayers_DragEnter(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(typeof(TreeNode)))
+                e.Effect = DragDropEffects.Move;
+            else
+                e.Effect = DragDropEffects.None;
+        }
+
+        private void TvLayers_DragDrop(object sender, DragEventArgs e)
+        {
+            if (CurrentCanvas == null) return;
+            
+            Point targetPoint = _tvLayers.PointToClient(new Point(e.X, e.Y));
+            TreeNode targetNode = _tvLayers.GetNodeAt(targetPoint);
+            TreeNode draggedNode = (TreeNode)e.Data.GetData(typeof(TreeNode));
+
+            if (draggedNode != null && targetNode != null && !draggedNode.Equals(targetNode))
+            {
+                var draggedShape = draggedNode.Tag as App_Shapes.ShapeBase;
+                var targetShape = targetNode.Tag as App_Shapes.ShapeBase;
+
+                if (draggedShape != null && targetShape != null)
+                {
+                    // 在 Canvas.Shapes 中，越後面的元素 Z-Index 越高（顯示在越上層）
+                    // 在 TreeView 中，越上面的節點表示越新（Z-Index 越高）
+                    CurrentCanvas.Shapes.Remove(draggedShape);
+                    
+                    int targetIndex = CurrentCanvas.Shapes.IndexOf(targetShape);
+                    
+                    // 如果把節點往下拖 (表示要送到更底層)，則放在 target 的後面
+                    if (targetPoint.Y > draggedNode.Bounds.Y)
+                        CurrentCanvas.Shapes.Insert(Math.Max(0, targetIndex), draggedShape);
+                    else
+                        CurrentCanvas.Shapes.Insert(Math.Min(CurrentCanvas.Shapes.Count, targetIndex + 1), draggedShape);
+
+                    CurrentCanvas.Invalidate();
+                    RefreshLayerTree();
+                    _isDirty = true;
+                    UpdateWindowTitle();
+                }
+            }
+        }
+        // ------------------------------------
 
         private void RefreshLayerTree()
         {
@@ -868,49 +944,84 @@ namespace DrawingApp
             return btn;
         }
 
+        // --- 擴充：支援對齊至畫布邊緣 ---
         private void AlignShapes(string type)
         {
-            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count < 2) return;
+            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
             
             var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
             if (shapes.Count == 0) return;
+
+            // 如果沒有勾選對齊畫布，且只選了一個物件，就無法對齊
+            if (!_chkAlignToPage.Checked && shapes.Count < 2) return;
 
             var oldBounds = shapes.Select(s => s.Bounds).ToList();
             var newBounds = new List<RectangleF>();
 
             float referenceValue = 0;
 
-            switch (type)
+            if (_chkAlignToPage.Checked)
             {
-                case "Left":
-                    referenceValue = shapes.Min(s => s.Bounds.Left);
-                    foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                    break;
-                case "Right":
-                    referenceValue = shapes.Max(s => s.Bounds.Right);
-                    foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                    break;
-                case "Center":
-                    referenceValue = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2);
-                    foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                    break;
-                case "Top":
-                    referenceValue = shapes.Min(s => s.Bounds.Top);
-                    foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue, s.Bounds.Width, s.Bounds.Height));
-                    break;
-                case "Bottom":
-                    referenceValue = shapes.Max(s => s.Bounds.Bottom);
-                    foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height));
-                    break;
-                case "Middle":
-                    referenceValue = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2);
-                    foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height));
-                    break;
+                // 對齊到畫布的邊界
+                SizeF pageSize = CurrentCanvas.PageSize;
+                switch (type)
+                {
+                    case "Left":
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(0, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Right":
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Center":
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width / 2 - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Top":
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, 0, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Bottom":
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Middle":
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height / 2 - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                }
+            }
+            else
+            {
+                // 原本的物件互相對齊
+                switch (type)
+                {
+                    case "Left":
+                        referenceValue = shapes.Min(s => s.Bounds.Left);
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Right":
+                        referenceValue = shapes.Max(s => s.Bounds.Right);
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Center":
+                        referenceValue = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2);
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Top":
+                        referenceValue = shapes.Min(s => s.Bounds.Top);
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Bottom":
+                        referenceValue = shapes.Max(s => s.Bounds.Bottom);
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                    case "Middle":
+                        referenceValue = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2);
+                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height));
+                        break;
+                }
             }
 
             CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
             CurrentCanvas.Invalidate();
         }
+        // ------------------------------------
 
         private void DistributeShapes(string type)
         {
@@ -969,7 +1080,8 @@ namespace DrawingApp
             {
                 int selCount = CurrentCanvas.SelectedShapes.Count;
                 
-                _alignmentPanel.Enabled = selCount > 1;
+                // 如果有勾選「對齊至畫布邊緣」，單一物件也可以使用對齊功能
+                _alignmentPanel.Enabled = _chkAlignToPage.Checked ? selCount > 0 : selCount > 1;
                 _zIndexPanel.Enabled = selCount > 0;
                 
                 if (selCount > 0)
@@ -1101,6 +1213,7 @@ namespace DrawingApp
         {
             Button btn = new Button() { Size = new Size(45, 45), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(2, 2, 2, 8) };
             btn.FlatAppearance.BorderSize = 0;
+            btn.Tag = type; // 將類型存入 Tag 供快捷鍵同步使用
             Color iconColor = Color.FromArgb(80, 80, 80);
             
             ToolTip tt = new ToolTip();
