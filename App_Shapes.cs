@@ -17,6 +17,132 @@ namespace DrawingApp
         
         public enum BrushType { Solid, LinearGradient }
 
+        // --- 新增：空間分割四叉樹 (QuadTree) 用於效能優化 ---
+        public class QuadTree
+        {
+            private const int MAX_OBJECTS = 10;
+            private const int MAX_LEVELS = 5;
+
+            private int _level;
+            private List<ShapeBase> _objects;
+            private RectangleF _bounds;
+            private QuadTree[] _nodes;
+
+            public QuadTree(int level, RectangleF bounds)
+            {
+                _level = level;
+                _objects = new List<ShapeBase>();
+                _bounds = bounds;
+                _nodes = new QuadTree[4];
+            }
+
+            public void Clear()
+            {
+                _objects.Clear();
+                for (int i = 0; i < _nodes.Length; i++)
+                {
+                    if (_nodes[i] != null)
+                    {
+                        _nodes[i].Clear();
+                        _nodes[i] = null;
+                    }
+                }
+            }
+
+            private void Split()
+            {
+                float subWidth = _bounds.Width / 2f;
+                float subHeight = _bounds.Height / 2f;
+                float x = _bounds.X;
+                float y = _bounds.Y;
+
+                _nodes[0] = new QuadTree(_level + 1, new RectangleF(x + subWidth, y, subWidth, subHeight));
+                _nodes[1] = new QuadTree(_level + 1, new RectangleF(x, y, subWidth, subHeight));
+                _nodes[2] = new QuadTree(_level + 1, new RectangleF(x, y + subHeight, subWidth, subHeight));
+                _nodes[3] = new QuadTree(_level + 1, new RectangleF(x + subWidth, y + subHeight, subWidth, subHeight));
+            }
+
+            private int GetIndex(RectangleF pRect)
+            {
+                int index = -1;
+                double verticalMidpoint = _bounds.X + (_bounds.Width / 2f);
+                double horizontalMidpoint = _bounds.Y + (_bounds.Height / 2f);
+
+                bool topQuadrant = (pRect.Y < horizontalMidpoint && pRect.Y + pRect.Height < horizontalMidpoint);
+                bool bottomQuadrant = (pRect.Y > horizontalMidpoint);
+
+                if (pRect.X < verticalMidpoint && pRect.X + pRect.Width < verticalMidpoint)
+                {
+                    if (topQuadrant) index = 1;
+                    else if (bottomQuadrant) index = 2;
+                }
+                else if (pRect.X > verticalMidpoint)
+                {
+                    if (topQuadrant) index = 0;
+                    else if (bottomQuadrant) index = 3;
+                }
+                return index;
+            }
+
+            public void Insert(ShapeBase shape)
+            {
+                if (_nodes[0] != null)
+                {
+                    int index = GetIndex(shape.Bounds);
+                    if (index != -1)
+                    {
+                        _nodes[index].Insert(shape);
+                        return;
+                    }
+                }
+
+                _objects.Add(shape);
+
+                if (_objects.Count > MAX_OBJECTS && _level < MAX_LEVELS)
+                {
+                    if (_nodes[0] == null) Split();
+
+                    int i = 0;
+                    while (i < _objects.Count)
+                    {
+                        int index = GetIndex(_objects[i].Bounds);
+                        if (index != -1)
+                        {
+                            _nodes[index].Insert(_objects[i]);
+                            _objects.RemoveAt(i);
+                        }
+                        else
+                        {
+                            i++;
+                        }
+                    }
+                }
+            }
+
+            public List<ShapeBase> Retrieve(List<ShapeBase> returnObjects, RectangleF pRect)
+            {
+                int index = GetIndex(pRect);
+                if (index != -1 && _nodes[0] != null)
+                {
+                    _nodes[index].Retrieve(returnObjects, pRect);
+                }
+                else if (_nodes[0] != null)
+                {
+                    for (int i = 0; i < 4; i++)
+                    {
+                        if (_nodes[i].Bounds.IntersectsWith(pRect))
+                        {
+                            _nodes[i].Retrieve(returnObjects, pRect);
+                        }
+                    }
+                }
+
+                returnObjects.AddRange(_objects);
+                return returnObjects;
+            }
+        }
+        // --------------------------------------------------------
+
         public abstract class ShapeBase : IDisposable
         {
             [Category("3. 座標與尺寸")]
@@ -1096,7 +1222,8 @@ namespace DrawingApp
                 return false;
             }
 
-            private PointF[] CalculateOrthogonalPath(PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes)
+            // --- 修改：A* 避障演算法使用 QuadTree 取得區域性障礙物 ---
+            private PointF[] CalculateOrthogonalPath(PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes, QuadTree quadTree)
             {
                 if (Math.Abs(p1.X - p2.X) < 20 && Math.Abs(p1.Y - p2.Y) < 20)
                 {
@@ -1104,15 +1231,30 @@ namespace DrawingApp
                 }
 
                 List<RectangleF> obstacles = new List<RectangleF>();
-                if (allShapes != null)
+                
+                // 【QuadTree 效能優化】只取連線周遭的物件，而非整個畫布的物件
+                float minX = Math.Min(p1.X, p2.X) - 100;
+                float minY = Math.Min(p1.Y, p2.Y) - 100;
+                float maxX = Math.Max(p1.X, p2.X) + 100;
+                float maxY = Math.Max(p1.Y, p2.Y) + 100;
+                RectangleF searchArea = new RectangleF(minX, minY, maxX - minX, maxY - minY);
+
+                List<ShapeBase> nearbyShapes = new List<ShapeBase>();
+                if (quadTree != null)
                 {
-                    foreach (var s in allShapes)
-                    {
-                        if (s is ConnectorShape || s.Id == this.SourceId || s.Id == this.TargetId) continue;
-                        RectangleF obs = s.Bounds;
-                        obs.Inflate(15, 15);
-                        obstacles.Add(obs);
-                    }
+                    quadTree.Retrieve(nearbyShapes, searchArea);
+                }
+                else if (allShapes != null)
+                {
+                    nearbyShapes = allShapes.ToList();
+                }
+
+                foreach (var s in nearbyShapes)
+                {
+                    if (s is ConnectorShape || s.Id == this.SourceId || s.Id == this.TargetId) continue;
+                    RectangleF obs = s.Bounds;
+                    obs.Inflate(15, 15);
+                    obstacles.Add(obs);
                 }
 
                 List<float> xCoords = new List<float> { p1.X, p2.X, p1.X - 30, p1.X + 30, p2.X - 30, p2.X + 30 };
@@ -1252,13 +1394,14 @@ namespace DrawingApp
                 return cleanPath.ToArray();
             }
 
-            public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null, bool isFastMode = false)
+            // --- 修改：加入 QuadTree 參數 ---
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null, bool isFastMode = false, QuadTree quadTree = null)
             {
                 PointF[] pts;
                 if (IsOrthogonal)
                 {
                     if (isFastMode) pts = BasicOrthogonalPath(p1, p2);
-                    else pts = CalculateOrthogonalPath(p1, p2, allShapes);
+                    else pts = CalculateOrthogonalPath(p1, p2, allShapes, quadTree);
                 }
                 else
                 {
@@ -1287,7 +1430,19 @@ namespace DrawingApp
                                 
                                 List<PointF> intersections = new List<PointF>();
 
-                                foreach (var other in allShapes)
+                                // 【QuadTree 優化】如果是跳線計算，其實只跟 QuadTree 中附近的連線有關
+                                List<ShapeBase> checkShapes = allShapes.ToList();
+                                if (quadTree != null)
+                                {
+                                    checkShapes.Clear();
+                                    float minX = Math.Min(segStart.X, segEnd.X) - 10;
+                                    float minY = Math.Min(segStart.Y, segEnd.Y) - 10;
+                                    float maxX = Math.Max(segStart.X, segEnd.X) + 10;
+                                    float maxY = Math.Max(segStart.Y, segEnd.Y) + 10;
+                                    quadTree.Retrieve(checkShapes, new RectangleF(minX, minY, maxX - minX, maxY - minY));
+                                }
+
+                                foreach (var other in checkShapes)
                                 {
                                     if (other is ConnectorShape otherConn && otherConn != this && otherConn.CachedPath != null && other.Id.CompareTo(this.Id) < 0)
                                     {
@@ -1350,7 +1505,7 @@ namespace DrawingApp
                 }
             }
 
-            public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null, false);
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null, false, null);
             public override void Draw(Graphics g) { }
 
             public override void DrawSelection(Graphics g)
