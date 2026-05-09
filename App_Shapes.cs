@@ -10,7 +10,8 @@ namespace DrawingApp
 {
     public static class App_Shapes
     {
-        public enum ShapeType { Pointer, HandPan, FormatPainter, ArrowLine, StraightLine, OrthogonalLine, Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, TextNode, Text, Image, Freehand }
+        // --- 新增 BezierPen 類型 ---
+        public enum ShapeType { Pointer, HandPan, FormatPainter, ArrowLine, StraightLine, OrthogonalLine, Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, TextNode, Text, Image, Freehand, BezierPen }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
         public enum AnchorPosition { Auto, Top, Bottom, Left, Right }
         public enum TextAlign { TopLeft, TopCenter, TopRight, MiddleLeft, MiddleCenter, MiddleRight, BottomLeft, BottomCenter, BottomRight }
@@ -145,10 +146,8 @@ namespace DrawingApp
 
         public abstract class ShapeBase : IDisposable
         {
-            // --- 全域共享陰影資源，減少記憶體浪費 ---
             protected static readonly Brush SharedShadowBrush = new SolidBrush(Color.FromArgb(60, 0, 0, 0));
 
-            // --- GDI+ 快取區 ---
             protected Pen _cachedPen;
             protected Brush _cachedFillBrush;
             protected Font _cachedFont;
@@ -310,7 +309,6 @@ namespace DrawingApp
                 ShapeColor = color;
             }
 
-            // --- 快取管理方法 ---
             protected virtual void InvalidatePen()
             {
                 if (_cachedPen != null) { _cachedPen.Dispose(); _cachedPen = null; }
@@ -615,6 +613,186 @@ namespace DrawingApp
                 return (float)Math.Sqrt(Math.Pow(p1.X - p2.X, 2) + Math.Pow(p1.Y - p2.Y, 2));
             }
         }
+
+        // --- 新增：鋼筆工具 (Bezier Pen) ---
+        public class BezierNode
+        {
+            public PointF Anchor { get; set; }
+            public PointF Control1 { get; set; }
+            public PointF Control2 { get; set; }
+            public BezierNode(PointF pt) { Anchor = pt; Control1 = pt; Control2 = pt; }
+        }
+
+        public class BezierShape : ShapeBase
+        {
+            [Browsable(false)] public override string Text { get; set; } = "";
+            [Browsable(false)]
+            public List<BezierNode> LocalNodes { get; set; } = new List<BezierNode>();
+
+            private Pen _cachedShadowPen;
+
+            public BezierShape() { }
+
+            public BezierShape(PointF start, Color color) : base(start, color)
+            {
+                LocalNodes.Add(new BezierNode(new PointF(0, 0)));
+            }
+
+            public void AddNode(PointF absolutePt)
+            {
+                LocalNodes.Add(new BezierNode(new PointF(absolutePt.X - Bounds.X, absolutePt.Y - Bounds.Y)));
+            }
+
+            public void UpdateLastControlPoint(PointF absoluteDragPt)
+            {
+                if (LocalNodes.Count == 0) return;
+                var lastNode = LocalNodes.Last();
+                PointF localDrag = new PointF(absoluteDragPt.X - Bounds.X, absoluteDragPt.Y - Bounds.Y);
+                lastNode.Control2 = localDrag;
+                // 對稱控制桿
+                lastNode.Control1 = new PointF(lastNode.Anchor.X - (localDrag.X - lastNode.Anchor.X), lastNode.Anchor.Y - (localDrag.Y - lastNode.Anchor.Y));
+            }
+
+            public void UpdateLastAnchorPoint(PointF absolutePt)
+            {
+                if (LocalNodes.Count == 0) return;
+                var lastNode = LocalNodes.Last();
+                PointF localPt = new PointF(absolutePt.X - Bounds.X, absolutePt.Y - Bounds.Y);
+                lastNode.Anchor = localPt;
+                lastNode.Control1 = localPt;
+                lastNode.Control2 = localPt;
+            }
+
+            protected override void InvalidatePen()
+            {
+                base.InvalidatePen();
+                if (_cachedShadowPen != null) { _cachedShadowPen.Dispose(); _cachedShadowPen = null; }
+            }
+
+            private GraphicsPath GetPath()
+            {
+                GraphicsPath path = new GraphicsPath();
+                if (LocalNodes.Count < 2) return path;
+
+                List<PointF> pts = new List<PointF>();
+                pts.Add(new PointF(Bounds.X + LocalNodes[0].Anchor.X, Bounds.Y + LocalNodes[0].Anchor.Y));
+
+                for (int i = 1; i < LocalNodes.Count; i++)
+                {
+                    pts.Add(new PointF(Bounds.X + LocalNodes[i - 1].Control2.X, Bounds.Y + LocalNodes[i - 1].Control2.Y));
+                    pts.Add(new PointF(Bounds.X + LocalNodes[i].Control1.X, Bounds.Y + LocalNodes[i].Control1.Y));
+                    pts.Add(new PointF(Bounds.X + LocalNodes[i].Anchor.X, Bounds.Y + LocalNodes[i].Anchor.Y));
+                }
+
+                if (pts.Count >= 4)
+                {
+                    path.AddBeziers(pts.ToArray());
+                }
+                return path;
+            }
+
+            public override void Draw(Graphics g)
+            {
+                if (LocalNodes.Count < 2) return;
+
+                using (GraphicsPath path = GetPath())
+                {
+                    if (EnableShadow)
+                    {
+                        if (_cachedShadowPen == null)
+                            _cachedShadowPen = new Pen(Color.FromArgb(60, 0, 0, 0), StrokeWidth) { LineJoin = LineJoin.Round };
+                        var m = g.Transform.Clone();
+                        g.TranslateTransform(6, 6);
+                        g.DrawPath(_cachedShadowPen, path);
+                        if (FillColor != Color.Transparent) g.FillPath(SharedShadowBrush, path);
+                        g.Transform = m;
+                    }
+
+                    if (FillColor != Color.Transparent) g.FillPath(GetCachedFillBrush(Bounds), path);
+                    g.DrawPath(GetCachedPen(), path);
+                }
+            }
+
+            public override void DrawSelection(Graphics g)
+            {
+                base.DrawSelection(g);
+
+                if (!IsSelected || IsLocked || LocalNodes.Count < 1) return;
+
+                Matrix oldMatrix = g.Transform;
+                PointF center = GetCenter();
+                g.TranslateTransform(center.X, center.Y);
+                g.RotateTransform(RotationAngle);
+                g.TranslateTransform(-center.X, -center.Y);
+
+                using (Pen handlePen = new Pen(Color.CornflowerBlue, 1) { DashStyle = DashStyle.Dot })
+                {
+                    foreach (var node in LocalNodes)
+                    {
+                        PointF absA = new PointF(Bounds.X + node.Anchor.X, Bounds.Y + node.Anchor.Y);
+                        PointF absC1 = new PointF(Bounds.X + node.Control1.X, Bounds.Y + node.Control1.Y);
+                        PointF absC2 = new PointF(Bounds.X + node.Control2.X, Bounds.Y + node.Control2.Y);
+
+                        g.DrawLine(handlePen, absC1, absA);
+                        g.DrawLine(handlePen, absA, absC2);
+
+                        g.FillEllipse(Brushes.White, absA.X - 3, absA.Y - 3, 6, 6);
+                        g.DrawEllipse(Pens.Blue, absA.X - 3, absA.Y - 3, 6, 6);
+
+                        g.FillRectangle(Brushes.White, absC1.X - 2, absC1.Y - 2, 4, 4);
+                        g.DrawRectangle(Pens.Gray, absC1.X - 2, absC1.Y - 2, 4, 4);
+                        
+                        g.FillRectangle(Brushes.White, absC2.X - 2, absC2.Y - 2, 4, 4);
+                        g.DrawRectangle(Pens.Gray, absC2.X - 2, absC2.Y - 2, 4, 4);
+                    }
+                }
+
+                g.Transform = oldMatrix;
+            }
+
+            public override void NormalizeBounds()
+            {
+                if (LocalNodes.Count == 0) return;
+
+                float minX = LocalNodes.Min(n => Math.Min(n.Anchor.X, Math.Min(n.Control1.X, n.Control2.X)));
+                float minY = LocalNodes.Min(n => Math.Min(n.Anchor.Y, Math.Min(n.Control1.Y, n.Control2.Y)));
+                float maxX = LocalNodes.Max(n => Math.Max(n.Anchor.X, Math.Max(n.Control1.X, n.Control2.X)));
+                float maxY = LocalNodes.Max(n => Math.Max(n.Anchor.Y, Math.Max(n.Control1.Y, n.Control2.Y)));
+
+                float newWidth = maxX - minX;
+                float newHeight = maxY - minY;
+
+                float absMinX = Bounds.X + minX;
+                float absMinY = Bounds.Y + minY;
+
+                Bounds = new RectangleF(absMinX, absMinY, newWidth, newHeight);
+
+                foreach (var node in LocalNodes)
+                {
+                    node.Anchor = new PointF(node.Anchor.X - minX, node.Anchor.Y - minY);
+                    node.Control1 = new PointF(node.Control1.X - minX, node.Control1.Y - minY);
+                    node.Control2 = new PointF(node.Control2.X - minX, node.Control2.Y - minY);
+                }
+            }
+
+            public override void SetBounds(RectangleF newBounds)
+            {
+                if (IsLocked) return;
+                if (Bounds.Width == 0 || Bounds.Height == 0) return;
+
+                float scaleX = newBounds.Width / Bounds.Width;
+                float scaleY = newBounds.Height / Bounds.Height;
+
+                foreach (var node in LocalNodes)
+                {
+                    node.Anchor = new PointF(node.Anchor.X * scaleX, node.Anchor.Y * scaleY);
+                    node.Control1 = new PointF(node.Control1.X * scaleX, node.Control1.Y * scaleY);
+                    node.Control2 = new PointF(node.Control2.X * scaleX, node.Control2.Y * scaleY);
+                }
+                base.SetBounds(newBounds);
+            }
+        }
+        // ------------------------------------
 
         public class GroupShape : ShapeBase
         {
@@ -1164,8 +1342,6 @@ namespace DrawingApp
             [Browsable(false)] public override bool FontUnderline { get; set; } = false;
             [Browsable(false)] public override TextAlign TextAlignment { get; set; } = TextAlign.MiddleCenter;
 
-            // --- 優化：Flyweight Pattern (享元模式) 全域靜態圖片快取字典 ---
-            // 讓同一個 Base64 的圖片，無論在畫布上有幾千個拷貝，記憶體中永遠只有一份 Bitmap。
             private static Dictionary<string, Bitmap> _globalImageCache = new Dictionary<string, Bitmap>();
 
             [Browsable(false)]
@@ -1182,7 +1358,6 @@ namespace DrawingApp
                 
                 if (!_globalImageCache.ContainsKey(Base64Image))
                 {
-                    // 為了安全獨立，我們存入一份 Clone
                     _globalImageCache[Base64Image] = new Bitmap(img);
                 }
                 
@@ -1516,7 +1691,6 @@ namespace DrawingApp
 
                 Pen p = GetCachedPen();
                 
-                // 動態設定箭頭，因為 Connector 的箭頭是 CustomCap，綁定在快取的 Pen 上即可
                 if (HasArrow && p.CustomEndCap == null)
                 {
                     GraphicsPath capPath = new GraphicsPath();
@@ -1671,6 +1845,8 @@ namespace DrawingApp
                     case ShapeType.Text: return new TextNodeShape(start, color, true);
                     case ShapeType.Image: return new ImageShape(start, img);
                     case ShapeType.Freehand: return new FreehandShape(start, color);
+                    // --- 註冊鋼筆工具 ---
+                    case ShapeType.BezierPen: return new BezierShape(start, color);
                     default: return null;
                 }
             }
