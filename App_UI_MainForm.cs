@@ -21,11 +21,14 @@ namespace DrawingApp
         private Button _btnFormatPainter;
 
         private FlowLayoutPanel _alignmentPanel;
-        // --- 新增：對齊畫布邊緣選項 ---
         private CheckBox _chkAlignToPage;
-        // ------------------------------------
         private FlowLayoutPanel _zIndexPanel;
+        
+        // --- UI 優化：屬性面板改為 TableLayoutPanel 與 GroupBox 結構 ---
         private Panel _customPropertiesPanel;
+        private GroupBox _gbAppearance;
+        private GroupBox _gbText;
+        // -----------------------------------------------------------------
         
         private TreeView _tvLayers;
         private bool _isSyncingTree = false;
@@ -179,7 +182,7 @@ namespace DrawingApp
             _topBar.Controls.Add(CreateTextButton("縮小 -", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }));
             _topBar.Controls.Add(CreateTextButton("100%", 60, (s, e) => CurrentCanvas?.SetZoom(1.0f)));
 
-            CheckBox chkSnap = new CheckBox() { Text = "網格對齊", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 15, 0) };
+            CheckBox chkSnap = new CheckBox() { Text = "網格對齊", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 10, 0) };
             chkSnap.CheckedChanged += (s, e) => { 
                 if (CurrentCanvas != null) {
                     CurrentCanvas.SnapToGrid = chkSnap.Checked; 
@@ -187,6 +190,16 @@ namespace DrawingApp
                 }
             };
             _topBar.Controls.Add(chkSnap);
+
+            // --- 新增：顯示尺規的開關 ---
+            CheckBox chkRuler = new CheckBox() { Text = "顯示尺規", Checked = true, AutoSize = true, Margin = new Padding(0, 9, 15, 0) };
+            chkRuler.CheckedChanged += (s, e) => { 
+                if (CurrentCanvas != null) {
+                    CurrentCanvas.ShowRulers = chkRuler.Checked; 
+                    CurrentCanvas.Invalidate(); 
+                }
+            };
+            _topBar.Controls.Add(chkRuler);
 
             _topBar.Controls.Add(CreateDivider());
 
@@ -263,7 +276,9 @@ namespace DrawingApp
             CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框\n快捷鍵: T");
             CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
             CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
-            CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆 (貝茲曲線)\n快捷鍵: P");
+            CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆\n快捷鍵: P");
+            // --- 新增：鋼筆工具按鈕 ---
+            CreateToolButton(App_Shapes.ShapeType.BezierPen, "鋼筆工具 (貝茲曲線)\n快捷鍵: B\n(點擊或拖曳拉出控制桿)");
 
             _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 300, BackColor = Color.FromArgb(245, 245, 245) };
             BuildPropertyPanel();
@@ -442,7 +457,6 @@ namespace DrawingApp
                 SyncLayerTreeSelection();
             };
             
-            // --- 擴充：接收 Canvas 傳來的工具切換請求 (支援快捷鍵同步 UI) ---
             canvas.OnToolChangedRequested += (type) => { 
                 if (CurrentCanvas != null) CurrentCanvas.CurrentTool = type; 
                 
@@ -457,7 +471,6 @@ namespace DrawingApp
                 }
                 if (targetBtn != null) SetActiveButton(targetBtn);
             };
-            // -------------------------------------------------------------
             
             canvas.OnImageInsertRequested += HandleImageInsert;
 
@@ -517,6 +530,7 @@ namespace DrawingApp
             }
         }
 
+        // --- UI 優化：重構右側屬性面板 ---
         private void BuildPropertyPanel()
         {
             _rightPanel.Controls.Clear();
@@ -525,21 +539,20 @@ namespace DrawingApp
             { 
                 Orientation = Orientation.Horizontal, 
                 Dock = DockStyle.Fill,
-                SplitterDistance = 480, 
+                SplitterDistance = 550, 
                 FixedPanel = FixedPanel.Panel1
             };
 
             Panel topPropPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
-            Panel actionsPanel = new Panel() { Dock = DockStyle.Top, Height = 170 };
+            Panel actionsPanel = new Panel() { Dock = DockStyle.Top, Height = 160 };
 
-            Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 10), AutoSize = true };
+            Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 5), AutoSize = true };
             actionsPanel.Controls.Add(alignTitle);
             
-            // --- 新增：對齊畫布邊緣選項 ---
-            _chkAlignToPage = new CheckBox() { Text = "對齊至畫布邊緣", Location = new Point(160, 10), AutoSize = true, ForeColor = Color.DimGray };
+            _chkAlignToPage = new CheckBox() { Text = "對齊畫布邊緣", Location = new Point(160, 5), AutoSize = true, ForeColor = Color.DimGray };
             actionsPanel.Controls.Add(_chkAlignToPage);
 
-            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(0, 35), Width = 280, Height = 70, WrapContents = true };
+            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(0, 30), Width = 280, Height = 70, WrapContents = true };
             _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
             _alignmentPanel.Controls.Add(CreateAlignButton("置中", (s, e) => AlignShapes("Center")));
             _alignmentPanel.Controls.Add(CreateAlignButton("靠右", (s, e) => AlignShapes("Right")));
@@ -550,109 +563,113 @@ namespace DrawingApp
             _alignmentPanel.Controls.Add(CreateAlignButton("垂直均分", (s, e) => DistributeShapes("Vertical")));
             actionsPanel.Controls.Add(_alignmentPanel);
 
-            Label zIndexTitle = new Label() { Text = "圖層順序", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 115), AutoSize = true };
+            Label zIndexTitle = new Label() { Text = "圖層順序", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 105), AutoSize = true };
             actionsPanel.Controls.Add(zIndexTitle);
 
-            _zIndexPanel = new FlowLayoutPanel() { Location = new Point(0, 140), Width = 280, Height = 35, WrapContents = true };
+            _zIndexPanel = new FlowLayoutPanel() { Location = new Point(0, 130), Width = 280, Height = 30, WrapContents = true };
             _zIndexPanel.Controls.Add(CreateAlignButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }));
             _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }));
             actionsPanel.Controls.Add(_zIndexPanel);
 
             _customPropertiesPanel = new Panel() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(0, 10, 0, 0) };
 
-            int yOffset = 0;
-            
-            Label lblAppearance = new Label() { Text = "外觀設定", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, yOffset), AutoSize = true };
-            _customPropertiesPanel.Controls.Add(lblAppearance);
-            yOffset += 30;
+            // 1. 外觀設定區塊 (使用 GroupBox 與 TableLayoutPanel)
+            _gbAppearance = new GroupBox() { Text = "外觀與線條設定", Dock = DockStyle.Top, Height = 190, Font = new Font("Arial", 9, FontStyle.Bold) };
+            TableLayoutPanel tlpApp = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
+            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "邊框顏色", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _btnShapeColor = new Button() { Location = new Point(80, yOffset), Size = new Size(160, 25), FlatStyle = FlatStyle.Flat };
+            tlpApp.Controls.Add(new Label() { Text = "邊框顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
+            _btnShapeColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
             _btnShapeColor.Click += (s, e) => PickColor(_btnShapeColor, c => ApplyPropertyChange(cmd => cmd.ShapeColor = c));
-            _customPropertiesPanel.Controls.Add(_btnShapeColor);
-            yOffset += 35;
+            tlpApp.Controls.Add(_btnShapeColor, 1, 0);
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "填色類型", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _cbBrushType = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(160, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            tlpApp.Controls.Add(new Label() { Text = "填色類型", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
+            _cbBrushType = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
             _cbBrushType.Items.AddRange(new string[] { "純色填充", "線性漸層" });
             _cbBrushType.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FillBrushType = (App_Shapes.BrushType)_cbBrushType.SelectedIndex);
-            _customPropertiesPanel.Controls.Add(_cbBrushType);
-            yOffset += 35;
+            tlpApp.Controls.Add(_cbBrushType, 1, 1);
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "主填充色", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _btnFillColor = new Button() { Location = new Point(80, yOffset), Size = new Size(75, 25), FlatStyle = FlatStyle.Flat };
+            tlpApp.Controls.Add(new Label() { Text = "主副填色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
+            TableLayoutPanel tlpColor = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+            tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            _btnFillColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
             _btnFillColor.Click += (s, e) => PickColor(_btnFillColor, c => ApplyPropertyChange(cmd => cmd.FillColor = c), true);
-            _customPropertiesPanel.Controls.Add(_btnFillColor);
-
-            _btnGradientColor = new Button() { Location = new Point(165, yOffset), Size = new Size(75, 25), FlatStyle = FlatStyle.Flat };
+            _btnGradientColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
             _btnGradientColor.Click += (s, e) => PickColor(_btnGradientColor, c => ApplyPropertyChange(cmd => cmd.GradientColor2 = c));
-            _customPropertiesPanel.Controls.Add(_btnGradientColor);
-            yOffset += 40;
+            tlpColor.Controls.Add(_btnFillColor, 0, 0); tlpColor.Controls.Add(_btnGradientColor, 1, 0);
+            tlpApp.Controls.Add(tlpColor, 1, 2);
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "線條粗細", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _tbStrokeWidth = new TrackBar() { Location = new Point(80, yOffset), Size = new Size(130, 30), Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
-            _lblStrokeWidthValue = new Label() { Location = new Point(220, yOffset + 5), AutoSize = true };
+            tlpApp.Controls.Add(new Label() { Text = "線條粗細", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 8, 0, 0) }, 0, 3);
+            FlowLayoutPanel flpStroke = new FlowLayoutPanel() { Dock = DockStyle.Fill, Margin = new Padding(0) };
+            _tbStrokeWidth = new TrackBar() { Width = 140, Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
+            _lblStrokeWidthValue = new Label() { Text = "2", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
             _tbStrokeWidth.ValueChanged += (s, e) => {
                 _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
                 ApplyPropertyChange(cmd => cmd.StrokeWidth = _tbStrokeWidth.Value);
             };
-            _customPropertiesPanel.Controls.Add(_tbStrokeWidth);
-            _customPropertiesPanel.Controls.Add(_lblStrokeWidthValue);
-            yOffset += 40;
+            flpStroke.Controls.Add(_tbStrokeWidth); flpStroke.Controls.Add(_lblStrokeWidthValue);
+            tlpApp.Controls.Add(flpStroke, 1, 3);
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "線條樣式", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _cbDashStyle = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(160, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            tlpApp.Controls.Add(new Label() { Text = "線條樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 4);
+            _cbDashStyle = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
             _cbDashStyle.Items.AddRange(new string[] { "實線 (Solid)", "虛線 (Dash)", "點線 (Dot)", "點虛線 (DashDot)" });
             _cbDashStyle.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.StrokeDashStyle = (DashStyle)_cbDashStyle.SelectedIndex);
-            _customPropertiesPanel.Controls.Add(_cbDashStyle);
-            yOffset += 35;
+            tlpApp.Controls.Add(_cbDashStyle, 1, 4);
 
-            _chkShadow = new CheckBox() { Text = "啟用立體陰影", Location = new Point(80, yOffset), AutoSize = true };
+            _chkShadow = new CheckBox() { Text = "啟用立體陰影", AutoSize = true, Margin = new Padding(0, 5, 0, 0) };
             _chkShadow.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.EnableShadow = _chkShadow.Checked);
-            _customPropertiesPanel.Controls.Add(_chkShadow);
-            yOffset += 35;
+            tlpApp.Controls.Add(_chkShadow, 1, 5);
 
-            Panel div1 = new Panel() { BackColor = Color.LightGray, Height = 1, Width = 260, Location = new Point(0, yOffset) };
-            _customPropertiesPanel.Controls.Add(div1);
-            yOffset += 15;
+            _gbAppearance.Controls.Add(tlpApp);
+            _customPropertiesPanel.Controls.Add(_gbAppearance);
 
-            Label lblText = new Label() { Text = "文字設定", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, yOffset), AutoSize = true };
-            _customPropertiesPanel.Controls.Add(lblText);
-            yOffset += 30;
+            Panel spacer1 = new Panel() { Dock = DockStyle.Top, Height = 10 };
+            _customPropertiesPanel.Controls.Add(spacer1);
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "字體顏色", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _btnFontColor = new Button() { Location = new Point(80, yOffset), Size = new Size(160, 25), FlatStyle = FlatStyle.Flat };
+            // 2. 文字設定區塊
+            _gbText = new GroupBox() { Text = "文字與排版設定", Dock = DockStyle.Top, Height = 160, Font = new Font("Arial", 9, FontStyle.Bold) };
+            TableLayoutPanel tlpText = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
+            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            tlpText.Controls.Add(new Label() { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
+            _btnFontColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
             _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
-            _customPropertiesPanel.Controls.Add(_btnFontColor);
-            yOffset += 35;
+            tlpText.Controls.Add(_btnFontColor, 1, 0);
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "字體/大小", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _cbFontName = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(100, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            tlpText.Controls.Add(new Label() { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
+            TableLayoutPanel tlpFont = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+            _cbFontName = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
             foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
             _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
-            _customPropertiesPanel.Controls.Add(_cbFontName);
-
-            _nudFontSize = new NumericUpDown() { Location = new Point(190, yOffset), Size = new Size(50, 25), Minimum = 6, Maximum = 144 };
+            _nudFontSize = new NumericUpDown() { Dock = DockStyle.Fill, Minimum = 6, Maximum = 144 };
             _nudFontSize.ValueChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontSize = (float)_nudFontSize.Value);
-            _customPropertiesPanel.Controls.Add(_nudFontSize);
-            yOffset += 35;
+            tlpFont.Controls.Add(_cbFontName, 0, 0); tlpFont.Controls.Add(_nudFontSize, 1, 0);
+            tlpText.Controls.Add(tlpFont, 1, 1);
 
-            _chkBold = new CheckBox() { Text = "粗體", Location = new Point(80, yOffset), AutoSize = true };
-            _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
-            _chkItalic = new CheckBox() { Text = "斜體", Location = new Point(140, yOffset), AutoSize = true };
-            _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
-            _chkUnderline = new CheckBox() { Text = "底線", Location = new Point(200, yOffset), AutoSize = true };
-            _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
-            _customPropertiesPanel.Controls.Add(_chkBold);
-            _customPropertiesPanel.Controls.Add(_chkItalic);
-            _customPropertiesPanel.Controls.Add(_chkUnderline);
-            yOffset += 35;
+            tlpText.Controls.Add(new Label() { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
+            FlowLayoutPanel flpStyle = new FlowLayoutPanel() { Dock = DockStyle.Fill, Margin = new Padding(0) };
+            _chkBold = new CheckBox() { Text = "粗", AutoSize = true, Width = 40 }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
+            _chkItalic = new CheckBox() { Text = "斜", AutoSize = true, Width = 40 }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
+            _chkUnderline = new CheckBox() { Text = "底線", AutoSize = true, Width = 55 }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
+            flpStyle.Controls.Add(_chkBold); flpStyle.Controls.Add(_chkItalic); flpStyle.Controls.Add(_chkUnderline);
+            tlpText.Controls.Add(flpStyle, 1, 2);
 
-            _customPropertiesPanel.Controls.Add(new Label() { Text = "對齊方式", Location = new Point(0, yOffset + 5), AutoSize = true });
-            _cbTextAlign = new ComboBox() { Location = new Point(80, yOffset), Size = new Size(160, 25), DropDownStyle = ComboBoxStyle.DropDownList };
+            tlpText.Controls.Add(new Label() { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 3);
+            _cbTextAlign = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
             _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
             _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
-            _customPropertiesPanel.Controls.Add(_cbTextAlign);
+            tlpText.Controls.Add(_cbTextAlign, 1, 3);
+
+            _gbText.Controls.Add(tlpText);
+            _customPropertiesPanel.Controls.Add(_gbText);
+            
+            // 由於使用 Dock.Top，加入順序會由下往上推，我們使用 BringToFront 修正順序
+            _gbText.BringToFront();
+            spacer1.BringToFront();
+            _gbAppearance.BringToFront();
 
             topPropPanel.Controls.Add(_customPropertiesPanel);
             topPropPanel.Controls.Add(actionsPanel);
@@ -661,7 +678,6 @@ namespace DrawingApp
             Panel layerPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
             Label lblLayers = new Label() { Text = "圖層管理 (支援拖曳排序)", Font = new Font("Arial", 10, FontStyle.Bold), Dock = DockStyle.Top, Height = 25 };
             
-            // --- 擴充：設定 TreeView 支援拖曳 ---
             _tvLayers = new TreeView() 
             { 
                 Dock = DockStyle.Fill, 
@@ -676,7 +692,6 @@ namespace DrawingApp
             _tvLayers.ItemDrag += TvLayers_ItemDrag;
             _tvLayers.DragEnter += TvLayers_DragEnter;
             _tvLayers.DragDrop += TvLayers_DragDrop;
-            // ------------------------------------
 
             ContextMenuStrip layerMenu = new ContextMenuStrip();
             layerMenu.Items.Add("鎖定 / 解鎖", null, (s, e) => {
@@ -714,7 +729,6 @@ namespace DrawingApp
             _customPropertiesPanel.Enabled = false;
         }
 
-        // --- 擴充：圖層拖曳排序邏輯 ---
         private void TvLayers_ItemDrag(object sender, ItemDragEventArgs e)
         {
             if (e.Item is TreeNode node && node.Tag is App_Shapes.ShapeBase shape && !shape.IsLocked)
@@ -746,13 +760,9 @@ namespace DrawingApp
 
                 if (draggedShape != null && targetShape != null)
                 {
-                    // 在 Canvas.Shapes 中，越後面的元素 Z-Index 越高（顯示在越上層）
-                    // 在 TreeView 中，越上面的節點表示越新（Z-Index 越高）
                     CurrentCanvas.Shapes.Remove(draggedShape);
-                    
                     int targetIndex = CurrentCanvas.Shapes.IndexOf(targetShape);
                     
-                    // 如果把節點往下拖 (表示要送到更底層)，則放在 target 的後面
                     if (targetPoint.Y > draggedNode.Bounds.Y)
                         CurrentCanvas.Shapes.Insert(Math.Max(0, targetIndex), draggedShape);
                     else
@@ -765,7 +775,6 @@ namespace DrawingApp
                 }
             }
         }
-        // ------------------------------------
 
         private void RefreshLayerTree()
         {
@@ -818,6 +827,7 @@ namespace DrawingApp
             else if (shape is App_Shapes.TextNodeShape tns) name = tns.IsTransparent ? "純文字" : "文字框";
             else if (shape is App_Shapes.ImageShape) name = "圖片";
             else if (shape is App_Shapes.FreehandShape) name = "手繪線條";
+            else if (shape is App_Shapes.BezierShape) name = "貝茲曲線";
             else if (shape is App_Shapes.GroupShape) name = "📂 群組";
 
             if (!string.IsNullOrEmpty(shape.Text))
@@ -944,7 +954,6 @@ namespace DrawingApp
             return btn;
         }
 
-        // --- 擴充：支援對齊至畫布邊緣 ---
         private void AlignShapes(string type)
         {
             if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
@@ -952,7 +961,6 @@ namespace DrawingApp
             var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
             if (shapes.Count == 0) return;
 
-            // 如果沒有勾選對齊畫布，且只選了一個物件，就無法對齊
             if (!_chkAlignToPage.Checked && shapes.Count < 2) return;
 
             var oldBounds = shapes.Select(s => s.Bounds).ToList();
@@ -962,66 +970,32 @@ namespace DrawingApp
 
             if (_chkAlignToPage.Checked)
             {
-                // 對齊到畫布的邊界
                 SizeF pageSize = CurrentCanvas.PageSize;
                 switch (type)
                 {
-                    case "Left":
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(0, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Right":
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Center":
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width / 2 - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Top":
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, 0, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Bottom":
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Middle":
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height / 2 - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height));
-                        break;
+                    case "Left": foreach (var s in shapes) newBounds.Add(new RectangleF(0, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Right": foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Center": foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width / 2 - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Top": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, 0, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Bottom": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Middle": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height / 2 - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
                 }
             }
             else
             {
-                // 原本的物件互相對齊
                 switch (type)
                 {
-                    case "Left":
-                        referenceValue = shapes.Min(s => s.Bounds.Left);
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Right":
-                        referenceValue = shapes.Max(s => s.Bounds.Right);
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Center":
-                        referenceValue = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2);
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Top":
-                        referenceValue = shapes.Min(s => s.Bounds.Top);
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Bottom":
-                        referenceValue = shapes.Max(s => s.Bounds.Bottom);
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height));
-                        break;
-                    case "Middle":
-                        referenceValue = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2);
-                        foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height));
-                        break;
+                    case "Left": referenceValue = shapes.Min(s => s.Bounds.Left); foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Right": referenceValue = shapes.Max(s => s.Bounds.Right); foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Center": referenceValue = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Top": referenceValue = shapes.Min(s => s.Bounds.Top); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Bottom": referenceValue = shapes.Max(s => s.Bounds.Bottom); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Middle": referenceValue = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
                 }
             }
 
             CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
-            CurrentCanvas.Invalidate();
         }
-        // ------------------------------------
 
         private void DistributeShapes(string type)
         {
@@ -1071,7 +1045,6 @@ namespace DrawingApp
             }
 
             CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(originalShapes, oldBounds, orderedNewBounds));
-            CurrentCanvas.Invalidate();
         }
 
         private void RefreshPropertyPanel()
@@ -1080,7 +1053,6 @@ namespace DrawingApp
             {
                 int selCount = CurrentCanvas.SelectedShapes.Count;
                 
-                // 如果有勾選「對齊至畫布邊緣」，單一物件也可以使用對齊功能
                 _alignmentPanel.Enabled = _chkAlignToPage.Checked ? selCount > 0 : selCount > 1;
                 _zIndexPanel.Enabled = selCount > 0;
                 
@@ -1156,7 +1128,6 @@ namespace DrawingApp
                         
                         var imgShape = App_Shapes.ShapeFactory.CreateShape(App_Shapes.ShapeType.Image, pt, Color.Black, finalImg);
                         CurrentCanvas.CmdManager.ExecuteCommand(new AddShapeCommand(CurrentCanvas.Shapes, imgShape));
-                        CurrentCanvas.Invalidate();
                         
                         if (finalImg != originalImg) finalImg.Dispose();
                     }
@@ -1206,14 +1177,13 @@ namespace DrawingApp
                 case "A1 直式": CurrentCanvas.PageSize = new SizeF(5940, 8410); break;
                 case "A1 橫式": CurrentCanvas.PageSize = new SizeF(8410, 5940); break;
             }
-            CurrentCanvas.Invalidate();
         }
 
         private Button CreateToolButton(App_Shapes.ShapeType type, string tooltip)
         {
             Button btn = new Button() { Size = new Size(45, 45), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(2, 2, 2, 8) };
             btn.FlatAppearance.BorderSize = 0;
-            btn.Tag = type; // 將類型存入 Tag 供快捷鍵同步使用
+            btn.Tag = type; 
             Color iconColor = Color.FromArgb(80, 80, 80);
             
             ToolTip tt = new ToolTip();
@@ -1322,6 +1292,15 @@ namespace DrawingApp
                     else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 12, 10);
                     else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 10, 10, 24, 24); g.DrawEllipse(p, 14, 14, 4, 4); g.DrawLine(p, 10, 34, 24, 20); }
                     else if (type == App_Shapes.ShapeType.Freehand) { g.DrawBezier(p, new Point(10, 22), new Point(20, 10), new Point(25, 34), new Point(35, 22)); }
+                    // --- 新增：鋼筆工具的圖示 ---
+                    else if (type == App_Shapes.ShapeType.BezierPen) 
+                    { 
+                        g.DrawLine(p, 22, 10, 16, 24); 
+                        g.DrawLine(p, 22, 10, 28, 24); 
+                        g.DrawLine(p, 16, 24, 22, 34); 
+                        g.DrawLine(p, 28, 24, 22, 34);
+                        g.FillEllipse(Brushes.White, 20, 8, 4, 4); g.DrawEllipse(p, 20, 8, 4, 4); 
+                    }
                 }
             };
             _leftPanel.Controls.Add(btn);
