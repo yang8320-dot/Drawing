@@ -185,7 +185,8 @@ namespace DrawingApp
                         string fw = shape.FontBold ? "bold" : "normal";
                         string fs = shape.FontItalic ? "italic" : "normal";
                         string td = shape.FontUnderline ? "text-decoration=\"underline\"" : "";
-                        svg.AppendLine($"  <text x=\"{cx}\" y=\"{cy}\" font-family=\"{shape.FontName}\" font-size=\"{shape.FontSize}\" font-weight=\"{fw}\" font-style=\"{fs}\" fill=\"{fontColorHex}\" text-anchor=\"middle\" dominant-baseline=\"middle\" {td} {transform}>{System.Security.SecurityElement.Escape(shape.Text)}</text>");
+                        // 修正：使用 dy=".3em" 來達到跨瀏覽器精準的垂直置中，取代 dominant-baseline
+                        svg.AppendLine($"  <text x=\"{cx}\" y=\"{cy}\" font-family=\"{shape.FontName}\" font-size=\"{shape.FontSize}\" font-weight=\"{fw}\" font-style=\"{fs}\" fill=\"{fontColorHex}\" text-anchor=\"middle\" dy=\".3em\" {td} {transform}>{System.Security.SecurityElement.Escape(shape.Text)}</text>");
                     }
                 }
                 svg.AppendLine("</svg>");
