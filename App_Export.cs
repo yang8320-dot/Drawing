@@ -25,7 +25,6 @@ namespace DrawingApp
             });
         }
 
-        // --- 新增：匯出局部選取圖形為 PNG ---
         public static async Task ExportSelectionToPngAsync(List<App_Shapes.ShapeBase> selectedShapes, string filePath)
         {
             if (selectedShapes == null || selectedShapes.Count == 0) return;
@@ -147,6 +146,36 @@ namespace DrawingApp
                             svg.AppendLine($"\" fill=\"none\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
                         }
                     }
+                    // --- 新增：貝茲曲線 (鋼筆工具) 的 SVG 匯出 ---
+                    else if (shape is App_Shapes.BezierShape bezier)
+                    {
+                        if (bezier.LocalNodes.Count > 1)
+                        {
+                            svg.Append($"  <path d=\"");
+                            
+                            // 移至起始點 (MoveTo)
+                            float startX = bezier.Bounds.X + bezier.LocalNodes[0].Anchor.X;
+                            float startY = bezier.Bounds.Y + bezier.LocalNodes[0].Anchor.Y;
+                            svg.Append($"M {startX} {startY} ");
+
+                            // 繪製每一段的三次方貝茲曲線 (Cubic Bezier)
+                            for (int i = 1; i < bezier.LocalNodes.Count; i++)
+                            {
+                                float c1x = bezier.Bounds.X + bezier.LocalNodes[i - 1].Control2.X;
+                                float c1y = bezier.Bounds.Y + bezier.LocalNodes[i - 1].Control2.Y;
+                                
+                                float c2x = bezier.Bounds.X + bezier.LocalNodes[i].Control1.X;
+                                float c2y = bezier.Bounds.Y + bezier.LocalNodes[i].Control1.Y;
+                                
+                                float endX = bezier.Bounds.X + bezier.LocalNodes[i].Anchor.X;
+                                float endY = bezier.Bounds.Y + bezier.LocalNodes[i].Anchor.Y;
+
+                                svg.Append($"C {c1x} {c1y}, {c2x} {c2y}, {endX} {endY} ");
+                            }
+                            
+                            svg.AppendLine($"\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
+                        }
+                    }
                     else if (shape is App_Shapes.TriangleShape || shape is App_Shapes.DiamondShape || 
                              shape is App_Shapes.StarShape || shape is App_Shapes.PentagonShape || shape is App_Shapes.HexagonShape)
                     {
@@ -185,7 +214,6 @@ namespace DrawingApp
                         string fw = shape.FontBold ? "bold" : "normal";
                         string fs = shape.FontItalic ? "italic" : "normal";
                         string td = shape.FontUnderline ? "text-decoration=\"underline\"" : "";
-                        // 修正：使用 dy=".3em" 來達到跨瀏覽器精準的垂直置中，取代 dominant-baseline
                         svg.AppendLine($"  <text x=\"{cx}\" y=\"{cy}\" font-family=\"{shape.FontName}\" font-size=\"{shape.FontSize}\" font-weight=\"{fw}\" font-style=\"{fs}\" fill=\"{fontColorHex}\" text-anchor=\"middle\" dy=\".3em\" {td} {transform}>{System.Security.SecurityElement.Escape(shape.Text)}</text>");
                     }
                 }
