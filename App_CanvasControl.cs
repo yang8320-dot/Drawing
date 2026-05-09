@@ -56,6 +56,7 @@ namespace DrawingApp
         private PointF _cameraOffset = new PointF(0, 0);
         private bool _isPanning = false;
         private Point _lastMousePos;
+        private Point _currentMouseScreenPos; // 記錄滑鼠當前位置，供尺規游標使用
         
         private float _dragTotalDx = 0;
         private float _dragTotalDy = 0;
@@ -67,7 +68,8 @@ namespace DrawingApp
         private App_Shapes.AnchorPosition _oldSA, _oldTA;
         private PointF _oldStart, _oldEnd;
 
-        private enum InteractionState { Idle, Drawing, Moving, Resizing, Rotating, Connecting, BoxSelecting }
+        // --- 新增：BezierPenDrawing 狀態，用來處理鋼筆工具連續點擊 ---
+        private enum InteractionState { Idle, Drawing, Moving, Resizing, Rotating, Connecting, BoxSelecting, BezierPenDrawing }
         private InteractionState _currentState = InteractionState.Idle;
 
         private App_Shapes.ShapeType _currentTool = App_Shapes.ShapeType.Pointer;
@@ -84,8 +86,16 @@ namespace DrawingApp
                     this.Cursor = Cursors.Hand;
                 else if (_currentTool == App_Shapes.ShapeType.FormatPainter)
                     this.Cursor = Cursors.UpArrow; 
+                else if (_currentTool == App_Shapes.ShapeType.BezierPen)
+                    this.Cursor = Cursors.Cross;
                 else
                     this.Cursor = Cursors.Default;
+
+                // 如果切換工具時，鋼筆還沒畫完，就強制結束
+                if (_currentState == InteractionState.BezierPenDrawing && _currentTool != App_Shapes.ShapeType.BezierPen)
+                {
+                    FinishBezierDrawing();
+                }
             } 
         }
 
@@ -93,6 +103,10 @@ namespace DrawingApp
         
         public bool SnapToGrid { get; set; } = true;
         public float GridSize { get; set; } = 20f;
+        
+        // --- 新增：尺規顯示開關 ---
+        public bool ShowRulers { get; set; } = true;
+        private const int RULER_SIZE = 25;
 
         private App_Shapes.ShapeBase _tempShape = null;
         private RectangleF _boxSelectRect;
@@ -116,7 +130,6 @@ namespace DrawingApp
         private const int MINIMAP_WIDTH = 200;
 
         private App_Shapes.QuadTree _quadTree;
-        // 優化：新增 QuadTree 髒標記，避免 OnPaint 中瘋狂重建
         private bool _isQuadTreeDirty = true;
 
         public event Action<PointF> OnImageInsertRequested;
@@ -142,7 +155,7 @@ namespace DrawingApp
             this.MouseDoubleClick += Canvas_DoubleClick;
 
             CmdManager.OnStateChanged += () => {
-                _isQuadTreeDirty = true; // Undo/Redo 會改變形狀，必須標記重建
+                _isQuadTreeDirty = true;
                 this.Invalidate();
             };
 
@@ -487,12 +500,33 @@ namespace DrawingApp
             base.OnKeyUp(e);
         }
 
+        private void FinishBezierDrawing()
+        {
+            if (_currentState == InteractionState.BezierPenDrawing && _tempShape is App_Shapes.BezierShape bezier)
+            {
+                bezier.NormalizeBounds();
+                if (bezier.LocalNodes.Count > 1)
+                {
+                    CmdManager.ExecuteCommand(new AddShapeCommand(Shapes, bezier));
+                }
+                _tempShape = null;
+                _currentState = InteractionState.Idle;
+                this.Invalidate();
+            }
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (_inlineTextBox.Focused) return base.ProcessCmdKey(ref msg, keyData);
 
-            if (keyData == Keys.Escape) 
+            if (keyData == Keys.Escape || keyData == Keys.Enter) 
             { 
+                if (_currentState == InteractionState.BezierPenDrawing)
+                {
+                    FinishBezierDrawing();
+                    return true;
+                }
+
                 _tempShape?.Dispose();
                 _tempShape = null;
                 _hoveredShapeForConnection = null;
@@ -508,6 +542,7 @@ namespace DrawingApp
             if (keyData == Keys.H) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.HandPan); return true; }
             if (keyData == Keys.T) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.TextNode); return true; }
             if (keyData == Keys.P) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Freehand); return true; }
+            if (keyData == Keys.B) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.BezierPen); return true; }
             if (keyData == Keys.L) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.OrthogonalLine); return true; }
             if (keyData == Keys.R) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Rectangle); return true; }
 
@@ -731,7 +766,6 @@ namespace DrawingApp
             return new RectangleF(minX, minY, maxX - minX, maxY - minY);
         }
 
-        // 優化：確保 QuadTree 只有在標記為 Dirty 時才重建
         private void EnsureQuadTree()
         {
             if (_isQuadTreeDirty || _quadTree == null)
@@ -820,6 +854,9 @@ namespace DrawingApp
             this.Focus();
             PointF realPt = GetRealPoint(e.Location);
             _lastMousePos = e.Location;
+
+            // 忽略點擊尺規區域
+            if (ShowRulers && (e.X <= RULER_SIZE || e.Y <= RULER_SIZE)) return;
 
             if (e.Button == MouseButtons.Left && _minimapRect.Contains(e.Location))
             {
@@ -973,6 +1010,20 @@ namespace DrawingApp
                         }
                     }
                 }
+                else if (CurrentTool == App_Shapes.ShapeType.BezierPen)
+                {
+                    if (_currentState != InteractionState.BezierPenDrawing)
+                    {
+                        _currentState = InteractionState.BezierPenDrawing;
+                        _tempShape = App_Shapes.ShapeFactory.CreateShape(CurrentTool, realPt, CurrentColor);
+                        ((App_Shapes.BezierShape)_tempShape).FillColor = Color.Transparent;
+                    }
+                    else
+                    {
+                        var bezier = (App_Shapes.BezierShape)_tempShape;
+                        bezier.AddNode(realPt);
+                    }
+                }
                 else if (CurrentTool != App_Shapes.ShapeType.HandPan && CurrentTool != App_Shapes.ShapeType.FormatPainter)
                 {
                     _currentState = InteractionState.Drawing;
@@ -1010,6 +1061,7 @@ namespace DrawingApp
         private void Canvas_MouseMove(object sender, MouseEventArgs e)
         {
             PointF realPt = GetRealPoint(e.Location);
+            _currentMouseScreenPos = e.Location;
             _smartGuides.Clear();
 
             UpdateCursor(realPt);
@@ -1261,6 +1313,12 @@ namespace DrawingApp
                     InvalidateWorldRect(newBounds);
                     if (_minimapRect != Rectangle.Empty) this.Invalidate(_minimapRect);
                 }
+                else if (_currentState == InteractionState.BezierPenDrawing && _tempShape is App_Shapes.BezierShape bezier)
+                {
+                    // 滑鼠拖曳時，更新控制桿
+                    bezier.UpdateLastControlPoint(realPt);
+                    this.Invalidate();
+                }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
                     RectangleF oldBounds = _tempShape.Bounds;
@@ -1319,6 +1377,21 @@ namespace DrawingApp
                 
                 _lastMousePos = new Point((int)(_lastMousePos.X + dx * ZoomFactor), (int)(_lastMousePos.Y + dy * ZoomFactor));
             }
+            else
+            {
+                // 如果是貝茲鋼筆，且滑鼠沒有按下 (懸停狀態)，要畫出一條虛擬線到滑鼠位置
+                if (_currentState == InteractionState.BezierPenDrawing && _tempShape is App_Shapes.BezierShape)
+                {
+                    this.Invalidate();
+                }
+
+                // 滑鼠純移動，更新尺規游標
+                if (ShowRulers)
+                {
+                    this.Invalidate(new Rectangle(0, 0, this.Width, RULER_SIZE));
+                    this.Invalidate(new Rectangle(0, 0, RULER_SIZE, this.Height));
+                }
+            }
         }
 
         private void Canvas_MouseUp(object sender, MouseEventArgs e)
@@ -1336,6 +1409,8 @@ namespace DrawingApp
                     this.Cursor = Cursors.Hand;
                 else if (CurrentTool == App_Shapes.ShapeType.FormatPainter)
                     this.Cursor = Cursors.UpArrow;
+                else if (CurrentTool == App_Shapes.ShapeType.BezierPen)
+                    this.Cursor = Cursors.Cross;
                 else
                     this.Cursor = Cursors.Default;
             }
@@ -1372,6 +1447,11 @@ namespace DrawingApp
                 else if (_currentState == InteractionState.Rotating && SelectedShapes.Count == 1 && !SelectedShapes[0].IsLocked)
                 {
                     CmdManager.ExecuteCommand(new RotateShapeCommand(SelectedShapes[0], _initialAngle, SelectedShapes[0].RotationAngle));
+                }
+                else if (_currentState == InteractionState.BezierPenDrawing)
+                {
+                    // 鋼筆工具放開滑鼠時，不結束，讓使用者繼續點下一點
+                    return; 
                 }
                 else if (_currentState == InteractionState.Drawing && _tempShape != null)
                 {
@@ -1411,7 +1491,6 @@ namespace DrawingApp
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            // 優化：確保 QuadTree 是最新的，但不強制在每次 OnPaint 中重建
             EnsureQuadTree();
             
             var oldTransform = g.Transform;
@@ -1442,9 +1521,7 @@ namespace DrawingApp
             List<App_Shapes.ShapeBase> visibleShapes = new List<App_Shapes.ShapeBase>();
             if (_quadTree != null) _quadTree.Retrieve(visibleShapes, clipWorldBounds);
 
-            // 優化：如果目前處於拖曳/縮放狀態，這些被選取的物件可能不在他們原本的 QuadTree 節點裡
-            // 所以強制將其加入繪製清單，避免在畫面邊緣拖曳時消失
-            if (_currentState != InteractionState.Idle)
+            if (_currentState != InteractionState.Idle || _currentState == InteractionState.BezierPenDrawing)
             {
                 foreach (var s in SelectedShapes) 
                     if (!visibleShapes.Contains(s)) visibleShapes.Add(s);
@@ -1495,6 +1572,17 @@ namespace DrawingApp
             _tempShape?.DrawWithTransform(g);
             if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes, true, _quadTree); 
             
+            // 繪製鋼筆工具尚未決定的下一條線 (懸停導引線)
+            if (_currentState == InteractionState.BezierPenDrawing && _tempShape is App_Shapes.BezierShape bezier && bezier.LocalNodes.Count > 0)
+            {
+                PointF lastPt = bezier.LocalNodes.Last().Anchor;
+                PointF realPt = GetRealPoint(_currentMouseScreenPos);
+                using (Pen guidePen = new Pen(Color.CornflowerBlue, 1f) { DashStyle = DashStyle.Dash })
+                {
+                    g.DrawLine(guidePen, bezier.Bounds.X + lastPt.X, bezier.Bounds.Y + lastPt.Y, realPt.X, realPt.Y);
+                }
+            }
+            
             if ((_currentState == InteractionState.Connecting || _currentState == InteractionState.Resizing) && _hoveredShapeForConnection != null)
             {
                 PointF anchorPt = _hoveredAnchor == App_Shapes.AnchorPosition.Auto 
@@ -1527,6 +1615,7 @@ namespace DrawingApp
 
             g.Transform = oldTransform; 
 
+            // --- 繪製小地圖 ---
             float minimapScale = MINIMAP_WIDTH / currentCanvasSize.Width;
             int minimapHeight = (int)(currentCanvasSize.Height * minimapScale);
             _minimapRect = new Rectangle(this.Width - MINIMAP_WIDTH - 20, this.Height - minimapHeight - 20, MINIMAP_WIDTH, minimapHeight);
@@ -1561,6 +1650,12 @@ namespace DrawingApp
             
             using (Pen vp = new Pen(Color.Red, 2f))
                 g.DrawRectangle(vp, vx, vy, vw, vh);
+
+            // --- 新增：繪製尺規 ---
+            if (ShowRulers)
+            {
+                DrawRulers(e.Graphics);
+            }
         }
 
         private void DrawGrid(Graphics g, RectangleF viewRect)
@@ -1572,6 +1667,108 @@ namespace DrawingApp
             {
                 for (float x = startX; x < viewRect.Right; x += GridSize) g.DrawLine(gridPen, x, viewRect.Top, x, viewRect.Bottom);
                 for (float y = startY; y < viewRect.Bottom; y += GridSize) g.DrawLine(gridPen, viewRect.Left, y, viewRect.Right, y);
+            }
+        }
+
+        // --- 新增：繪製畫布尺規 ---
+        private void DrawRulers(Graphics g)
+        {
+            g.SmoothingMode = SmoothingMode.None; // 尺規不需要反鋸齒
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            using (Brush rulerBg = new SolidBrush(Color.FromArgb(240, 240, 240)))
+            using (Pen rulerPen = new Pen(Color.FromArgb(180, 180, 180)))
+            using (Brush textBrush = new SolidBrush(Color.FromArgb(100, 100, 100)))
+            using (Font rulerFont = new Font("Arial", 7))
+            {
+                // 頂部尺規 (Top Ruler)
+                g.FillRectangle(rulerBg, 0, 0, this.Width, RULER_SIZE);
+                g.DrawLine(rulerPen, 0, RULER_SIZE, this.Width, RULER_SIZE);
+
+                // 左側尺規 (Left Ruler)
+                g.FillRectangle(rulerBg, 0, 0, RULER_SIZE, this.Height);
+                g.DrawLine(rulerPen, RULER_SIZE, 0, RULER_SIZE, this.Height);
+
+                // 左上角交界處方塊
+                g.FillRectangle(Brushes.White, 0, 0, RULER_SIZE, RULER_SIZE);
+                g.DrawRectangle(rulerPen, 0, 0, RULER_SIZE, RULER_SIZE);
+
+                float step = 100 * ZoomFactor; // 每 100 像素一個大刻度
+                float subStep = step / 10;     // 每 10 像素一個小刻度
+
+                // 畫水平尺規刻度
+                float startX = _cameraOffset.X % step;
+                float worldStartX = -((int)(_cameraOffset.X / step)) * 100;
+                
+                if (startX > 0) 
+                { 
+                    startX -= step; 
+                    worldStartX -= 100; 
+                }
+
+                for (float x = startX; x < this.Width; x += step)
+                {
+                    if (x > RULER_SIZE)
+                    {
+                        g.DrawLine(rulerPen, x, 0, x, RULER_SIZE);
+                        g.DrawString(worldStartX.ToString(), rulerFont, textBrush, x + 2, 2);
+                    }
+
+                    for (int i = 1; i < 10; i++)
+                    {
+                        float subX = x + i * subStep;
+                        if (subX > RULER_SIZE)
+                        {
+                            int lineLen = (i == 5) ? 10 : 5; // 中間 50 像素的刻度稍微長一點
+                            g.DrawLine(rulerPen, subX, RULER_SIZE - lineLen, subX, RULER_SIZE);
+                        }
+                    }
+                    worldStartX += 100;
+                }
+
+                // 畫垂直尺規刻度
+                float startY = _cameraOffset.Y % step;
+                float worldStartY = -((int)(_cameraOffset.Y / step)) * 100;
+
+                if (startY > 0) 
+                { 
+                    startY -= step; 
+                    worldStartY -= 100; 
+                }
+
+                StringFormat sfVert = new StringFormat() { FormatFlags = StringFormatFlags.DirectionVertical };
+
+                for (float y = startY; y < this.Height; y += step)
+                {
+                    if (y > RULER_SIZE)
+                    {
+                        g.DrawLine(rulerPen, 0, y, RULER_SIZE, y);
+                        g.DrawString(worldStartY.ToString(), rulerFont, textBrush, 2, y + 2, sfVert);
+                    }
+
+                    for (int i = 1; i < 10; i++)
+                    {
+                        float subY = y + i * subStep;
+                        if (subY > RULER_SIZE)
+                        {
+                            int lineLen = (i == 5) ? 10 : 5;
+                            g.DrawLine(rulerPen, RULER_SIZE - lineLen, subY, RULER_SIZE, subY);
+                        }
+                    }
+                    worldStartY += 100;
+                }
+
+                // 畫滑鼠游標的紅色追蹤線
+                if (_currentMouseScreenPos != Point.Empty)
+                {
+                    using (Pen cursorPen = new Pen(Color.Red, 1) { DashStyle = DashStyle.Dash })
+                    {
+                        // 頂部追蹤
+                        g.DrawLine(cursorPen, _currentMouseScreenPos.X, 0, _currentMouseScreenPos.X, RULER_SIZE);
+                        // 左側追蹤
+                        g.DrawLine(cursorPen, 0, _currentMouseScreenPos.Y, RULER_SIZE, _currentMouseScreenPos.Y);
+                    }
+                }
             }
         }
 
