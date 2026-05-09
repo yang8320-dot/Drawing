@@ -1,18 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 
 namespace DrawingApp
 {
-    public class App_UI_MainForm : Form
+    // --- 核心視窗、生命週期與分頁管理 ---
+    public partial class App_UI_MainForm : Form
     {
+        // UI 元件變數宣告
         private FlowLayoutPanel _topBar;
         private FlowLayoutPanel _leftPanel;
         private Panel _rightPanel;
-        
         private TabControl _tabControl;
         private App_CanvasControl CurrentCanvas => _tabControl.SelectedTab?.Controls.OfType<App_CanvasControl>().FirstOrDefault();
 
@@ -24,11 +24,9 @@ namespace DrawingApp
         private CheckBox _chkAlignToPage;
         private FlowLayoutPanel _zIndexPanel;
         
-        // --- UI 優化：屬性面板改為 TableLayoutPanel 與 GroupBox 結構 ---
         private Panel _customPropertiesPanel;
         private GroupBox _gbAppearance;
         private GroupBox _gbText;
-        // -----------------------------------------------------------------
         
         private TreeView _tvLayers;
         private bool _isSyncingTree = false;
@@ -50,7 +48,6 @@ namespace DrawingApp
         private bool _isUpdatingUI = false;
 
         private TextBox _tabEditBox;
-
         private int _tabCounter = 1;
         private bool _isDirty = false;
         private Timer _autoSaveTimer;
@@ -78,6 +75,38 @@ namespace DrawingApp
             _autoSaveTimer.Interval = 300000; 
             _autoSaveTimer.Tick += AutoSaveTimer_Tick;
             _autoSaveTimer.Start();
+        }
+
+        private void InitializeUI()
+        {
+            this.Text = "商業級繪圖系統 (支援多分頁、防多開、圖層管理、等比縮放)";
+            this.Size = new Size(1600, 900);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.KeyPreview = true; 
+
+            _tabControl = new TabControl { Dock = DockStyle.Fill };
+            _tabControl.SelectedIndexChanged += (s, e) => { RefreshPropertyPanel(); RefreshLayerTree(); };
+            _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
+            _tabControl.MouseClick += TabControl_MouseClick;
+
+            _tabEditBox = new TextBox { Visible = false, BorderStyle = BorderStyle.FixedSingle };
+            _tabEditBox.Leave += TabEditBox_Leave;
+            _tabEditBox.KeyDown += TabEditBox_KeyDown;
+
+            // 委派給 Partial Class 的方法來建立區塊
+            BuildTopBar();
+            BuildLeftPanel();
+            BuildRightPanel();
+
+            Panel centerContainer = new Panel { Dock = DockStyle.Fill };
+            centerContainer.Controls.Add(_tabControl);
+            centerContainer.Controls.Add(_tabEditBox); 
+            _tabEditBox.BringToFront(); 
+
+            this.Controls.Add(centerContainer);
+            this.Controls.Add(_rightPanel);
+            this.Controls.Add(_leftPanel);
+            this.Controls.Add(_topBar);
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -126,174 +155,6 @@ namespace DrawingApp
             }
         }
 
-        private void InitializeUI()
-        {
-            this.Text = "商業級繪圖系統 (支援多分頁、防多開、圖層管理、等比縮放)";
-            this.Size = new Size(1600, 900);
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.KeyPreview = true; 
-
-            _tabControl = new TabControl();
-            _tabControl.Dock = DockStyle.Fill;
-            _tabControl.SelectedIndexChanged += (s, e) => {
-                RefreshPropertyPanel();
-                RefreshLayerTree();
-            };
-            _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
-            _tabControl.MouseClick += TabControl_MouseClick;
-
-            _tabEditBox = new TextBox();
-            _tabEditBox.Visible = false;
-            _tabEditBox.BorderStyle = BorderStyle.FixedSingle;
-            _tabEditBox.Leave += TabEditBox_Leave;
-            _tabEditBox.KeyDown += TabEditBox_KeyDown;
-
-            _topBar = new FlowLayoutPanel() 
-            { 
-                Dock = DockStyle.Top, 
-                Height = 55, 
-                BackColor = Color.FromArgb(245, 246, 248), 
-                Padding = new Padding(10, 10, 10, 10),
-                WrapContents = false 
-            };
-
-            _topBar.Controls.Add(CreateTextButton("➕ 新增畫布", 100, (s, e) => AddNewTab($"畫布 {_tabCounter++}")));
-            
-            ComboBox cbPageSize = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100, Margin = new Padding(0, 7, 8, 0) };
-            cbPageSize.Items.AddRange(new string[] { "A4 直式", "A4 橫式", "A3 直式", "A3 橫式", "A2 直式", "A2 橫式", "A1 直式", "A1 橫式" });
-            cbPageSize.SelectedIndex = 0;
-            cbPageSize.SelectedIndexChanged += (s, e) => { 
-                if (CurrentCanvas != null) { 
-                    UpdatePageSize(cbPageSize.Text); 
-                    _isDirty = true; 
-                    UpdateWindowTitle();
-                } 
-            };
-            _topBar.Controls.Add(cbPageSize);
-
-            _topBar.Controls.Add(CreateDivider());
-
-            _topBar.Controls.Add(CreateTextButton("復原", 60, (s, e) => CurrentCanvas?.CmdManager.Undo()));
-            _topBar.Controls.Add(CreateTextButton("重做", 60, (s, e) => CurrentCanvas?.CmdManager.Redo()));
-
-            _topBar.Controls.Add(CreateDivider());
-
-            _topBar.Controls.Add(CreateTextButton("放大 +", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor + 0.2f); }));
-            _topBar.Controls.Add(CreateTextButton("縮小 -", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }));
-            _topBar.Controls.Add(CreateTextButton("100%", 60, (s, e) => CurrentCanvas?.SetZoom(1.0f)));
-
-            CheckBox chkSnap = new CheckBox() { Text = "網格對齊", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 10, 0) };
-            chkSnap.CheckedChanged += (s, e) => { 
-                if (CurrentCanvas != null) {
-                    CurrentCanvas.SnapToGrid = chkSnap.Checked; 
-                    CurrentCanvas.Invalidate(); 
-                }
-            };
-            _topBar.Controls.Add(chkSnap);
-
-            // --- 新增：顯示尺規的開關 ---
-            CheckBox chkRuler = new CheckBox() { Text = "顯示尺規", Checked = true, AutoSize = true, Margin = new Padding(0, 9, 15, 0) };
-            chkRuler.CheckedChanged += (s, e) => { 
-                if (CurrentCanvas != null) {
-                    CurrentCanvas.ShowRulers = chkRuler.Checked; 
-                    CurrentCanvas.Invalidate(); 
-                }
-            };
-            _topBar.Controls.Add(chkRuler);
-
-            _topBar.Controls.Add(CreateDivider());
-
-            _topBar.Controls.Add(CreateTextButton("存檔", 60, (s, e) => SaveAllTabs()));
-            _topBar.Controls.Add(CreateTextButton("讀取", 60, (s, e) => LoadTabs()));
-
-            _topBar.Controls.Add(CreateDivider());
-
-            _topBar.Controls.Add(CreateTextButton("匯出 PNG", 90, async (s, e) => {
-                if (CurrentCanvas == null) return;
-                using (var sfd = new SaveFileDialog() { Filter = "PNG 圖片|*.png" })
-                    if (sfd.ShowDialog() == DialogResult.OK)
-                    {
-                        await App_Export.ExportToPngAsync(CurrentCanvas.GetTransparentCanvasRender(), sfd.FileName);
-                        MessageBox.Show("當前畫布 PNG 匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
-            }));
-            
-            _topBar.Controls.Add(CreateTextButton("匯出 PDF", 90, (s, e) => {
-                if (CurrentCanvas != null) ShowPdfExportDialog();
-            }));
-
-            _topBar.Controls.Add(CreateTextButton("匯出 SVG", 90, async (s, e) => {
-                if (CurrentCanvas == null) return;
-                using (var sfd = new SaveFileDialog() { Filter = "SVG 向量圖|*.svg" })
-                    if (sfd.ShowDialog() == DialogResult.OK)
-                    {
-                        await App_Export.ExportToSvgAsync(CurrentCanvas.Shapes, CurrentCanvas.PageSize, sfd.FileName);
-                        MessageBox.Show("當前畫布 SVG 匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    }
-            }));
-            
-            Label lblZenMode = new Label() { Text = "💡 按 F11 進入全螢幕", ForeColor = Color.Gray, AutoSize = true, Margin = new Padding(20, 10, 0, 0) };
-            _topBar.Controls.Add(lblZenMode);
-
-            _leftPanel = new FlowLayoutPanel() { Dock = DockStyle.Left, Width = 65, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
-            
-            _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n快捷鍵: V\n(可框選、旋轉、縮放)");
-            SetActiveButton(_btnPointer);
-            
-            CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (Hand Tool)\n快捷鍵: H 或按住 Space\n(可用滑鼠左鍵直接平移畫面)");
-            
-            _btnFormatPainter = CreateToolButton(App_Shapes.ShapeType.FormatPainter, "格式刷\n(先選取圖形，點擊此按鈕後，再點擊其他圖形以套用格式)");
-            _btnFormatPainter.Click += (s, e) => {
-                if (CurrentCanvas != null && CurrentCanvas.SelectedShapes.Count > 0)
-                {
-                    CurrentCanvas.FormatSourceShape = CurrentCanvas.SelectedShapes[0];
-                    CurrentCanvas.CurrentTool = App_Shapes.ShapeType.FormatPainter;
-                    SetActiveButton(_btnFormatPainter);
-                }
-                else
-                {
-                    MessageBox.Show("請先選取一個要複製格式的圖形！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer;
-                    SetActiveButton(_btnPointer);
-                }
-            };
-
-            CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭線");
-            CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線");
-            CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "90度折線 (智慧避障)\n快捷鍵: L");
-
-            CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形\n快捷鍵: R");
-            CreateToolButton(App_Shapes.ShapeType.RoundedRectangle, "圓角矩形"); 
-            CreateToolButton(App_Shapes.ShapeType.Circle, "圓形");
-            CreateToolButton(App_Shapes.ShapeType.Arc, "圓弧");
-            CreateToolButton(App_Shapes.ShapeType.Diamond, "菱形");
-            CreateToolButton(App_Shapes.ShapeType.Triangle, "三角形");
-            CreateToolButton(App_Shapes.ShapeType.Pentagon, "五邊形"); 
-            CreateToolButton(App_Shapes.ShapeType.Hexagon, "六邊形"); 
-            CreateToolButton(App_Shapes.ShapeType.Star, "星形"); 
-            CreateToolButton(App_Shapes.ShapeType.Cloud, "雲朵"); 
-
-            CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框\n快捷鍵: T");
-            CreateToolButton(App_Shapes.ShapeType.Text, "純文字");
-            CreateToolButton(App_Shapes.ShapeType.Image, "插入圖片");
-            CreateToolButton(App_Shapes.ShapeType.Freehand, "自由畫筆\n快捷鍵: P");
-            // --- 新增：鋼筆工具按鈕 ---
-            CreateToolButton(App_Shapes.ShapeType.BezierPen, "鋼筆工具 (貝茲曲線)\n快捷鍵: B\n(點擊或拖曳拉出控制桿)");
-
-            _rightPanel = new Panel() { Dock = DockStyle.Right, Width = 300, BackColor = Color.FromArgb(245, 245, 245) };
-            BuildPropertyPanel();
-
-            Panel centerContainer = new Panel() { Dock = DockStyle.Fill };
-            centerContainer.Controls.Add(_tabControl);
-            centerContainer.Controls.Add(_tabEditBox); 
-            _tabEditBox.BringToFront(); 
-
-            this.Controls.Add(centerContainer);
-            this.Controls.Add(_rightPanel);
-            this.Controls.Add(_leftPanel);
-            this.Controls.Add(_topBar);
-        }
-
         private void App_UI_MainForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             if (_isDirty)
@@ -322,9 +183,7 @@ namespace DrawingApp
                 foreach (TabPage tab in _tabControl.TabPages)
                 {
                     if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl canvas)
-                    {
                         foreach (var shape in canvas.Shapes) shape.Dispose();
-                    }
                 }
             }
         }
@@ -333,28 +192,6 @@ namespace DrawingApp
         {
             string baseTitle = "商業級繪圖系統 (支援多分頁、防多開、圖層管理、等比縮放)";
             this.Text = _isDirty ? baseTitle + " [未存檔 *]" : baseTitle;
-        }
-
-        private Button CreateTextButton(string text, int width, EventHandler onClick)
-        {
-            Button btn = new Button() 
-            { 
-                Text = text, 
-                Size = new Size(width, 35), 
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.White,
-                Cursor = Cursors.Hand,
-                Margin = new Padding(0, 0, 8, 0)
-            };
-            btn.FlatAppearance.BorderColor = Color.FromArgb(210, 210, 210);
-            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(226, 238, 255); 
-            btn.Click += onClick;
-            return btn;
-        }
-
-        private Panel CreateDivider()
-        {
-            return new Panel() { Width = 1, Height = 35, BackColor = Color.FromArgb(200, 200, 200), Margin = new Padding(4, 0, 12, 0) };
         }
 
         private void TabControl_MouseClick(object sender, MouseEventArgs e)
@@ -372,9 +209,7 @@ namespace DrawingApp
                             if (_tabControl.TabCount > 1)
                             {
                                 if (tabToClose.Controls.Count > 0 && tabToClose.Controls[0] is App_CanvasControl canvas)
-                                {
                                     foreach (var shape in canvas.Shapes) shape.Dispose();
-                                }
                                 
                                 _tabControl.TabPages.Remove(tabToClose);
                                 _isDirty = true;
@@ -439,8 +274,7 @@ namespace DrawingApp
             page.ToolTipText = "雙擊標籤可修改名稱，右鍵點擊可關閉畫布";
             _tabControl.ShowToolTips = true;
 
-            var canvas = new App_CanvasControl();
-            canvas.Dock = DockStyle.Fill;
+            var canvas = new App_CanvasControl { Dock = DockStyle.Fill };
             if (shapes != null) canvas.Shapes = shapes;
 
             canvas.MouseUp += (s, e) => RefreshPropertyPanel();
@@ -516,9 +350,7 @@ namespace DrawingApp
                 foreach (TabPage tab in _tabControl.TabPages)
                 {
                     if (tab.Controls.Count > 0 && tab.Controls[0] is App_CanvasControl oldCanvas)
-                    {
                         foreach (var shape in oldCanvas.Shapes) shape.Dispose();
-                    }
                 }
                 
                 _tabControl.TabPages.Clear();
@@ -528,790 +360,6 @@ namespace DrawingApp
                 UpdateWindowTitle();
                 RefreshLayerTree();
             }
-        }
-
-        // --- UI 優化：重構右側屬性面板 ---
-        private void BuildPropertyPanel()
-        {
-            _rightPanel.Controls.Clear();
-
-            SplitContainer scRight = new SplitContainer() 
-            { 
-                Orientation = Orientation.Horizontal, 
-                Dock = DockStyle.Fill,
-                SplitterDistance = 550, 
-                FixedPanel = FixedPanel.Panel1
-            };
-
-            Panel topPropPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
-            Panel actionsPanel = new Panel() { Dock = DockStyle.Top, Height = 160 };
-
-            Label alignTitle = new Label() { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 5), AutoSize = true };
-            actionsPanel.Controls.Add(alignTitle);
-            
-            _chkAlignToPage = new CheckBox() { Text = "對齊畫布邊緣", Location = new Point(160, 5), AutoSize = true, ForeColor = Color.DimGray };
-            actionsPanel.Controls.Add(_chkAlignToPage);
-
-            _alignmentPanel = new FlowLayoutPanel() { Location = new Point(0, 30), Width = 280, Height = 70, WrapContents = true };
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("置中", (s, e) => AlignShapes("Center")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠右", (s, e) => AlignShapes("Right")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠上", (s, e) => AlignShapes("Top")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("垂直置中", (s, e) => AlignShapes("Middle")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠下", (s, e) => AlignShapes("Bottom")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("水平均分", (s, e) => DistributeShapes("Horizontal")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("垂直均分", (s, e) => DistributeShapes("Vertical")));
-            actionsPanel.Controls.Add(_alignmentPanel);
-
-            Label zIndexTitle = new Label() { Text = "圖層順序", Font = new Font("Arial", 10, FontStyle.Bold), Location = new Point(0, 105), AutoSize = true };
-            actionsPanel.Controls.Add(zIndexTitle);
-
-            _zIndexPanel = new FlowLayoutPanel() { Location = new Point(0, 130), Width = 280, Height = 30, WrapContents = true };
-            _zIndexPanel.Controls.Add(CreateAlignButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }));
-            _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }));
-            actionsPanel.Controls.Add(_zIndexPanel);
-
-            _customPropertiesPanel = new Panel() { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(0, 10, 0, 0) };
-
-            // 1. 外觀設定區塊 (使用 GroupBox 與 TableLayoutPanel)
-            _gbAppearance = new GroupBox() { Text = "外觀與線條設定", Dock = DockStyle.Top, Height = 190, Font = new Font("Arial", 9, FontStyle.Bold) };
-            TableLayoutPanel tlpApp = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
-            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
-            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            tlpApp.Controls.Add(new Label() { Text = "邊框顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
-            _btnShapeColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnShapeColor.Click += (s, e) => PickColor(_btnShapeColor, c => ApplyPropertyChange(cmd => cmd.ShapeColor = c));
-            tlpApp.Controls.Add(_btnShapeColor, 1, 0);
-
-            tlpApp.Controls.Add(new Label() { Text = "填色類型", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
-            _cbBrushType = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbBrushType.Items.AddRange(new string[] { "純色填充", "線性漸層" });
-            _cbBrushType.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FillBrushType = (App_Shapes.BrushType)_cbBrushType.SelectedIndex);
-            tlpApp.Controls.Add(_cbBrushType, 1, 1);
-
-            tlpApp.Controls.Add(new Label() { Text = "主副填色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
-            TableLayoutPanel tlpColor = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
-            tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            _btnFillColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnFillColor.Click += (s, e) => PickColor(_btnFillColor, c => ApplyPropertyChange(cmd => cmd.FillColor = c), true);
-            _btnGradientColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnGradientColor.Click += (s, e) => PickColor(_btnGradientColor, c => ApplyPropertyChange(cmd => cmd.GradientColor2 = c));
-            tlpColor.Controls.Add(_btnFillColor, 0, 0); tlpColor.Controls.Add(_btnGradientColor, 1, 0);
-            tlpApp.Controls.Add(tlpColor, 1, 2);
-
-            tlpApp.Controls.Add(new Label() { Text = "線條粗細", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 8, 0, 0) }, 0, 3);
-            FlowLayoutPanel flpStroke = new FlowLayoutPanel() { Dock = DockStyle.Fill, Margin = new Padding(0) };
-            _tbStrokeWidth = new TrackBar() { Width = 140, Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
-            _lblStrokeWidthValue = new Label() { Text = "2", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
-            _tbStrokeWidth.ValueChanged += (s, e) => {
-                _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
-                ApplyPropertyChange(cmd => cmd.StrokeWidth = _tbStrokeWidth.Value);
-            };
-            flpStroke.Controls.Add(_tbStrokeWidth); flpStroke.Controls.Add(_lblStrokeWidthValue);
-            tlpApp.Controls.Add(flpStroke, 1, 3);
-
-            tlpApp.Controls.Add(new Label() { Text = "線條樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 4);
-            _cbDashStyle = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbDashStyle.Items.AddRange(new string[] { "實線 (Solid)", "虛線 (Dash)", "點線 (Dot)", "點虛線 (DashDot)" });
-            _cbDashStyle.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.StrokeDashStyle = (DashStyle)_cbDashStyle.SelectedIndex);
-            tlpApp.Controls.Add(_cbDashStyle, 1, 4);
-
-            _chkShadow = new CheckBox() { Text = "啟用立體陰影", AutoSize = true, Margin = new Padding(0, 5, 0, 0) };
-            _chkShadow.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.EnableShadow = _chkShadow.Checked);
-            tlpApp.Controls.Add(_chkShadow, 1, 5);
-
-            _gbAppearance.Controls.Add(tlpApp);
-            _customPropertiesPanel.Controls.Add(_gbAppearance);
-
-            Panel spacer1 = new Panel() { Dock = DockStyle.Top, Height = 10 };
-            _customPropertiesPanel.Controls.Add(spacer1);
-
-            // 2. 文字設定區塊
-            _gbText = new GroupBox() { Text = "文字與排版設定", Dock = DockStyle.Top, Height = 160, Font = new Font("Arial", 9, FontStyle.Bold) };
-            TableLayoutPanel tlpText = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
-            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
-            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            tlpText.Controls.Add(new Label() { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
-            _btnFontColor = new Button() { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
-            tlpText.Controls.Add(_btnFontColor, 1, 0);
-
-            tlpText.Controls.Add(new Label() { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
-            TableLayoutPanel tlpFont = new TableLayoutPanel() { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
-            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-            _cbFontName = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
-            _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
-            _nudFontSize = new NumericUpDown() { Dock = DockStyle.Fill, Minimum = 6, Maximum = 144 };
-            _nudFontSize.ValueChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontSize = (float)_nudFontSize.Value);
-            tlpFont.Controls.Add(_cbFontName, 0, 0); tlpFont.Controls.Add(_nudFontSize, 1, 0);
-            tlpText.Controls.Add(tlpFont, 1, 1);
-
-            tlpText.Controls.Add(new Label() { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
-            FlowLayoutPanel flpStyle = new FlowLayoutPanel() { Dock = DockStyle.Fill, Margin = new Padding(0) };
-            _chkBold = new CheckBox() { Text = "粗", AutoSize = true, Width = 40 }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
-            _chkItalic = new CheckBox() { Text = "斜", AutoSize = true, Width = 40 }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
-            _chkUnderline = new CheckBox() { Text = "底線", AutoSize = true, Width = 55 }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
-            flpStyle.Controls.Add(_chkBold); flpStyle.Controls.Add(_chkItalic); flpStyle.Controls.Add(_chkUnderline);
-            tlpText.Controls.Add(flpStyle, 1, 2);
-
-            tlpText.Controls.Add(new Label() { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 3);
-            _cbTextAlign = new ComboBox() { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
-            _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
-            tlpText.Controls.Add(_cbTextAlign, 1, 3);
-
-            _gbText.Controls.Add(tlpText);
-            _customPropertiesPanel.Controls.Add(_gbText);
-            
-            // 由於使用 Dock.Top，加入順序會由下往上推，我們使用 BringToFront 修正順序
-            _gbText.BringToFront();
-            spacer1.BringToFront();
-            _gbAppearance.BringToFront();
-
-            topPropPanel.Controls.Add(_customPropertiesPanel);
-            topPropPanel.Controls.Add(actionsPanel);
-            scRight.Panel1.Controls.Add(topPropPanel);
-
-            Panel layerPanel = new Panel() { Dock = DockStyle.Fill, Padding = new Padding(10) };
-            Label lblLayers = new Label() { Text = "圖層管理 (支援拖曳排序)", Font = new Font("Arial", 10, FontStyle.Bold), Dock = DockStyle.Top, Height = 25 };
-            
-            _tvLayers = new TreeView() 
-            { 
-                Dock = DockStyle.Fill, 
-                HideSelection = false,
-                FullRowSelect = true,
-                ItemHeight = 22,
-                Font = new Font("微軟正黑體", 9),
-                AllowDrop = true
-            };
-            
-            _tvLayers.AfterSelect += TvLayers_AfterSelect;
-            _tvLayers.ItemDrag += TvLayers_ItemDrag;
-            _tvLayers.DragEnter += TvLayers_DragEnter;
-            _tvLayers.DragDrop += TvLayers_DragDrop;
-
-            ContextMenuStrip layerMenu = new ContextMenuStrip();
-            layerMenu.Items.Add("鎖定 / 解鎖", null, (s, e) => {
-                if (_tvLayers.SelectedNode?.Tag is App_Shapes.ShapeBase shape)
-                {
-                    shape.IsLocked = !shape.IsLocked;
-                    CurrentCanvas?.Invalidate();
-                    RefreshLayerTree();
-                }
-            });
-            layerMenu.Items.Add(new ToolStripSeparator());
-            layerMenu.Items.Add("刪除圖層", null, (s, e) => {
-                if (_tvLayers.SelectedNode?.Tag is App_Shapes.ShapeBase shape && CurrentCanvas != null)
-                {
-                    CurrentCanvas.CmdManager.ExecuteCommand(new RemoveShapesCommand(CurrentCanvas.Shapes, new List<App_Shapes.ShapeBase> { shape }));
-                }
-            });
-            
-            _tvLayers.NodeMouseClick += (s, e) => {
-                if (e.Button == MouseButtons.Right)
-                {
-                    _tvLayers.SelectedNode = e.Node;
-                    layerMenu.Show(_tvLayers, e.Location);
-                }
-            };
-
-            layerPanel.Controls.Add(_tvLayers);
-            layerPanel.Controls.Add(lblLayers);
-            scRight.Panel2.Controls.Add(layerPanel);
-
-            _rightPanel.Controls.Add(scRight);
-
-            _alignmentPanel.Enabled = false;
-            _zIndexPanel.Enabled = false;
-            _customPropertiesPanel.Enabled = false;
-        }
-
-        private void TvLayers_ItemDrag(object sender, ItemDragEventArgs e)
-        {
-            if (e.Item is TreeNode node && node.Tag is App_Shapes.ShapeBase shape && !shape.IsLocked)
-            {
-                DoDragDrop(e.Item, DragDropEffects.Move);
-            }
-        }
-
-        private void TvLayers_DragEnter(object sender, DragEventArgs e)
-        {
-            if (e.Data.GetDataPresent(typeof(TreeNode)))
-                e.Effect = DragDropEffects.Move;
-            else
-                e.Effect = DragDropEffects.None;
-        }
-
-        private void TvLayers_DragDrop(object sender, DragEventArgs e)
-        {
-            if (CurrentCanvas == null) return;
-            
-            Point targetPoint = _tvLayers.PointToClient(new Point(e.X, e.Y));
-            TreeNode targetNode = _tvLayers.GetNodeAt(targetPoint);
-            TreeNode draggedNode = (TreeNode)e.Data.GetData(typeof(TreeNode));
-
-            if (draggedNode != null && targetNode != null && !draggedNode.Equals(targetNode))
-            {
-                var draggedShape = draggedNode.Tag as App_Shapes.ShapeBase;
-                var targetShape = targetNode.Tag as App_Shapes.ShapeBase;
-
-                if (draggedShape != null && targetShape != null)
-                {
-                    CurrentCanvas.Shapes.Remove(draggedShape);
-                    int targetIndex = CurrentCanvas.Shapes.IndexOf(targetShape);
-                    
-                    if (targetPoint.Y > draggedNode.Bounds.Y)
-                        CurrentCanvas.Shapes.Insert(Math.Max(0, targetIndex), draggedShape);
-                    else
-                        CurrentCanvas.Shapes.Insert(Math.Min(CurrentCanvas.Shapes.Count, targetIndex + 1), draggedShape);
-
-                    CurrentCanvas.Invalidate();
-                    RefreshLayerTree();
-                    _isDirty = true;
-                    UpdateWindowTitle();
-                }
-            }
-        }
-
-        private void RefreshLayerTree()
-        {
-            if (CurrentCanvas == null) return;
-            
-            _isSyncingTree = true;
-            _tvLayers.Nodes.Clear();
-
-            for (int i = CurrentCanvas.Shapes.Count - 1; i >= 0; i--)
-            {
-                _tvLayers.Nodes.Add(CreateTreeNode(CurrentCanvas.Shapes[i]));
-            }
-            
-            _tvLayers.ExpandAll();
-            _isSyncingTree = false;
-            
-            SyncLayerTreeSelection();
-        }
-
-        private TreeNode CreateTreeNode(App_Shapes.ShapeBase shape)
-        {
-            TreeNode node = new TreeNode(GetShapeName(shape));
-            node.Tag = shape;
-
-            if (shape is App_Shapes.GroupShape group)
-            {
-                for (int i = group.Children.Count - 1; i >= 0; i--)
-                {
-                    node.Nodes.Add(CreateTreeNode(group.Children[i]));
-                }
-            }
-
-            return node;
-        }
-
-        private string GetShapeName(App_Shapes.ShapeBase shape)
-        {
-            string name = "圖形";
-            if (shape is App_Shapes.RectShape) name = "矩形";
-            else if (shape is App_Shapes.RoundedRectShape) name = "圓角矩形";
-            else if (shape is App_Shapes.CircleShape) name = "圓形";
-            else if (shape is App_Shapes.ArcShape) name = "圓弧";
-            else if (shape is App_Shapes.DiamondShape) name = "菱形";
-            else if (shape is App_Shapes.TriangleShape) name = "三角形";
-            else if (shape is App_Shapes.PentagonShape) name = "五邊形";
-            else if (shape is App_Shapes.HexagonShape) name = "六邊形";
-            else if (shape is App_Shapes.StarShape) name = "星形";
-            else if (shape is App_Shapes.CloudShape) name = "雲朵";
-            else if (shape is App_Shapes.ConnectorShape) name = "連線";
-            else if (shape is App_Shapes.TextNodeShape tns) name = tns.IsTransparent ? "純文字" : "文字框";
-            else if (shape is App_Shapes.ImageShape) name = "圖片";
-            else if (shape is App_Shapes.FreehandShape) name = "手繪線條";
-            else if (shape is App_Shapes.BezierShape) name = "貝茲曲線";
-            else if (shape is App_Shapes.GroupShape) name = "📂 群組";
-
-            if (!string.IsNullOrEmpty(shape.Text))
-            {
-                string snippet = shape.Text.Replace("\n", " ").Replace("\r", "");
-                if (snippet.Length > 8) snippet = snippet.Substring(0, 8) + "...";
-                name += $" - {snippet}";
-            }
-
-            if (shape.IsLocked) name = "🔒 " + name;
-
-            return name;
-        }
-
-        private void SyncLayerTreeSelection()
-        {
-            if (_isSyncingTree || CurrentCanvas == null) return;
-            
-            _isSyncingTree = true;
-            _tvLayers.SelectedNode = null;
-
-            if (CurrentCanvas.SelectedShapes.Count > 0)
-            {
-                var targetShape = CurrentCanvas.SelectedShapes[0];
-                TreeNode foundNode = FindNodeByTag(_tvLayers.Nodes, targetShape);
-                if (foundNode != null)
-                {
-                    _tvLayers.SelectedNode = foundNode;
-                    foundNode.EnsureVisible();
-                }
-            }
-            
-            _isSyncingTree = false;
-        }
-
-        private TreeNode FindNodeByTag(TreeNodeCollection nodes, App_Shapes.ShapeBase target)
-        {
-            foreach (TreeNode node in nodes)
-            {
-                if (node.Tag == target) return node;
-                if (node.Nodes.Count > 0)
-                {
-                    TreeNode found = FindNodeByTag(node.Nodes, target);
-                    if (found != null) return found;
-                }
-            }
-            return null;
-        }
-
-        private void TvLayers_AfterSelect(object sender, TreeViewEventArgs e)
-        {
-            if (_isSyncingTree || CurrentCanvas == null) return;
-
-            if (e.Node.Tag is App_Shapes.ShapeBase shape)
-            {
-                for (int i = 0; i < CurrentCanvas.SelectedShapes.Count; i++) 
-                    CurrentCanvas.SelectedShapes[i].IsSelected = false;
-                
-                CurrentCanvas.SelectedShapes.Clear();
-                
-                shape.IsSelected = true;
-                CurrentCanvas.SelectedShapes.Add(shape);
-                
-                CurrentCanvas.Invalidate();
-                RefreshPropertyPanel();
-            }
-        }
-
-        private void PickColor(Button btn, Action<Color> applyAction, bool allowTransparent = false)
-        {
-            using (ColorDialog cd = new ColorDialog())
-            {
-                cd.Color = btn.BackColor;
-                if (cd.ShowDialog() == DialogResult.OK)
-                {
-                    btn.BackColor = cd.Color;
-                    btn.Text = "";
-                    applyAction(cd.Color);
-                }
-            }
-            btn.MouseUp += (s, e) => {
-                if (e.Button == MouseButtons.Right && allowTransparent)
-                {
-                    btn.BackColor = Color.Transparent;
-                    btn.Text = "透明";
-                    applyAction(Color.Transparent);
-                }
-            };
-        }
-
-        private void ApplyPropertyChange(Action<App_Shapes.ShapeBase> propertySetter)
-        {
-            if (_isUpdatingUI || CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
-
-            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            if (shapes.Count == 0) return;
-
-            var cmd = new ChangeFormatCommand(shapes);
-            foreach (var s in shapes) propertySetter(s);
-            cmd.CaptureNewState();
-
-            CurrentCanvas.CmdManager.ExecuteCommand(cmd);
-            CurrentCanvas.Invalidate();
-            
-            _isDirty = true;
-            UpdateWindowTitle();
-            
-            RefreshLayerTree(); 
-        }
-
-        private Button CreateAlignButton(string text, EventHandler onClick)
-        {
-            Button btn = new Button()
-            {
-                Text = text,
-                Size = new Size(85, 28),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.White,
-                Cursor = Cursors.Hand,
-                Font = new Font("微軟正黑體", 8)
-            };
-            btn.FlatAppearance.BorderColor = Color.LightGray;
-            btn.Click += onClick;
-            return btn;
-        }
-
-        private void AlignShapes(string type)
-        {
-            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
-            
-            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            if (shapes.Count == 0) return;
-
-            if (!_chkAlignToPage.Checked && shapes.Count < 2) return;
-
-            var oldBounds = shapes.Select(s => s.Bounds).ToList();
-            var newBounds = new List<RectangleF>();
-
-            float referenceValue = 0;
-
-            if (_chkAlignToPage.Checked)
-            {
-                SizeF pageSize = CurrentCanvas.PageSize;
-                switch (type)
-                {
-                    case "Left": foreach (var s in shapes) newBounds.Add(new RectangleF(0, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Right": foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Center": foreach (var s in shapes) newBounds.Add(new RectangleF(pageSize.Width / 2 - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Top": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, 0, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Bottom": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Middle": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, pageSize.Height / 2 - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
-                }
-            }
-            else
-            {
-                switch (type)
-                {
-                    case "Left": referenceValue = shapes.Min(s => s.Bounds.Left); foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Right": referenceValue = shapes.Max(s => s.Bounds.Right); foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Center": referenceValue = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(referenceValue - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Top": referenceValue = shapes.Min(s => s.Bounds.Top); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Bottom": referenceValue = shapes.Max(s => s.Bounds.Bottom); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Middle": referenceValue = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, referenceValue - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
-                }
-            }
-
-            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
-        }
-
-        private void DistributeShapes(string type)
-        {
-            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count < 3) return;
-            
-            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            if (shapes.Count < 3) return;
-
-            var oldBounds = shapes.Select(s => s.Bounds).ToList();
-            var newBounds = new List<RectangleF>();
-
-            if (type == "Horizontal")
-            {
-                shapes = shapes.OrderBy(s => s.Bounds.X).ToList();
-                float totalSpace = shapes.Last().Bounds.Right - shapes.First().Bounds.Left;
-                float totalShapeWidth = shapes.Sum(s => s.Bounds.Width);
-                float gap = (totalSpace - totalShapeWidth) / (shapes.Count - 1);
-                
-                float currentX = shapes.First().Bounds.Left;
-                foreach (var s in shapes)
-                {
-                    newBounds.Add(new RectangleF(currentX, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                    currentX += s.Bounds.Width + gap;
-                }
-            }
-            else if (type == "Vertical")
-            {
-                shapes = shapes.OrderBy(s => s.Bounds.Y).ToList();
-                float totalSpace = shapes.Last().Bounds.Bottom - shapes.First().Bounds.Top;
-                float totalShapeHeight = shapes.Sum(s => s.Bounds.Height);
-                float gap = (totalSpace - totalShapeHeight) / (shapes.Count - 1);
-                
-                float currentY = shapes.First().Bounds.Top;
-                foreach (var s in shapes)
-                {
-                    newBounds.Add(new RectangleF(s.Bounds.X, currentY, s.Bounds.Width, s.Bounds.Height));
-                    currentY += s.Bounds.Height + gap;
-                }
-            }
-
-            var orderedNewBounds = new List<RectangleF>();
-            var originalShapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            for (int i = 0; i < originalShapes.Count; i++)
-            {
-                int sortedIndex = shapes.IndexOf(originalShapes[i]);
-                orderedNewBounds.Add(newBounds[sortedIndex]);
-            }
-
-            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(originalShapes, oldBounds, orderedNewBounds));
-        }
-
-        private void RefreshPropertyPanel()
-        {
-            if (CurrentCanvas != null)
-            {
-                int selCount = CurrentCanvas.SelectedShapes.Count;
-                
-                _alignmentPanel.Enabled = _chkAlignToPage.Checked ? selCount > 0 : selCount > 1;
-                _zIndexPanel.Enabled = selCount > 0;
-                
-                if (selCount > 0)
-                {
-                    _customPropertiesPanel.Enabled = true;
-                    
-                    var shape = CurrentCanvas.SelectedShapes[0];
-                    
-                    _isUpdatingUI = true;
-                    
-                    _btnShapeColor.BackColor = shape.ShapeColor;
-                    
-                    _btnFillColor.BackColor = shape.FillColor;
-                    _btnFillColor.Text = shape.FillColor == Color.Transparent ? "透明" : "";
-                    
-                    _btnGradientColor.BackColor = shape.GradientColor2;
-                    _cbBrushType.SelectedIndex = (int)shape.FillBrushType;
-                    _chkShadow.Checked = shape.EnableShadow;
-                    
-                    _tbStrokeWidth.Value = Math.Max(1, Math.Min(20, (int)shape.StrokeWidth));
-                    _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
-                    
-                    _cbDashStyle.SelectedIndex = (int)shape.StrokeDashStyle;
-
-                    _btnFontColor.BackColor = shape.FontColor;
-                    if (_cbFontName.Items.Contains(shape.FontName)) _cbFontName.SelectedItem = shape.FontName;
-                    _nudFontSize.Value = (decimal)shape.FontSize;
-                    
-                    _chkBold.Checked = shape.FontBold;
-                    _chkItalic.Checked = shape.FontItalic;
-                    _chkUnderline.Checked = shape.FontUnderline;
-
-                    _cbTextAlign.SelectedIndex = (int)shape.TextAlignment;
-
-                    _isUpdatingUI = false;
-                }
-                else
-                {
-                    _customPropertiesPanel.Enabled = false;
-                }
-            }
-            else
-            {
-                _alignmentPanel.Enabled = false;
-                _zIndexPanel.Enabled = false;
-                _customPropertiesPanel.Enabled = false;
-            }
-        }
-
-        private void HandleImageInsert(PointF pt)
-        {
-            if (CurrentCanvas == null) return;
-            using (OpenFileDialog ofd = new OpenFileDialog() { Filter = "圖片檔案|*.jpg;*.png;*.bmp" })
-            {
-                if (ofd.ShowDialog() == DialogResult.OK)
-                {
-                    using (Bitmap originalImg = new Bitmap(ofd.FileName))
-                    {
-                        Bitmap finalImg = originalImg;
-                        int maxW = 1920, maxH = 1080;
-                        
-                        if (originalImg.Width > maxW || originalImg.Height > maxH)
-                        {
-                            float ratioX = (float)maxW / originalImg.Width;
-                            float ratioY = (float)maxH / originalImg.Height;
-                            float ratio = Math.Min(ratioX, ratioY);
-                            
-                            int newW = (int)(originalImg.Width * ratio);
-                            int newH = (int)(originalImg.Height * ratio);
-                            finalImg = new Bitmap(originalImg, newW, newH);
-                        }
-                        
-                        var imgShape = App_Shapes.ShapeFactory.CreateShape(App_Shapes.ShapeType.Image, pt, Color.Black, finalImg);
-                        CurrentCanvas.CmdManager.ExecuteCommand(new AddShapeCommand(CurrentCanvas.Shapes, imgShape));
-                        
-                        if (finalImg != originalImg) finalImg.Dispose();
-                    }
-                }
-            }
-        }
-
-        private void ShowPdfExportDialog()
-        {
-            using (Form pdfForm = new Form() { Text = "選擇 PDF 尺寸", Size = new Size(300, 200), StartPosition = FormStartPosition.CenterParent })
-            {
-                ComboBox cbSize = new ComboBox() { Location = new Point(20, 30) };
-                cbSize.Items.AddRange(new string[] { "A4", "A3", "A2", "A1" });
-                cbSize.SelectedIndex = 0;
-
-                ComboBox cbOri = new ComboBox() { Location = new Point(150, 30) };
-                cbOri.Items.AddRange(new string[] { "直式", "橫式" });
-                cbOri.SelectedIndex = 0;
-
-                Button btnOk = new Button() { Text = "匯出", Location = new Point(100, 100) };
-                btnOk.Click += async (sender, ev) => {
-                    using (SaveFileDialog sfd = new SaveFileDialog() { Filter = "PDF 文件|*.pdf" })
-                    {
-                        if (sfd.ShowDialog() == DialogResult.OK)
-                        {
-                            await App_Export.ExportToPdfAsync(CurrentCanvas.GetTransparentCanvasRender(), sfd.FileName, cbOri.SelectedIndex == 1);
-                            MessageBox.Show("當前畫布 PDF 匯出成功！", "匯出", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        }
-                    }
-                    pdfForm.Close();
-                };
-                pdfForm.Controls.AddRange(new Control[] { cbSize, cbOri, btnOk });
-                pdfForm.ShowDialog();
-            }
-        }
-
-        private void UpdatePageSize(string type)
-        {
-            switch (type)
-            {
-                case "A4 直式": CurrentCanvas.PageSize = new SizeF(2100, 2970); break;
-                case "A4 橫式": CurrentCanvas.PageSize = new SizeF(2970, 2100); break;
-                case "A3 直式": CurrentCanvas.PageSize = new SizeF(2970, 4200); break;
-                case "A3 橫式": CurrentCanvas.PageSize = new SizeF(4200, 2970); break;
-                case "A2 直式": CurrentCanvas.PageSize = new SizeF(4200, 5940); break;
-                case "A2 橫式": CurrentCanvas.PageSize = new SizeF(5940, 4200); break;
-                case "A1 直式": CurrentCanvas.PageSize = new SizeF(5940, 8410); break;
-                case "A1 橫式": CurrentCanvas.PageSize = new SizeF(8410, 5940); break;
-            }
-        }
-
-        private Button CreateToolButton(App_Shapes.ShapeType type, string tooltip)
-        {
-            Button btn = new Button() { Size = new Size(45, 45), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(2, 2, 2, 8) };
-            btn.FlatAppearance.BorderSize = 0;
-            btn.Tag = type; 
-            Color iconColor = Color.FromArgb(80, 80, 80);
-            
-            ToolTip tt = new ToolTip();
-            tt.SetToolTip(btn, tooltip);
-            
-            Point mouseDownLocation = Point.Empty;
-
-            btn.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) mouseDownLocation = e.Location; };
-
-            btn.MouseMove += (s, e) => {
-                if (e.Button == MouseButtons.Left && mouseDownLocation != Point.Empty)
-                {
-                    if (Math.Abs(e.X - mouseDownLocation.X) > 5 || Math.Abs(e.Y - mouseDownLocation.Y) > 5)
-                    {
-                        if (type != App_Shapes.ShapeType.FormatPainter) 
-                            btn.DoDragDrop(type, DragDropEffects.Copy);
-                        mouseDownLocation = Point.Empty;
-                    }
-                }
-            };
-
-            btn.MouseUp += (s, e) => {
-                if (e.Button == MouseButtons.Left && type != App_Shapes.ShapeType.FormatPainter)
-                {
-                    if (CurrentCanvas != null) CurrentCanvas.CurrentTool = type;
-                    SetActiveButton(btn);
-                }
-            };
-
-            btn.Paint += (s, e) => {
-                Graphics g = e.Graphics;
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                using (Pen p = new Pen(iconColor, 2))
-                {
-                    if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(14, 12), new Point(14, 32), new Point(20, 24), new Point(27, 24) });
-                    else if (type == App_Shapes.ShapeType.HandPan) 
-                    { 
-                        g.DrawLine(p, 16, 26, 16, 14); g.DrawArc(p, 14, 12, 4, 4, 180, 180); 
-                        g.DrawLine(p, 20, 26, 20, 10); g.DrawArc(p, 18, 8, 4, 4, 180, 180); 
-                        g.DrawLine(p, 24, 26, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
-                        g.DrawLine(p, 28, 26, 28, 16); g.DrawArc(p, 26, 14, 4, 4, 180, 180); 
-                        g.DrawArc(p, 14, 26, 18, 12, 0, 180);
-                    }
-                    else if (type == App_Shapes.ShapeType.FormatPainter) 
-                    {
-                        g.FillRectangle(new SolidBrush(iconColor), 14, 10, 16, 8);
-                        g.DrawRectangle(p, 16, 18, 12, 4);
-                        g.DrawLine(p, 22, 22, 22, 34);
-                    }
-                    else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 10, 32, 32, 10); g.DrawLine(p, 22, 10, 32, 10); g.DrawLine(p, 32, 10, 32, 20); }
-                    else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 10, 32, 32, 10);
-                    else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(10, 32), new PointF(22, 32), new PointF(22, 12), new PointF(32, 12) });
-                    else if (type == App_Shapes.ShapeType.Rectangle) g.DrawRectangle(p, 10, 12, 24, 20);
-                    else if (type == App_Shapes.ShapeType.RoundedRectangle) 
-                    {
-                        using(GraphicsPath gp = new GraphicsPath()) {
-                            gp.AddArc(10, 12, 6, 6, 180, 90);
-                            gp.AddArc(28, 12, 6, 6, 270, 90);
-                            gp.AddArc(28, 26, 6, 6, 0, 90);
-                            gp.AddArc(10, 26, 6, 6, 90, 90);
-                            gp.CloseFigure();
-                            g.DrawPath(p, gp);
-                        }
-                    }
-                    else if (type == App_Shapes.ShapeType.Circle) g.DrawEllipse(p, 10, 10, 24, 24);
-                    else if (type == App_Shapes.ShapeType.Arc) g.DrawArc(p, 10, 10, 24, 24, 180, 180);
-                    else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(22, 8), new PointF(36, 22), new PointF(22, 36), new PointF(8, 22) });
-                    else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(22, 10), new PointF(34, 32), new PointF(10, 32) });
-                    else if (type == App_Shapes.ShapeType.Pentagon) 
-                    {
-                        PointF[] pts = new PointF[5];
-                        for (int i = 0; i < 5; i++) {
-                            double a = Math.PI / 2 + (i * 2 * Math.PI / 5);
-                            pts[i] = new PointF(22 - (float)(12 * Math.Cos(a)), 22 - (float)(12 * Math.Sin(a)));
-                        }
-                        g.DrawPolygon(p, pts);
-                    }
-                    else if (type == App_Shapes.ShapeType.Hexagon) 
-                    {
-                        PointF[] pts = new PointF[6];
-                        for (int i = 0; i < 6; i++) {
-                            double a = i * Math.PI / 3;
-                            pts[i] = new PointF(22 + (float)(12 * Math.Cos(a)), 22 + (float)(12 * Math.Sin(a)));
-                        }
-                        g.DrawPolygon(p, pts);
-                    }
-                    else if (type == App_Shapes.ShapeType.Star) 
-                    {
-                        PointF[] pts = new PointF[10];
-                        for (int i = 0; i < 10; i++) {
-                            double a = Math.PI / 2 + (i * Math.PI / 5);
-                            float r = (i % 2 == 0) ? 14 : 6;
-                            pts[i] = new PointF(22 - (float)(r * Math.Cos(a)), 22 - (float)(r * Math.Sin(a)));
-                        }
-                        g.DrawPolygon(p, pts);
-                    }
-                    else if (type == App_Shapes.ShapeType.Cloud) 
-                    {
-                        g.DrawArc(p, 10, 18, 10, 10, 90, 180);
-                        g.DrawArc(p, 14, 12, 12, 12, 180, 180);
-                        g.DrawArc(p, 22, 14, 12, 12, 270, 180);
-                        g.DrawArc(p, 24, 20, 10, 10, 0, 180);
-                        g.DrawLine(p, 15, 28, 29, 28);
-                    }
-                    else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 8, 12, 28, 20); g.DrawString("A", new Font("Arial", 10), new SolidBrush(iconColor), 14, 14); }
-                    else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 12, 10);
-                    else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 10, 10, 24, 24); g.DrawEllipse(p, 14, 14, 4, 4); g.DrawLine(p, 10, 34, 24, 20); }
-                    else if (type == App_Shapes.ShapeType.Freehand) { g.DrawBezier(p, new Point(10, 22), new Point(20, 10), new Point(25, 34), new Point(35, 22)); }
-                    // --- 新增：鋼筆工具的圖示 ---
-                    else if (type == App_Shapes.ShapeType.BezierPen) 
-                    { 
-                        g.DrawLine(p, 22, 10, 16, 24); 
-                        g.DrawLine(p, 22, 10, 28, 24); 
-                        g.DrawLine(p, 16, 24, 22, 34); 
-                        g.DrawLine(p, 28, 24, 22, 34);
-                        g.FillEllipse(Brushes.White, 20, 8, 4, 4); g.DrawEllipse(p, 20, 8, 4, 4); 
-                    }
-                }
-            };
-            _leftPanel.Controls.Add(btn);
-            return btn;
-        }
-
-        private void SetActiveButton(Button btn)
-        {
-            if (_activeToolBtn != null) _activeToolBtn.BackColor = Color.Transparent;
-            _activeToolBtn = btn;
-            _activeToolBtn.BackColor = Color.LightSkyBlue;
         }
     }
 }
