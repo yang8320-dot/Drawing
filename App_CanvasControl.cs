@@ -70,9 +70,7 @@ namespace DrawingApp
         private InteractionState _currentState = InteractionState.Idle;
 
         private App_Shapes.ShapeType _currentTool = App_Shapes.ShapeType.Pointer;
-        // --- 新增：紀錄暫存工具 (用於空白鍵平移) ---
         private App_Shapes.ShapeType _previousTool = App_Shapes.ShapeType.Pointer;
-        // ------------------------------------
 
         public App_Shapes.ShapeType CurrentTool 
         { 
@@ -115,6 +113,10 @@ namespace DrawingApp
         private Rectangle _minimapRect;
         private bool _isDraggingMinimap = false;
         private const int MINIMAP_WIDTH = 200;
+
+        // --- 新增：維護一份 QuadTree 實例 ---
+        private App_Shapes.QuadTree _quadTree;
+        // ---------------------------------
 
         public event Action<PointF> OnImageInsertRequested;
         public event Action<App_Shapes.ShapeType> OnToolChangedRequested;
@@ -458,7 +460,6 @@ namespace DrawingApp
             return (float)Math.Round(angle / step) * step;
         }
 
-        // --- 擴充：實作全域快捷鍵與空白鍵平移 ---
         protected override void OnKeyDown(KeyEventArgs e)
         {
             if (_inlineTextBox.Focused) return;
@@ -479,7 +480,7 @@ namespace DrawingApp
             {
                 _isPanning = false;
                 this.Cursor = Cursors.Default;
-                CurrentTool = _previousTool; // 恢復先前的工具
+                CurrentTool = _previousTool; 
             }
             base.OnKeyUp(e);
         }
@@ -500,7 +501,6 @@ namespace DrawingApp
                 return true; 
             }
 
-            // 支援工具快速切換快捷鍵
             if (keyData == Keys.V) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.Pointer); return true; }
             if (keyData == Keys.H) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.HandPan); return true; }
             if (keyData == Keys.T) { OnToolChangedRequested?.Invoke(App_Shapes.ShapeType.TextNode); return true; }
@@ -733,6 +733,18 @@ namespace DrawingApp
             return new RectangleF(minX, minY, maxX - minX, maxY - minY);
         }
 
+        // --- 內部輔助：建立畫布層級的 QuadTree ---
+        private void BuildQuadTree()
+        {
+            SizeF size = ActualPageSize;
+            _quadTree = new App_Shapes.QuadTree(0, new RectangleF(0, 0, size.Width, size.Height));
+            for (int i = 0; i < Shapes.Count; i++)
+            {
+                _quadTree.Insert(Shapes[i]);
+            }
+        }
+
+        // --- 優化：使用 QuadTree 進行滑鼠游標碰撞測試 ---
         private void UpdateCursor(PointF realPt)
         {
             if (_currentState != InteractionState.Idle) return; 
@@ -780,12 +792,33 @@ namespace DrawingApp
                 }
             }
 
-            for (int i = Shapes.Count - 1; i >= 0; i--)
+            // 【效能升級】：不遍歷全體，只向 QuadTree 索取滑鼠點周圍 10x10 的物件
+            if (_quadTree != null)
             {
-                if (Shapes[i].HitTest(realPt))
+                List<App_Shapes.ShapeBase> nearShapes = new List<App_Shapes.ShapeBase>();
+                _quadTree.Retrieve(nearShapes, new RectangleF(realPt.X - 5, realPt.Y - 5, 10, 10));
+                
+                // 由於 Z-Index 是依據 Shapes 陣列順序，必須確保從最上層 (後加入的) 開始判斷
+                nearShapes = nearShapes.OrderByDescending(s => Shapes.IndexOf(s)).ToList();
+
+                foreach (var shape in nearShapes)
                 {
-                    this.Cursor = Shapes[i].IsLocked ? Cursors.No : Cursors.SizeAll;
-                    return;
+                    if (shape.HitTest(realPt))
+                    {
+                        this.Cursor = shape.IsLocked ? Cursors.No : Cursors.SizeAll;
+                        return;
+                    }
+                }
+            }
+            else
+            {
+                for (int i = Shapes.Count - 1; i >= 0; i--)
+                {
+                    if (Shapes[i].HitTest(realPt))
+                    {
+                        this.Cursor = Shapes[i].IsLocked ? Cursors.No : Cursors.SizeAll;
+                        return;
+                    }
                 }
             }
 
@@ -818,14 +851,27 @@ namespace DrawingApp
 
             if (e.Button == MouseButtons.Left)
             {
+                // 【效能升級】：取得 QuadTree 附近的圖形用於點擊判斷
+                List<App_Shapes.ShapeBase> nearShapes = new List<App_Shapes.ShapeBase>();
+                if (_quadTree != null)
+                {
+                    _quadTree.Retrieve(nearShapes, new RectangleF(realPt.X - 5, realPt.Y - 5, 10, 10));
+                    nearShapes = nearShapes.OrderByDescending(s => Shapes.IndexOf(s)).ToList();
+                }
+                else
+                {
+                    nearShapes = Shapes.ToList();
+                    nearShapes.Reverse();
+                }
+
                 if (CurrentTool == App_Shapes.ShapeType.FormatPainter)
                 {
                     if (FormatSourceShape != null)
                     {
                         App_Shapes.ShapeBase hit = null;
-                        for (int i = Shapes.Count - 1; i >= 0; i--)
+                        foreach (var shape in nearShapes)
                         {
-                            if (Shapes[i].HitTest(realPt)) { hit = Shapes[i]; break; }
+                            if (shape.HitTest(realPt)) { hit = shape; break; }
                         }
 
                         if (hit != null && !hit.IsLocked)
@@ -871,9 +917,9 @@ namespace DrawingApp
                     }
 
                     App_Shapes.ShapeBase hit = null;
-                    for (int i = Shapes.Count - 1; i >= 0; i--)
+                    foreach (var shape in nearShapes)
                     {
-                        if (Shapes[i].HitTest(realPt)) { hit = Shapes[i]; break; }
+                        if (shape.HitTest(realPt)) { hit = shape; break; }
                     }
 
                     if (hit != null)
@@ -935,13 +981,13 @@ namespace DrawingApp
                     
                     _tempShape = new App_Shapes.ConnectorShape(realPt, CurrentColor, isArrow, isOrtho);
                     
-                    for (int i = Shapes.Count - 1; i >= 0; i--)
+                    foreach (var shape in nearShapes)
                     {
-                        if (Shapes[i].HitTest(realPt)) 
+                        if (shape.HitTest(realPt)) 
                         { 
                             var conn = (App_Shapes.ConnectorShape)_tempShape;
-                            conn.SourceId = Shapes[i].Id; 
-                            conn.SourceAnchor = DetectAnchor(Shapes[i], realPt);
+                            conn.SourceId = shape.Id; 
+                            conn.SourceAnchor = DetectAnchor(shape, realPt);
                             break; 
                         }
                     }
@@ -1023,9 +1069,19 @@ namespace DrawingApp
                         float futureCenterX = myCenter.X + dx;
                         float futureCenterY = myCenter.Y + dy;
 
-                        for (int i = 0; i < Shapes.Count; i++)
+                        // 【QuadTree 優化】尋找智慧參考線，也只找 QuadTree 中附近的
+                        List<App_Shapes.ShapeBase> nearShapes = new List<App_Shapes.ShapeBase>();
+                        if (_quadTree != null)
                         {
-                            var other = Shapes[i];
+                            _quadTree.Retrieve(nearShapes, new RectangleF(futureCenterX - 200, futureCenterY - 200, 400, 400));
+                        }
+                        else
+                        {
+                            nearShapes = Shapes;
+                        }
+
+                        foreach (var other in nearShapes)
+                        {
                             if (other == me || other is App_Shapes.ConnectorShape) continue;
 
                             PointF otherCenter = other.GetCenter();
@@ -1089,9 +1145,13 @@ namespace DrawingApp
                         SelectedShapes.Clear();
                     }
 
-                    for (int i = 0; i < Shapes.Count; i++)
+                    // 【QuadTree 優化】框選範圍可能較大，仍然使用 Retrieve 過濾
+                    List<App_Shapes.ShapeBase> nearShapes = new List<App_Shapes.ShapeBase>();
+                    if (_quadTree != null) _quadTree.Retrieve(nearShapes, _boxSelectRect);
+                    else nearShapes = Shapes;
+
+                    foreach (var s in nearShapes)
                     {
-                        var s = Shapes[i];
                         if (s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds))
                         {
                             if (!SelectedShapes.Contains(s))
@@ -1128,21 +1188,33 @@ namespace DrawingApp
                             conn.TargetId = Guid.Empty;
                         }
 
-                        for (int i = Shapes.Count - 1; i >= 0; i--)
+                        List<App_Shapes.ShapeBase> nearShapes = new List<App_Shapes.ShapeBase>();
+                        if (_quadTree != null)
                         {
-                            if (Shapes[i] != conn && Shapes[i].HitTest(realPt))
+                            _quadTree.Retrieve(nearShapes, new RectangleF(realPt.X - 5, realPt.Y - 5, 10, 10));
+                            nearShapes = nearShapes.OrderByDescending(s => Shapes.IndexOf(s)).ToList();
+                        }
+                        else
+                        {
+                            nearShapes = Shapes.ToList();
+                            nearShapes.Reverse();
+                        }
+
+                        foreach (var other in nearShapes)
+                        {
+                            if (other != conn && other.HitTest(realPt))
                             {
-                                _hoveredShapeForConnection = Shapes[i];
-                                _hoveredAnchor = DetectAnchor(Shapes[i], realPt);
+                                _hoveredShapeForConnection = other;
+                                _hoveredAnchor = DetectAnchor(other, realPt);
 
                                 if (_resizingHandle == App_Shapes.HandlePosition.StartPoint)
                                 {
-                                    conn.SourceId = Shapes[i].Id;
+                                    conn.SourceId = other.Id;
                                     conn.SourceAnchor = _hoveredAnchor;
                                 }
                                 else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint)
                                 {
-                                    conn.TargetId = Shapes[i].Id;
+                                    conn.TargetId = other.Id;
                                     conn.TargetAnchor = _hoveredAnchor;
                                 }
                                 break;
@@ -1251,12 +1323,24 @@ namespace DrawingApp
                     _hoveredShapeForConnection = null;
                     _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
 
-                    for (int i = Shapes.Count - 1; i >= 0; i--)
+                    List<App_Shapes.ShapeBase> nearShapes = new List<App_Shapes.ShapeBase>();
+                    if (_quadTree != null)
                     {
-                        if (Shapes[i].Id != c.SourceId && Shapes[i].HitTest(realPt))
+                        _quadTree.Retrieve(nearShapes, new RectangleF(realPt.X - 5, realPt.Y - 5, 10, 10));
+                        nearShapes = nearShapes.OrderByDescending(s => Shapes.IndexOf(s)).ToList();
+                    }
+                    else
+                    {
+                        nearShapes = Shapes.ToList();
+                        nearShapes.Reverse();
+                    }
+
+                    foreach (var other in nearShapes)
+                    {
+                        if (other.Id != c.SourceId && other.HitTest(realPt))
                         {
-                            _hoveredShapeForConnection = Shapes[i]; 
-                            _hoveredAnchor = DetectAnchor(Shapes[i], realPt);
+                            _hoveredShapeForConnection = other; 
+                            _hoveredAnchor = DetectAnchor(other, realPt);
                             break;
                         }
                     }
@@ -1362,6 +1446,9 @@ namespace DrawingApp
             base.OnPaint(e);
             Graphics g = e.Graphics;
             g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            // 【效能升級】：重繪前重新建立當下的 QuadTree
+            BuildQuadTree();
             
             var oldTransform = g.Transform;
 
@@ -1388,12 +1475,19 @@ namespace DrawingApp
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
-            for (int i = 0; i < Shapes.Count; i++)
+            // 【QuadTree 優化】只繪製出現在視窗範圍 (clipWorldBounds) 內的圖形
+            List<App_Shapes.ShapeBase> visibleShapes = new List<App_Shapes.ShapeBase>();
+            _quadTree.Retrieve(visibleShapes, clipWorldBounds);
+
+            // 必須照原本的 Z-Index 順序繪製，避免上下顛倒
+            var sortedVisibleShapes = visibleShapes.Distinct().OrderBy(s => Shapes.IndexOf(s)).ToList();
+
+            for (int i = 0; i < sortedVisibleShapes.Count; i++)
             {
-                var shape = Shapes[i];
+                var shape = sortedVisibleShapes[i];
                 if (!(shape is App_Shapes.ConnectorShape))
                 {
-                    if (clipWorldBounds.IntersectsWith(shape.Bounds)) shape.DrawWithTransform(g);
+                    shape.DrawWithTransform(g);
                 }
             }
 
@@ -1422,12 +1516,13 @@ namespace DrawingApp
                     if (tgt != null)
                         p2 = shape.TargetAnchor == App_Shapes.AnchorPosition.Auto ? tgt.GetIntersection(p1) : tgt.GetAnchorPoint(shape.TargetAnchor);
 
-                    shape.DrawDynamic(g, p1, p2, Shapes, isFastMode);
+                    // 【QuadTree 優化】把建立好的 quadTree 傳遞給 Connector，讓 A* 跟跳線能過濾障礙物
+                    shape.DrawDynamic(g, p1, p2, Shapes, isFastMode, _quadTree);
                 }
             }
 
             _tempShape?.DrawWithTransform(g);
-            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes, true); 
+            if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes, true, _quadTree); 
             
             if ((_currentState == InteractionState.Connecting || _currentState == InteractionState.Resizing) && _hoveredShapeForConnection != null)
             {
