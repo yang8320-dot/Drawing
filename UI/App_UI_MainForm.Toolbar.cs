@@ -103,7 +103,17 @@ namespace DrawingApp
             TabPage page = new TabPage(title);
             App_CanvasControl canvas = new App_CanvasControl { Dock = DockStyle.Fill };
             
-            // 綁定畫布事件
+            // [修正 1]：綁定插入圖片的事件，讓畫布呼叫主視窗的圖片選擇器
+            canvas.OnImageInsertRequested += HandleImageInsert;
+
+            // [修正 2]：當畫布有任何指令異動(新增、刪除、復原、重做)時，強制更新圖層面板與標題
+            canvas.CmdManager.OnStateChanged += () => {
+                RefreshLayerTree();
+                _isDirty = true;
+                UpdateWindowTitle();
+            };
+
+            // 綁定畫布選取變更事件
             canvas.OnSelectionChanged += () => {
                 RefreshPropertyPanel();
                 SyncLayerTreeSelection();
