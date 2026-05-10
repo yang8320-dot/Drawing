@@ -21,6 +21,16 @@ namespace DrawingApp
                 NormalizeBounds();
             }
 
+            // [優化 3]：修改群組時，將顏色與格式遞迴同步給所有子圖形
+            public override void ApplyFormatFrom(ShapeBase source)
+            {
+                base.ApplyFormatFrom(source);
+                foreach (var child in Children)
+                {
+                    child.ApplyFormatFrom(source);
+                }
+            }
+
             public override void Dispose()
             {
                 base.Dispose();
