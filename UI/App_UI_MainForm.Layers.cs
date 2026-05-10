@@ -63,6 +63,12 @@ namespace DrawingApp
         {
             if (e.Item is TreeNode node && node.Tag is App_Shapes.ShapeBase shape && !shape.IsLocked)
             {
+                // [修正 3]：如果這個節點有父節點 (代表它是群組內的子物件)，則禁止拖曳排序避免資料崩潰
+                if (node.Parent != null) 
+                {
+                    return; 
+                }
+                
                 DoDragDrop(e.Item, DragDropEffects.Move);
             }
         }
