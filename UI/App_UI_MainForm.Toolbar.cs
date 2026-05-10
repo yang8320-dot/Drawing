@@ -260,7 +260,7 @@ namespace DrawingApp
 
         private void BuildLeftPanel()
         {
-            _leftPanel = new FlowLayoutPanel { Dock = DockStyle.Left, Width = 65, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
+            _leftPanel = new FlowLayoutPanel { Dock = DockStyle.Left, Width = 75, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
             
             _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n快捷鍵: V\n(可框選、旋轉、縮放)");
             SetActiveButton(_btnPointer);
