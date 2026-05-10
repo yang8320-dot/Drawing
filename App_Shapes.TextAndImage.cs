@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
+using Newtonsoft.Json;
 
 namespace DrawingApp
 {
@@ -22,7 +23,8 @@ namespace DrawingApp
             {
                 if (!IsTransparent)
                 {
-                    if (EnableShadow)
+                    // [優化 2]：套用 ShouldDrawShadow 以支援快速渲染
+                    if (ShouldDrawShadow)
                         g.FillRectangle(SharedShadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
                     
                     if (FillColor != Color.Transparent)
@@ -46,10 +48,13 @@ namespace DrawingApp
             [Browsable(false)] public override bool FontUnderline { get; set; } = false;
             [Browsable(false)] public override TextAlign TextAlignment { get; set; } = TextAlign.MiddleCenter;
 
-            private static Dictionary<string, Bitmap> _globalImageCache = new Dictionary<string, Bitmap>();
-
             [Browsable(false)]
             public string Base64Image { get; set; }
+            
+            // [優化 1]：移除全域靜態 Dictionary 緩存，改由實體自行持有 Bitmap，徹底解決記憶體洩漏！
+            [JsonIgnore]
+            [Browsable(false)]
+            private Bitmap _localImage;
             
             public ImageShape() { }
             public ImageShape(PointF start, Bitmap img) : base(start, Color.Black)
@@ -60,11 +65,7 @@ namespace DrawingApp
                     Base64Image = Convert.ToBase64String(ms.ToArray());
                 }
                 
-                if (!_globalImageCache.ContainsKey(Base64Image))
-                {
-                    _globalImageCache[Base64Image] = new Bitmap(img);
-                }
-                
+                _localImage = new Bitmap(img);
                 Bounds = new RectangleF(Bounds.X, Bounds.Y, img.Width, img.Height); 
             }
 
@@ -72,22 +73,32 @@ namespace DrawingApp
             {
                 if (!string.IsNullOrEmpty(Base64Image))
                 {
-                    if (!_globalImageCache.ContainsKey(Base64Image))
+                    if (_localImage == null)
                     {
                         using (var ms = new System.IO.MemoryStream(Convert.FromBase64String(Base64Image)))
                         {
-                            _globalImageCache[Base64Image] = new Bitmap(ms);
+                            _localImage = new Bitmap(ms);
                         }
                     }
 
-                    Bitmap imgToDraw = _globalImageCache[Base64Image];
-
-                    if (EnableShadow)
+                    // [優化 2]：套用 ShouldDrawShadow 以支援快速渲染
+                    if (ShouldDrawShadow)
                         g.FillRectangle(SharedShadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
                     
-                    g.DrawImage(imgToDraw, Bounds);
+                    g.DrawImage(_localImage, Bounds);
                 }
                 DrawText(g);
+            }
+
+            // 當圖形被丟棄或被 GC 清除前，釋放專屬的影像資源
+            public override void Dispose()
+            {
+                base.Dispose();
+                if (_localImage != null)
+                {
+                    _localImage.Dispose();
+                    _localImage = null;
+                }
             }
         }
     }
