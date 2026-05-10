@@ -53,7 +53,7 @@ namespace DrawingApp
                     p.LineJoin = LineJoin.Round;
                     PointF[] absPts = LocalPoints.Select(pt => new PointF(Bounds.X + pt.X, Bounds.Y + pt.Y)).ToArray();
                     
-                    if (EnableShadow)
+                    if (ShouldDrawShadow)
                     {
                         if (_cachedFreehandShadowPen == null)
                             _cachedFreehandShadowPen = new Pen(Color.FromArgb(60, 0, 0, 0), p.Width) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };
@@ -75,10 +75,10 @@ namespace DrawingApp
             public override void NormalizeBounds()
             {
                 if (LocalPoints.Count == 0) return;
-                float minX = LocalPoints.Min(p => p.X);
-                float minY = LocalPoints.Min(p => p.Y);
-                float maxX = LocalPoints.Max(p => p.X);
-                float maxY = LocalPoints.Max(p => p.Y);
+                float minX = LocalPoints.Min(pt => pt.X);
+                float minY = LocalPoints.Min(pt => pt.Y);
+                float maxX = LocalPoints.Max(pt => pt.X);
+                float maxY = LocalPoints.Max(pt => pt.Y);
 
                 float newWidth = maxX - minX;
                 float newHeight = maxY - minY;
@@ -191,7 +191,7 @@ namespace DrawingApp
 
                 using (GraphicsPath path = GetPath())
                 {
-                    if (EnableShadow)
+                    if (ShouldDrawShadow)
                     {
                         if (_cachedShadowPen == null)
                             _cachedShadowPen = new Pen(Color.FromArgb(60, 0, 0, 0), StrokeWidth) { LineJoin = LineJoin.Round };
