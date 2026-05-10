@@ -18,6 +18,16 @@ namespace DrawingApp
             protected Brush _cachedTextBrush;
             private RectangleF _lastBrushBounds;
 
+            // [優化 2]：新增全局快速渲染開關
+            [Browsable(false)]
+            [JsonIgnore]
+            public static bool IsFastRendering { get; set; } = false;
+
+            // [優化 2]：智慧判斷當前是否應該畫陰影
+            [Browsable(false)]
+            [JsonIgnore]
+            protected bool ShouldDrawShadow => EnableShadow && !IsFastRendering;
+
             private RectangleF _bounds;
             [Category("3. 座標與尺寸")]
             [DisplayName("物件邊界 (Bounds)")]
@@ -205,7 +215,8 @@ namespace DrawingApp
 
                 if (_cachedFillBrush == null)
                 {
-                    if (FillBrushType == BrushType.Solid || rect.Width <= 0 || rect.Height <= 0)
+                    // [優化 2]：如果開啟快速渲染，強制使用純色替代漸層，減少運算
+                    if (FillBrushType == BrushType.Solid || rect.Width <= 0 || rect.Height <= 0 || IsFastRendering)
                         _cachedFillBrush = new SolidBrush(FillColor);
                     else
                     {
