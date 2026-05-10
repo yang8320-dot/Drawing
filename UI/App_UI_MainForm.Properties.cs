@@ -11,7 +11,6 @@ namespace DrawingApp
     {
         private void BuildRightPanel()
         {
-            // 將寬度稍微加寬至 320，預留垂直捲軸的空間，避免產生水平捲軸
             _rightPanel = new Panel { Dock = DockStyle.Right, Width = 320, BackColor = Color.FromArgb(245, 245, 245) };
 
             SplitContainer scRight = new SplitContainer 
@@ -22,56 +21,53 @@ namespace DrawingApp
                 FixedPanel = FixedPanel.Panel1
             };
 
-            // 👑 【關鍵修復】使用 FlowLayoutPanel 取代原本的混搭排版，確保由上往下排列絕對不重疊
-            FlowLayoutPanel masterFlowPanel = new FlowLayoutPanel
-            {
-                Dock = DockStyle.Fill,
-                FlowDirection = FlowDirection.TopDown, // 由上往下排
-                WrapContents = false,                  // 不換行 (只往下)
-                AutoScroll = true,                     // 內容過多時自動出現捲軸
-                Padding = new Padding(10)
-            };
+            // 最外層採用 AutoScroll，內容過多時會自動產生捲軸
+            Panel topPropPanel = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(8) };
 
             // ==========================================
-            // 1. 快速對齊區塊
+            // 4. 文字與排版設定 (放最底層)
             // ==========================================
-            Panel pnlAlignHeader = new Panel { Width = 280, Height = 25, Margin = new Padding(0) };
-            pnlAlignHeader.Controls.Add(new Label { Text = "快速對齊", Font = new Font("Arial", 10, FontStyle.Bold), AutoSize = true, Location = new Point(0, 3) });
-            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", AutoSize = true, Location = new Point(160, 2), ForeColor = Color.DimGray };
-            pnlAlignHeader.Controls.Add(_chkAlignToPage);
-            masterFlowPanel.Controls.Add(pnlAlignHeader);
+            _gbText = new GroupBox { Text = "文字與排版設定", Dock = DockStyle.Top, Height = 160, Font = new Font("Arial", 9, FontStyle.Bold) };
+            TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
+            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            // AutoSize = true 讓面板能根據按鈕換行自動長高
-            _alignmentPanel = new FlowLayoutPanel { Width = 280, AutoSize = true, WrapContents = true, Margin = new Padding(0, 5, 0, 10) };
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠左", (s, e) => AlignShapes("Left")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("置中", (s, e) => AlignShapes("Center")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠右", (s, e) => AlignShapes("Right")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠上", (s, e) => AlignShapes("Top")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("垂直置中", (s, e) => AlignShapes("Middle")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("靠下", (s, e) => AlignShapes("Bottom")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("水平均分", (s, e) => DistributeShapes("Horizontal")));
-            _alignmentPanel.Controls.Add(CreateAlignButton("垂直均分", (s, e) => DistributeShapes("Vertical")));
-            masterFlowPanel.Controls.Add(_alignmentPanel);
+            tlpText.Controls.Add(new Label { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
+            _btnFontColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
+            _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
+            tlpText.Controls.Add(_btnFontColor, 1, 0);
+
+            tlpText.Controls.Add(new Label { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
+            TableLayoutPanel tlpFont = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+            _cbFontName = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+            foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
+            _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
+            _nudFontSize = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 6, Maximum = 144 };
+            _nudFontSize.ValueChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontSize = (float)_nudFontSize.Value);
+            tlpFont.Controls.Add(_cbFontName, 0, 0); tlpFont.Controls.Add(_nudFontSize, 1, 0);
+            tlpText.Controls.Add(tlpFont, 1, 1);
+
+            tlpText.Controls.Add(new Label { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
+            FlowLayoutPanel flpStyle = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
+            _chkBold = new CheckBox { Text = "粗", AutoSize = true, Width = 40 }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
+            _chkItalic = new CheckBox { Text = "斜", AutoSize = true, Width = 40 }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
+            _chkUnderline = new CheckBox { Text = "底線", AutoSize = true, Width = 55 }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
+            flpStyle.Controls.Add(_chkBold); flpStyle.Controls.Add(_chkItalic); flpStyle.Controls.Add(_chkUnderline);
+            tlpText.Controls.Add(flpStyle, 1, 2);
+
+            tlpText.Controls.Add(new Label { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 3);
+            _cbTextAlign = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
+            _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
+            tlpText.Controls.Add(_cbTextAlign, 1, 3);
+
+            _gbText.Controls.Add(tlpText);
 
             // ==========================================
-            // 2. 圖層順序區塊
+            // 3. 外觀與線條設定
             // ==========================================
-            masterFlowPanel.Controls.Add(new Label { Text = "圖層順序", Font = new Font("Arial", 10, FontStyle.Bold), AutoSize = true, Margin = new Padding(0, 5, 0, 5) });
-            
-            _zIndexPanel = new FlowLayoutPanel { Width = 280, AutoSize = true, WrapContents = true, Margin = new Padding(0, 0, 0, 10) };
-            _zIndexPanel.Controls.Add(CreateAlignButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }));
-            _zIndexPanel.Controls.Add(CreateAlignButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }));
-            masterFlowPanel.Controls.Add(_zIndexPanel);
-
-            // ==========================================
-            // 3. 自訂屬性面板 (外觀與文字)
-            // ==========================================
-            // 將其包裝為自動長高的容器，以便選取/取消選取時整塊隱藏
-            _customPropertiesPanel = new Panel { Width = 280, AutoSize = true, Margin = new Padding(0) };
-            FlowLayoutPanel innerPropsFlow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true };
-
-            // 3-1. 外觀設定 GroupBox
-            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 280, Height = 200, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
+            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Dock = DockStyle.Top, Height = 210, Font = new Font("Arial", 9, FontStyle.Bold) };
             TableLayoutPanel tlpApp = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
             tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
             tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -119,64 +115,88 @@ namespace DrawingApp
             tlpApp.Controls.Add(_chkShadow, 1, 5);
 
             _gbAppearance.Controls.Add(tlpApp);
-            innerPropsFlow.Controls.Add(_gbAppearance);
 
-            // 3-2. 文字設定 GroupBox
-            _gbText = new GroupBox { Text = "文字與排版設定", Width = 280, Height = 160, Font = new Font("Arial", 9, FontStyle.Bold) };
-            TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
-            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
-            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            tlpText.Controls.Add(new Label { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
-            _btnFontColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
-            tlpText.Controls.Add(_btnFontColor, 1, 0);
-
-            tlpText.Controls.Add(new Label { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
-            TableLayoutPanel tlpFont = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
-            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-            _cbFontName = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
-            _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
-            _nudFontSize = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 6, Maximum = 144 };
-            _nudFontSize.ValueChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontSize = (float)_nudFontSize.Value);
-            tlpFont.Controls.Add(_cbFontName, 0, 0); tlpFont.Controls.Add(_nudFontSize, 1, 0);
-            tlpText.Controls.Add(tlpFont, 1, 1);
-
-            tlpText.Controls.Add(new Label { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
-            FlowLayoutPanel flpStyle = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
-            _chkBold = new CheckBox { Text = "粗", AutoSize = true, Width = 40 }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
-            _chkItalic = new CheckBox { Text = "斜", AutoSize = true, Width = 40 }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
-            _chkUnderline = new CheckBox { Text = "底線", AutoSize = true, Width = 55 }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
-            flpStyle.Controls.Add(_chkBold); flpStyle.Controls.Add(_chkItalic); flpStyle.Controls.Add(_chkUnderline);
-            tlpText.Controls.Add(flpStyle, 1, 2);
-
-            tlpText.Controls.Add(new Label { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 3);
-            _cbTextAlign = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
-            _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
-            tlpText.Controls.Add(_cbTextAlign, 1, 3);
-
-            _gbText.Controls.Add(tlpText);
-            innerPropsFlow.Controls.Add(_gbText);
-
-            _customPropertiesPanel.Controls.Add(innerPropsFlow);
-            masterFlowPanel.Controls.Add(_customPropertiesPanel);
+            // 將外觀與文字包裝成一個 Panel 以便整體鎖定
+            _customPropertiesPanel = new Panel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 5, 0, 0) };
+            _customPropertiesPanel.Controls.Add(_gbText);
+            _customPropertiesPanel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 }); // 間距
+            _customPropertiesPanel.Controls.Add(_gbAppearance);
 
             // ==========================================
-            // 將組合好的 masterFlowPanel 放入上半部
+            // 2. 圖層順序區塊
             // ==========================================
-            scRight.Panel1.Controls.Add(masterFlowPanel);
+            GroupBox gbZIndex = new GroupBox { Text = "圖層順序", Dock = DockStyle.Top, Height = 65, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5) };
+            _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
+            TableLayoutPanel tlpZIndex = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            tlpZIndex.Controls.Add(CreateGridButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }), 0, 0);
+            tlpZIndex.Controls.Add(CreateGridButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }), 1, 0);
+            _zIndexPanel.Controls.Add(tlpZIndex);
+            gbZIndex.Controls.Add(_zIndexPanel);
 
-            // 呼叫 Partial Class 的方法建立圖層面板 (在下半部)
+            // ==========================================
+            // 1. 快速對齊區塊 (使用 TableLayoutPanel 解決跑版)
+            // ==========================================
+            GroupBox gbAlign = new GroupBox { Text = "快速對齊", Dock = DockStyle.Top, Height = 150, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5) };
+            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0) };
+            gbAlign.Controls.Add(_chkAlignToPage);
+
+            _alignmentPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
+            TableLayoutPanel tlpAlign = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3 };
+            for (int i = 0; i < 3; i++) tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            for (int i = 0; i < 3; i++) tlpAlign.RowStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+
+            tlpAlign.Controls.Add(CreateGridButton("靠左", (s, e) => AlignShapes("Left")), 0, 0);
+            tlpAlign.Controls.Add(CreateGridButton("置中", (s, e) => AlignShapes("Center")), 1, 0);
+            tlpAlign.Controls.Add(CreateGridButton("靠右", (s, e) => AlignShapes("Right")), 2, 0);
+            tlpAlign.Controls.Add(CreateGridButton("靠上", (s, e) => AlignShapes("Top")), 0, 1);
+            tlpAlign.Controls.Add(CreateGridButton("垂直置中", (s, e) => AlignShapes("Middle")), 1, 1);
+            tlpAlign.Controls.Add(CreateGridButton("靠下", (s, e) => AlignShapes("Bottom")), 2, 1);
+            tlpAlign.Controls.Add(CreateGridButton("水平均分", (s, e) => DistributeShapes("Horizontal")), 0, 2);
+            tlpAlign.Controls.Add(CreateGridButton("垂直均分", (s, e) => DistributeShapes("Vertical")), 1, 2);
+            
+            _alignmentPanel.Controls.Add(tlpAlign);
+            gbAlign.Controls.Add(_alignmentPanel);
+
+            // ==========================================
+            // 將所有區塊加入容器，並利用 BringToFront 確保由上往下排列
+            // ==========================================
+            topPropPanel.Controls.Add(_customPropertiesPanel);
+            topPropPanel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 }); // 間距
+            topPropPanel.Controls.Add(gbZIndex);
+            topPropPanel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 }); // 間距
+            topPropPanel.Controls.Add(gbAlign);
+
+            _customPropertiesPanel.BringToFront();
+            gbZIndex.BringToFront();
+            gbAlign.BringToFront();
+
+            scRight.Panel1.Controls.Add(topPropPanel);
+
+            // 呼叫 Partial Class 的方法建立下方的圖層面板
             BuildLayerPanel(scRight.Panel2);
 
             _rightPanel.Controls.Add(scRight);
 
-            // 預設為停用狀態
+            // 初始狀態設為停用 (反灰) 而不是隱藏，讓使用者知道這些功能存在
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
-            _customPropertiesPanel.Visible = false; // 初始隱藏屬性面板
+            _customPropertiesPanel.Enabled = false;
+        }
+
+        // 專為 TableLayoutPanel 設計的彈性按鈕
+        private Button CreateGridButton(string text, EventHandler onClick)
+        {
+            Button btn = new Button
+            {
+                Text = text, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat,
+                BackColor = Color.White, Cursor = Cursors.Hand, Font = new Font("微軟正黑體", 8),
+                Margin = new Padding(2) // 讓按鈕之間有微小間距
+            };
+            btn.FlatAppearance.BorderColor = Color.LightGray;
+            btn.Click += onClick;
+            return btn;
         }
 
         private void RefreshPropertyPanel()
@@ -190,11 +210,12 @@ namespace DrawingApp
                 
                 if (selCount > 0)
                 {
-                    _customPropertiesPanel.Visible = true; // 有選取圖形時顯示
+                    // 有選取圖形時，解除鎖定
+                    _customPropertiesPanel.Enabled = true;
                     
                     var shape = CurrentCanvas.SelectedShapes[0];
                     
-                    _isUpdatingUI = true; // 鎖定事件觸發
+                    _isUpdatingUI = true; // 鎖定事件觸發，避免介面更新時觸發存檔
                     
                     _btnShapeColor.BackColor = shape.ShapeColor;
                     _btnFillColor.BackColor = shape.FillColor;
@@ -222,14 +243,15 @@ namespace DrawingApp
                 }
                 else
                 {
-                    _customPropertiesPanel.Visible = false; // 沒選取圖形時隱藏
+                    // 沒選取圖形時，反灰鎖定 (不要用 Visible = false 避免 UI 突然消失)
+                    _customPropertiesPanel.Enabled = false;
                 }
             }
             else
             {
                 _alignmentPanel.Enabled = false;
                 _zIndexPanel.Enabled = false;
-                _customPropertiesPanel.Visible = false;
+                _customPropertiesPanel.Enabled = false;
             }
         }
 
@@ -272,6 +294,91 @@ namespace DrawingApp
             UpdateWindowTitle();
             
             RefreshLayerTree(); 
+        }
+
+        // --- 舊有的對齊邏輯 (保持不變) ---
+        private void AlignShapes(string type)
+        {
+            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
+            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
+            if (shapes.Count == 0 || (!_chkAlignToPage.Checked && shapes.Count < 2)) return;
+
+            var oldBounds = shapes.Select(s => s.Bounds).ToList();
+            var newBounds = new List<RectangleF>();
+            float refVal = 0;
+
+            if (_chkAlignToPage.Checked)
+            {
+                SizeF ps = CurrentCanvas.PageSize;
+                switch (type)
+                {
+                    case "Left": foreach (var s in shapes) newBounds.Add(new RectangleF(0, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Right": foreach (var s in shapes) newBounds.Add(new RectangleF(ps.Width - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Center": foreach (var s in shapes) newBounds.Add(new RectangleF(ps.Width / 2 - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Top": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, 0, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Bottom": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, ps.Height - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Middle": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, ps.Height / 2 - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
+                }
+            }
+            else
+            {
+                switch (type)
+                {
+                    case "Left": refVal = shapes.Min(s => s.Bounds.Left); foreach (var s in shapes) newBounds.Add(new RectangleF(refVal, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Right": refVal = shapes.Max(s => s.Bounds.Right); foreach (var s in shapes) newBounds.Add(new RectangleF(refVal - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Center": refVal = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(refVal - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Top": refVal = shapes.Min(s => s.Bounds.Top); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, refVal, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Bottom": refVal = shapes.Max(s => s.Bounds.Bottom); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, refVal - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
+                    case "Middle": refVal = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, refVal - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
+                }
+            }
+            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
+        }
+
+        private void DistributeShapes(string type)
+        {
+            if (CurrentCanvas == null) return;
+            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
+            if (shapes.Count < 3) return;
+
+            var oldBounds = shapes.Select(s => s.Bounds).ToList();
+            var newBounds = new List<RectangleF>();
+
+            if (type == "Horizontal")
+            {
+                shapes = shapes.OrderBy(s => s.Bounds.X).ToList();
+                float totalSpace = shapes.Last().Bounds.Right - shapes.First().Bounds.Left;
+                float gap = (totalSpace - shapes.Sum(s => s.Bounds.Width)) / (shapes.Count - 1);
+                
+                float currentX = shapes.First().Bounds.Left;
+                foreach (var s in shapes)
+                {
+                    newBounds.Add(new RectangleF(currentX, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                    currentX += s.Bounds.Width + gap;
+                }
+            }
+            else if (type == "Vertical")
+            {
+                shapes = shapes.OrderBy(s => s.Bounds.Y).ToList();
+                float totalSpace = shapes.Last().Bounds.Bottom - shapes.First().Bounds.Top;
+                float gap = (totalSpace - shapes.Sum(s => s.Bounds.Height)) / (shapes.Count - 1);
+                
+                float currentY = shapes.First().Bounds.Top;
+                foreach (var s in shapes)
+                {
+                    newBounds.Add(new RectangleF(s.Bounds.X, currentY, s.Bounds.Width, s.Bounds.Height));
+                    currentY += s.Bounds.Height + gap;
+                }
+            }
+
+            var orderedNewBounds = new List<RectangleF>();
+            var originalShapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
+            for (int i = 0; i < originalShapes.Count; i++)
+            {
+                orderedNewBounds.Add(newBounds[shapes.IndexOf(originalShapes[i])]);
+            }
+
+            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(originalShapes, oldBounds, orderedNewBounds));
         }
     }
 }
