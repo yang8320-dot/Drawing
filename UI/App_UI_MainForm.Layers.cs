@@ -6,7 +6,7 @@ using System.Windows.Forms;
 
 namespace DrawingApp
 {
-    // --- 負責圖層管理與對齊分配邏輯 ---
+    // --- 負責圖層管理與支援拖曳排序 ---
     public partial class App_UI_MainForm
     {
         private void BuildLayerPanel(Control parent)
@@ -63,7 +63,7 @@ namespace DrawingApp
         {
             if (e.Item is TreeNode node && node.Tag is App_Shapes.ShapeBase shape && !shape.IsLocked)
             {
-                // [修正 3]：如果這個節點有父節點 (代表它是群組內的子物件)，則禁止拖曳排序避免資料崩潰
+                // [修正]：如果這個節點有父節點 (代表它是群組內的子物件)，則禁止拖曳排序避免資料崩潰
                 if (node.Parent != null) 
                 {
                     return; 
@@ -215,102 +215,6 @@ namespace DrawingApp
                 CurrentCanvas.Invalidate();
                 RefreshPropertyPanel();
             }
-        }
-
-        private Button CreateAlignButton(string text, EventHandler onClick)
-        {
-            Button btn = new Button
-            {
-                Text = text, Size = new Size(85, 28), FlatStyle = FlatStyle.Flat,
-                BackColor = Color.White, Cursor = Cursors.Hand, Font = new Font("微軟正黑體", 8)
-            };
-            btn.FlatAppearance.BorderColor = Color.LightGray;
-            btn.Click += onClick;
-            return btn;
-        }
-
-        private void AlignShapes(string type)
-        {
-            if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
-            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            if (shapes.Count == 0 || (!_chkAlignToPage.Checked && shapes.Count < 2)) return;
-
-            var oldBounds = shapes.Select(s => s.Bounds).ToList();
-            var newBounds = new List<RectangleF>();
-            float refVal = 0;
-
-            if (_chkAlignToPage.Checked)
-            {
-                SizeF ps = CurrentCanvas.PageSize;
-                switch (type)
-                {
-                    case "Left": foreach (var s in shapes) newBounds.Add(new RectangleF(0, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Right": foreach (var s in shapes) newBounds.Add(new RectangleF(ps.Width - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Center": foreach (var s in shapes) newBounds.Add(new RectangleF(ps.Width / 2 - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Top": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, 0, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Bottom": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, ps.Height - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Middle": foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, ps.Height / 2 - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
-                }
-            }
-            else
-            {
-                switch (type)
-                {
-                    case "Left": refVal = shapes.Min(s => s.Bounds.Left); foreach (var s in shapes) newBounds.Add(new RectangleF(refVal, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Right": refVal = shapes.Max(s => s.Bounds.Right); foreach (var s in shapes) newBounds.Add(new RectangleF(refVal - s.Bounds.Width, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Center": refVal = shapes.Average(s => s.Bounds.X + s.Bounds.Width / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(refVal - s.Bounds.Width / 2, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Top": refVal = shapes.Min(s => s.Bounds.Top); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, refVal, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Bottom": refVal = shapes.Max(s => s.Bounds.Bottom); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, refVal - s.Bounds.Height, s.Bounds.Width, s.Bounds.Height)); break;
-                    case "Middle": refVal = shapes.Average(s => s.Bounds.Y + s.Bounds.Height / 2); foreach (var s in shapes) newBounds.Add(new RectangleF(s.Bounds.X, refVal - s.Bounds.Height / 2, s.Bounds.Width, s.Bounds.Height)); break;
-                }
-            }
-            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
-        }
-
-        private void DistributeShapes(string type)
-        {
-            if (CurrentCanvas == null) return;
-            var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            if (shapes.Count < 3) return;
-
-            var oldBounds = shapes.Select(s => s.Bounds).ToList();
-            var newBounds = new List<RectangleF>();
-
-            if (type == "Horizontal")
-            {
-                shapes = shapes.OrderBy(s => s.Bounds.X).ToList();
-                float totalSpace = shapes.Last().Bounds.Right - shapes.First().Bounds.Left;
-                float gap = (totalSpace - shapes.Sum(s => s.Bounds.Width)) / (shapes.Count - 1);
-                
-                float currentX = shapes.First().Bounds.Left;
-                foreach (var s in shapes)
-                {
-                    newBounds.Add(new RectangleF(currentX, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                    currentX += s.Bounds.Width + gap;
-                }
-            }
-            else if (type == "Vertical")
-            {
-                shapes = shapes.OrderBy(s => s.Bounds.Y).ToList();
-                float totalSpace = shapes.Last().Bounds.Bottom - shapes.First().Bounds.Top;
-                float gap = (totalSpace - shapes.Sum(s => s.Bounds.Height)) / (shapes.Count - 1);
-                
-                float currentY = shapes.First().Bounds.Top;
-                foreach (var s in shapes)
-                {
-                    newBounds.Add(new RectangleF(s.Bounds.X, currentY, s.Bounds.Width, s.Bounds.Height));
-                    currentY += s.Bounds.Height + gap;
-                }
-            }
-
-            var orderedNewBounds = new List<RectangleF>();
-            var originalShapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            for (int i = 0; i < originalShapes.Count; i++)
-            {
-                orderedNewBounds.Add(newBounds[shapes.IndexOf(originalShapes[i])]);
-            }
-
-            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(originalShapes, oldBounds, orderedNewBounds));
         }
     }
 }
