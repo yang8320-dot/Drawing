@@ -13,7 +13,7 @@ namespace DrawingApp
             public RectShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
-                if (EnableShadow)
+                if (ShouldDrawShadow)
                     g.FillRectangle(SharedShadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
                 
                 if (FillColor != Color.Transparent)
@@ -41,7 +41,7 @@ namespace DrawingApp
                     path.AddArc(Bounds.X, Bounds.Bottom - radius * 2, radius * 2, radius * 2, 90, 90);
                     path.CloseFigure();
 
-                    if (EnableShadow)
+                    if (ShouldDrawShadow)
                     {
                         var m = g.Transform.Clone();
                         g.TranslateTransform(6, 6);
@@ -64,7 +64,7 @@ namespace DrawingApp
             public CircleShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
-                if (EnableShadow)
+                if (ShouldDrawShadow)
                     g.FillEllipse(SharedShadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
                 
                 if (FillColor != Color.Transparent)
@@ -110,7 +110,7 @@ namespace DrawingApp
             {
                 if(Bounds.Width > 0 && Bounds.Height > 0)
                 {
-                    if (EnableShadow)
+                    if (ShouldDrawShadow)
                     {
                         if (_cachedArcShadowPen == null)
                             _cachedArcShadowPen = new Pen(Color.FromArgb(60, 0, 0, 0), StrokeWidth);
@@ -141,7 +141,7 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
-                if (EnableShadow)
+                if (ShouldDrawShadow)
                 {
                     var m = g.Transform.Clone();
                     g.TranslateTransform(6, 6);
@@ -174,7 +174,7 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
-                if (EnableShadow)
+                if (ShouldDrawShadow)
                 {
                     var m = g.Transform.Clone();
                     g.TranslateTransform(6, 6);
@@ -211,7 +211,7 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
-                if (EnableShadow)
+                if (ShouldDrawShadow)
                 {
                     var m = g.Transform.Clone();
                     g.TranslateTransform(6, 6);
@@ -248,7 +248,7 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
-                if (EnableShadow)
+                if (ShouldDrawShadow)
                 {
                     var m = g.Transform.Clone();
                     g.TranslateTransform(6, 6);
@@ -290,7 +290,7 @@ namespace DrawingApp
             public override void Draw(Graphics g)
             {
                 PointF[] pts = GetPolygonPoints();
-                if (EnableShadow)
+                if (ShouldDrawShadow)
                 {
                     var m = g.Transform.Clone();
                     g.TranslateTransform(6, 6);
@@ -324,7 +324,7 @@ namespace DrawingApp
                     path.AddEllipse(x + w * 0.55f, y + h * 0.3f, w * 0.35f, h * 0.5f);
                     path.AddEllipse(x + w * 0.25f, y + h * 0.4f, w * 0.5f, h * 0.5f);
 
-                    if (EnableShadow)
+                    if (ShouldDrawShadow)
                     {
                         var m = g.Transform.Clone();
                         g.TranslateTransform(6, 6);
