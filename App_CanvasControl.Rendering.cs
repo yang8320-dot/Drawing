@@ -42,6 +42,9 @@ namespace DrawingApp
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
+            // [優化 2]：觸發所有 ShapeBase 與筆刷進入「快速渲染模式」，大幅提升拖曳流暢度
+            App_Shapes.ShapeBase.IsFastRendering = _isPanning;
+
             List<App_Shapes.ShapeBase> visibleShapes = new List<App_Shapes.ShapeBase>();
             if (_quadTree != null) _quadTree.Retrieve(visibleShapes, clipWorldBounds);
 
