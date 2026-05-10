@@ -100,7 +100,7 @@ namespace DrawingApp
                 else
                 {
                     MessageBox.Show("請先選取一個要複製格式的圖形！", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer;
+                    if (CurrentCanvas != null) CurrentCanvas.CurrentTool = App_Shapes.ShapeType.Pointer;
                     SetActiveButton(_btnPointer);
                 }
             };
@@ -306,6 +306,7 @@ namespace DrawingApp
 
         private void ShowPdfExportDialog()
         {
+            if (CurrentCanvas == null) return;
             using (Form pdfForm = new Form { Text = "選擇 PDF 尺寸", Size = new Size(300, 200), StartPosition = FormStartPosition.CenterParent })
             {
                 ComboBox cbSize = new ComboBox { Location = new Point(20, 30) };
@@ -335,6 +336,7 @@ namespace DrawingApp
 
         private void UpdatePageSize(string type)
         {
+            if (CurrentCanvas == null) return;
             switch (type)
             {
                 case "A4 直式": CurrentCanvas.PageSize = new SizeF(2100, 2970); break;
