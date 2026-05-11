@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: App_Export.cs
+// ============================================================
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -33,7 +37,7 @@ namespace DrawingApp
                 float maxX = selectedShapes.Max(s => Math.Max(s.Bounds.Left, s.Bounds.Right));
                 float maxY = selectedShapes.Max(s => Math.Max(s.Bounds.Top, s.Bounds.Bottom));
 
-                int width = (int)(maxX - minX + 40); // 增加 Padding
+                int width = (int)(maxX - minX + 40); 
                 int height = (int)(maxY - minY + 40);
 
                 if (width <= 0 || height <= 0) return;
@@ -44,15 +48,13 @@ namespace DrawingApp
                     {
                         g.Clear(Color.Transparent);
                         g.SmoothingMode = SmoothingMode.AntiAlias;
-                        g.TranslateTransform(-minX + 20, -minY + 20); // 位移至中心
+                        g.TranslateTransform(-minX + 20, -minY + 20);
 
-                        // 暫時取消選取狀態框線，繪製後再恢復
                         var selectionStates = selectedShapes.ToDictionary(s => s, s => s.IsSelected);
                         foreach (var s in selectedShapes) s.IsSelected = false;
 
                         foreach (var s in selectedShapes) s.DrawWithTransform(g);
 
-                        // 恢復狀態
                         foreach (var s in selectedShapes) s.IsSelected = selectionStates[s];
                     }
                     bmp.Save(filePath, ImageFormat.Png);
@@ -60,30 +62,74 @@ namespace DrawingApp
             });
         }
 
-        public static async Task ExportToPdfAsync(Bitmap canvasBitmap, string filePath, bool isLandscape)
+        // 【Req 5: 根據使用者設定的 PageSize 進行切割與多頁 PDF 匯出】
+        public static async Task ExportToPdfMultiPageAsync(App_CanvasControl canvas, string filePath)
         {
             await Task.Run(() =>
             {
                 PdfDocument document = new PdfDocument();
-                PdfPage page = document.AddPage();
                 
-                page.Size = PdfSharp.PageSize.A4;
-                page.Orientation = isLandscape ? PdfSharp.PageOrientation.Landscape : PdfSharp.PageOrientation.Portrait;
+                SizeF actualSize = canvas.ActualPageSize;
+                SizeF singlePageSize = canvas.PageSize;
 
-                using (XGraphics gfx = XGraphics.FromPdfPage(page))
-                using (MemoryStream ms = new MemoryStream())
+                int cols = (int)Math.Ceiling(actualSize.Width / singlePageSize.Width);
+                int rows = (int)Math.Ceiling(actualSize.Height / singlePageSize.Height);
+
+                using (Bitmap fullBitmap = canvas.GetTransparentCanvasRender())
                 {
-                    canvasBitmap.Save(ms, ImageFormat.Png);
-                    ms.Position = 0;
-                    XImage image = XImage.FromStream(ms);
-                    
-                    gfx.DrawImage(image, 0, 0, page.Width, page.Height);
+                    for (int r = 0; r < rows; r++)
+                    {
+                        for (int c = 0; c < cols; c++)
+                        {
+                            PdfPage page = document.AddPage();
+                            // 預設將 PDF 實體紙張調整為與設定相同的比例，以符合列印需求
+                            page.Width = singlePageSize.Width / 3.5f; 
+                            page.Height = singlePageSize.Height / 3.5f;
+
+                            Rectangle cropRect = new Rectangle(
+                                (int)(c * singlePageSize.Width), 
+                                (int)(r * singlePageSize.Height), 
+                                (int)singlePageSize.Width, 
+                                (int)singlePageSize.Height);
+
+                            // 防止裁剪超過全圖邊界
+                            if (cropRect.Right > fullBitmap.Width) cropRect.Width = fullBitmap.Width - cropRect.X;
+                            if (cropRect.Bottom > fullBitmap.Height) cropRect.Height = fullBitmap.Height - cropRect.Y;
+
+                            if (cropRect.Width <= 0 || cropRect.Height <= 0) continue;
+
+                            using (Bitmap pageBitmap = fullBitmap.Clone(cropRect, fullBitmap.PixelFormat))
+                            using (MemoryStream ms = new MemoryStream())
+                            {
+                                pageBitmap.Save(ms, ImageFormat.Png);
+                                ms.Position = 0;
+                                XImage image = XImage.FromStream(ms);
+
+                                using (XGraphics gfx = XGraphics.FromPdfPage(page))
+                                {
+                                    // 將裁切好的圖片撐滿這一頁 PDF
+                                    gfx.DrawImage(image, 0, 0, page.Width, page.Height);
+                                    
+                                    // 繪製頁碼到 PDF
+                                    if (canvas.ShowPageNumbers)
+                                    {
+                                        int pageNum = r * cols + c + 1;
+                                        int totalPages = cols * rows;
+                                        string pageText = $"{canvas.CanvasTitle} - 第 {pageNum} 頁 / 共 {totalPages} 頁";
+                                        
+                                        XFont font = new XFont("Arial", 12, XFontStyle.Bold);
+                                        XSize size = gfx.MeasureString(pageText, font);
+                                        gfx.DrawString(pageText, font, XBrushes.Gray, new XPoint(page.Width - size.Width - 10, page.Height - 10));
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 document.Save(filePath);
             });
         }
 
-        // 【修正：將 Color 轉為標準的 #RRGGBB Hex 格式，避免 Named Colors 造成其他軟體解析失敗】
         private static string ToSvgColor(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
 
         public static async Task ExportToSvgAsync(List<App_Shapes.ShapeBase> shapes, SizeF pageSize, string filePath)
@@ -92,7 +138,6 @@ namespace DrawingApp
             {
                 StringBuilder svg = new StringBuilder();
                 svg.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>");
-                // 【修正：加入 viewBox 與標準 xmlns 屬性】
                 svg.AppendLine($"<svg width=\"{pageSize.Width}\" height=\"{pageSize.Height}\" viewBox=\"0 0 {pageSize.Width} {pageSize.Height}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">");
 
                 foreach (var shape in shapes)
