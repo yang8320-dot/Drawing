@@ -22,13 +22,12 @@ namespace DrawingApp
     {
         private static string SaveDirectory => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "save");
         
-        // 定義自動存檔的路徑
         private static string AutoSavePath => Path.Combine(SaveDirectory, "autosave.draw");
 
         private static JsonSerializerSettings jsonSettings = new JsonSerializerSettings
         {
             TypeNameHandling = TypeNameHandling.All, 
-            Formatting = Formatting.None, // 優化：移除縮排，因為已使用 GZIP 壓縮，減少記憶體使用
+            Formatting = Formatting.None, 
             NullValueHandling = NullValueHandling.Ignore 
         };
 
@@ -40,7 +39,6 @@ namespace DrawingApp
             }
         }
 
-        // 優化：寫入 GZIP 壓縮檔案，大幅縮減檔案大小 (尤其是圖片 Base64)
         private static void WriteCompressedFile(string filePath, string content)
         {
             using (FileStream fileStream = new FileStream(filePath, FileMode.Create))
@@ -51,7 +49,6 @@ namespace DrawingApp
             }
         }
 
-        // 優化：讀取並解壓 GZIP 檔案 (支援舊版無壓縮檔案自動回退機制)
         private static string ReadCompressedFile(string filePath)
         {
             try
@@ -65,7 +62,6 @@ namespace DrawingApp
             }
             catch (InvalidDataException)
             {
-                // 如果拋出 InvalidDataException，表示這不是一個 GZIP 壓縮檔，而是舊版的明文 JSON
                 return File.ReadAllText(filePath);
             }
         }
@@ -96,6 +92,38 @@ namespace DrawingApp
             return false;
         }
 
+        // 【新增】：帶參數的 LoadProject 方法，供 UI 層直接傳入選定的路徑
+        public static DrawProject LoadProject(string filePath)
+        {
+            try
+            {
+                string json = ReadCompressedFile(filePath);
+                
+                try 
+                {
+                    var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
+                    if (project != null && project.Pages != null) return project;
+                }
+                catch { }
+
+                try
+                {
+                    var oldShapes = JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
+                    return new DrawProject { Pages = new List<DrawPage> { new DrawPage { Title = "舊版畫布", Shapes = oldShapes } } };
+                }
+                catch 
+                { 
+                    MessageBox.Show("檔案格式錯誤或已損毀！", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); 
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"讀取檔案時發生錯誤: {ex.Message}", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            return null;
+        }
+
+        // 兼容原有無參數的呼叫
         public static DrawProject LoadProject()
         {
             try
@@ -105,30 +133,13 @@ namespace DrawingApp
                 {
                     if (ofd.ShowDialog() == DialogResult.OK)
                     {
-                        string json = ReadCompressedFile(ofd.FileName);
-                        
-                        try 
-                        {
-                            var project = JsonConvert.DeserializeObject<DrawProject>(json, jsonSettings);
-                            if (project != null && project.Pages != null) return project;
-                        }
-                        catch { }
-
-                        try
-                        {
-                            var oldShapes = JsonConvert.DeserializeObject<List<App_Shapes.ShapeBase>>(json, jsonSettings);
-                            return new DrawProject { Pages = new List<DrawPage> { new DrawPage { Title = "舊版畫布", Shapes = oldShapes } } };
-                        }
-                        catch 
-                        { 
-                            MessageBox.Show("檔案格式錯誤或已損毀！", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error); 
-                        }
+                        return LoadProject(ofd.FileName);
                     }
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"讀取檔案時發生錯誤: {ex.Message}", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"開啟檔案失敗: {ex.Message}", "讀取失敗", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             return null;
         }
@@ -139,10 +150,9 @@ namespace DrawingApp
             {
                 EnsureDirectory();
                 string json = JsonConvert.SerializeObject(project, jsonSettings);
-                // 優化：背景存檔同樣進行壓縮，提升磁碟 I/O 寫入效能
                 WriteCompressedFile(AutoSavePath, json);
             }
-            catch { /* 背景存檔出錯時不干擾使用者 */ }
+            catch { }
         }
 
         public static DrawProject CheckAndLoadAutoSave()
