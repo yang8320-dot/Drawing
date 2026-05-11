@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: App_Shapes.ShapeFactory.cs
+// ============================================================
+
 using System;
 using System.Drawing;
 
@@ -23,6 +27,9 @@ namespace DrawingApp
                     case ShapeType.Pentagon: return new PentagonShape(start, color);
                     case ShapeType.Hexagon: return new HexagonShape(start, color);
                     case ShapeType.Star: return new StarShape(start, color);
+                    
+                    // 補上的雲朵圖形
+                    case ShapeType.Cloud: return new CloudShape(start, color);
                     
                     // 新增圖形
                     case ShapeType.Parallelogram: return new ParallelogramShape(start, color);
