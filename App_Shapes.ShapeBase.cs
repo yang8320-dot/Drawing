@@ -18,12 +18,10 @@ namespace DrawingApp
             protected Brush _cachedTextBrush;
             private RectangleF _lastBrushBounds;
 
-            // [優化 2]：新增全局快速渲染開關
             [Browsable(false)]
             [JsonIgnore]
             public static bool IsFastRendering { get; set; } = false;
 
-            // [優化 2]：智慧判斷當前是否應該畫陰影
             [Browsable(false)]
             [JsonIgnore]
             protected bool ShouldDrawShadow => EnableShadow && !IsFastRendering;
@@ -117,7 +115,8 @@ namespace DrawingApp
             [DisplayName("文字內容")]
             public virtual string Text { get; set; } = "";
 
-            private string _fontName = "Arial";
+            // 【修正6】: 字型預設改為標楷體
+            private string _fontName = "標楷體";
             [Category("2. 文字屬性")]
             [DisplayName("字型名稱")]
             public virtual string FontName 
@@ -215,7 +214,6 @@ namespace DrawingApp
 
                 if (_cachedFillBrush == null)
                 {
-                    // [優化 2]：如果開啟快速渲染，強制使用純色替代漸層，減少運算
                     if (FillBrushType == BrushType.Solid || rect.Width <= 0 || rect.Height <= 0 || IsFastRendering)
                         _cachedFillBrush = new SolidBrush(FillColor);
                     else
