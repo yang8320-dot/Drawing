@@ -41,7 +41,7 @@ namespace DrawingApp
                         maxY = Math.Max(maxY, s.Bounds.Bottom + 100);
                     }
                 }
-                return new SizeF(maxX, maxY);
+                return new SizeF(Math.Max(maxX, _basePageSize.Width), Math.Max(maxY, _basePageSize.Height));
             }
         }
         
@@ -60,7 +60,6 @@ namespace DrawingApp
         public bool ShowPageNumbers { get; set; } = false;
         public string CanvasTitle { get; set; } = "未命名";
 
-        // 【Req 1: 新增 物件鎖點 與 正交模式】
         public bool EnableObjectSnap { get; set; } = true;
         public bool EnableOrthoMode { get; set; } = false;
 
@@ -78,14 +77,13 @@ namespace DrawingApp
         private App_Shapes.ShapeBase _tempShape = null;
         public App_Shapes.ShapeBase FormatSourceShape { get; set; }
 
-        // 【Req 9: 儲存預設樣式供後續新物件套用】
         public App_Shapes.ShapeBase DefaultFormatTemplate { get; } = new App_Shapes.RectShape(new PointF(0, 0), Color.Black);
 
         private App_Shapes.ShapeBase _hoveredShapeForConnection = null;
         private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
         private List<Tuple<PointF, PointF>> _smartGuides = new List<Tuple<PointF, PointF>>();
 
-        // ===== 附屬元件狀態 (由其他 Partial 控制) =====
+        // ===== 附屬元件狀態 =====
         private Rectangle _minimapRect;
         private bool _isDraggingMinimap = false;
         private const int MINIMAP_WIDTH = 200;
@@ -102,6 +100,10 @@ namespace DrawingApp
         public event Action<PointF> OnImageInsertRequested;
         public event Action<App_Shapes.ShapeType> OnToolChangedRequested;
         public event Action OnSelectionChanged;
+        public event Action OnStencilAdded;
+        
+        // 【新增功能：屬性綁定更新機制】
+        public event Action OnDefaultFormatChanged;
 
         public App_Shapes.ShapeType CurrentTool 
         { 
@@ -150,6 +152,8 @@ namespace DrawingApp
             InitializeInlineEditor();
             CurrentTool = App_Shapes.ShapeType.Pointer;
         }
+
+        public void NotifyDefaultFormatChanged() => OnDefaultFormatChanged?.Invoke();
 
         public void RequestToolChange(App_Shapes.ShapeType type) => OnToolChangedRequested?.Invoke(type);
         public void SetTempShape(App_Shapes.ShapeBase shape) { _tempShape = shape; }
