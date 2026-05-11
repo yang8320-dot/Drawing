@@ -18,23 +18,12 @@ namespace DrawingApp
         {
             _rightPanel = new Panel { Dock = DockStyle.Right, Width = 320, BackColor = Color.FromArgb(245, 245, 245) };
 
+            // 使用 SplitContainer 切割上下半部
             SplitContainer scRight = new SplitContainer 
             { 
                 Orientation = Orientation.Horizontal, 
                 Dock = DockStyle.Fill,
                 FixedPanel = FixedPanel.Panel2
-            };
-
-            // 【修正4】: 預設隱藏圖層面板
-            scRight.Panel2Collapsed = true; 
-
-            this.Load += (s, e) => 
-            {
-                try
-                {
-                    scRight.Panel2MinSize = 150; 
-                    if (scRight.Height > 400 && !scRight.Panel2Collapsed) scRight.SplitterDistance = scRight.Height - 250;
-                } catch { }
             };
 
             FlowLayoutPanel topPropPanel = new FlowLayoutPanel 
@@ -147,8 +136,6 @@ namespace DrawingApp
 
             tlpText.Controls.Add(new Label { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 3);
             _cbTextAlign = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            
-            // 【修正5】: 對齊方式改為中文選項 (對應 Enum 的 9 個順序)
             _cbTextAlign.Items.AddRange(new string[] { "左上", "中上", "右上", "左中", "正中", "右中", "左下", "中下", "右下" });
             _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
             tlpText.Controls.Add(_cbTextAlign, 1, 3);
@@ -159,15 +146,17 @@ namespace DrawingApp
             topPropPanel.Controls.Add(_customPropertiesPanel); 
 
             // ==========================================
-            // 【區塊 3】快速對齊區塊
+            // 【區塊 3】快速對齊區塊 (修正高度與排版錯誤)
             // ==========================================
             _gbAlign = new GroupBox { Text = "▶ 快速對齊", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
-            _gbAlign.Click += (s, e) => ToggleGroupBox(_gbAlign, 125, "快速對齊");
+            // 修正：調整展開高度為 155，確保 3 排按鈕完全顯示
+            _gbAlign.Click += (s, e) => ToggleGroupBox(_gbAlign, 155, "快速對齊");
             
             _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0), Visible = false };
             _gbAlign.Controls.Add(_chkAlignToPage);
 
-            _alignmentPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, Visible = false };
+            // 修正：將 FlowLayoutPanel 改為 Panel，讓內部的 DockStyle.Fill 能夠正確撐開高度
+            _alignmentPanel = new Panel { Dock = DockStyle.Fill, Visible = false };
             TableLayoutPanel tlpAlign = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3 };
             for (int i = 0; i < 3; i++) tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
             for (int i = 0; i < 3; i++) tlpAlign.RowStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
@@ -189,9 +178,11 @@ namespace DrawingApp
             // 【區塊 4】圖層順序區塊
             // ==========================================
             _gbZIndex = new GroupBox { Text = "▶ 圖層順序", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
-            _gbZIndex.Click += (s, e) => ToggleGroupBox(_gbZIndex, 65, "圖層順序");
+            // 修正：調整展開高度為 70
+            _gbZIndex.Click += (s, e) => ToggleGroupBox(_gbZIndex, 70, "圖層順序");
 
-            _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, Visible = false };
+            // 修正：將 FlowLayoutPanel 改為 Panel
+            _zIndexPanel = new Panel { Dock = DockStyle.Fill, Visible = false };
             TableLayoutPanel tlpZIndex = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
             tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
@@ -201,24 +192,13 @@ namespace DrawingApp
             _gbZIndex.Controls.Add(_zIndexPanel);
             topPropPanel.Controls.Add(_gbZIndex); 
 
-            // ==========================================
-            // 【區塊 5】圖層管理 (需求 4：動態展開並貼合高度)
-            // ==========================================
-            Button btnToggleLayers = new Button { Text = "▶ 圖層管理", Width = 285, Height = 30, Font = new Font("Arial", 9, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 10, 0, 10), Cursor = Cursors.Hand, BackColor = Color.FromArgb(220, 220, 220) };
-            btnToggleLayers.FlatAppearance.BorderSize = 0;
-            btnToggleLayers.Click += (s, e) => {
-                scRight.Panel2Collapsed = !scRight.Panel2Collapsed;
-                btnToggleLayers.Text = scRight.Panel2Collapsed ? "▶ 圖層管理" : "▼ 圖層管理";
-                if (!scRight.Panel2Collapsed && scRight.Height > 300) {
-                    scRight.SplitterDistance = scRight.Height - 250;
-                }
-            };
-            topPropPanel.Controls.Add(btnToggleLayers);
-
             scRight.Panel1.Controls.Add(topPropPanel);
 
-            // 將圖層面板加到 SplitContainer 的 Panel2，利用 SplitContainer 自動貼合剩餘高度
-            BuildLayerPanel(scRight.Panel2);
+            // ==========================================
+            // 【區塊 5】圖層管理面板
+            // ==========================================
+            // 將整個 SplitContainer 傳入，讓 Layers.cs 能夠控制展開收合的高度
+            BuildLayerPanel(scRight);
 
             _rightPanel.Controls.Add(scRight);
 
