@@ -14,7 +14,6 @@ namespace DrawingApp
         {
             _rightPanel = new Panel { Dock = DockStyle.Right, Width = 320, BackColor = Color.FromArgb(245, 245, 245) };
 
-            // 👑 關鍵修復：拔除物件初始化器中的危險屬性設定
             SplitContainer scRight = new SplitContainer 
             { 
                 Orientation = Orientation.Horizontal, 
@@ -22,7 +21,6 @@ namespace DrawingApp
                 FixedPanel = FixedPanel.Panel2 // 讓底部的圖層面板高度固定
             };
 
-            // 👑 關鍵修復：將尺寸設定延後到視窗實際載入時執行，徹底避免崩潰
             this.Load += (s, e) => 
             {
                 try
@@ -47,9 +45,120 @@ namespace DrawingApp
             };
 
             // ==========================================
-            // 1. 快速對齊區塊
+            // 建立自訂屬性面板容器 (用來裝 外觀 與 文字)
             // ==========================================
-            GroupBox gbAlign = new GroupBox { Text = "快速對齊", Width = 285, Height = 150, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
+            _customPropertiesPanel = new FlowLayoutPanel 
+            { 
+                Width = 285, 
+                AutoSize = true, 
+                FlowDirection = FlowDirection.TopDown, 
+                WrapContents = false,
+                Margin = new Padding(0)
+            };
+
+            // ==========================================
+            // 【區塊 1】外觀與線條設定 (移至最上，並加高)
+            // ==========================================
+            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 285, Height = 250, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
+            TableLayoutPanel tlpApp = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
+            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            tlpApp.Controls.Add(new Label { Text = "邊框顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 0);
+            _btnShapeColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
+            _btnShapeColor.Click += (s, e) => PickColor(_btnShapeColor, c => ApplyPropertyChange(cmd => cmd.ShapeColor = c));
+            tlpApp.Controls.Add(_btnShapeColor, 1, 0);
+
+            tlpApp.Controls.Add(new Label { Text = "填色類型", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 1);
+            _cbBrushType = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbBrushType.Items.AddRange(new string[] { "純色填充", "線性漸層" });
+            _cbBrushType.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FillBrushType = (App_Shapes.BrushType)_cbBrushType.SelectedIndex);
+            tlpApp.Controls.Add(_cbBrushType, 1, 1);
+
+            tlpApp.Controls.Add(new Label { Text = "主副填色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 2);
+            TableLayoutPanel tlpColor = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+            tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            _btnFillColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
+            _btnFillColor.Click += (s, e) => PickColor(_btnFillColor, c => ApplyPropertyChange(cmd => cmd.FillColor = c), true);
+            _btnGradientColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
+            _btnGradientColor.Click += (s, e) => PickColor(_btnGradientColor, c => ApplyPropertyChange(cmd => cmd.GradientColor2 = c));
+            tlpColor.Controls.Add(_btnFillColor, 0, 0); tlpColor.Controls.Add(_btnGradientColor, 1, 0);
+            tlpApp.Controls.Add(tlpColor, 1, 2);
+
+            tlpApp.Controls.Add(new Label { Text = "線條粗細", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 10, 0, 0) }, 0, 3);
+            FlowLayoutPanel flpStroke = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
+            _tbStrokeWidth = new TrackBar { Width = 140, Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
+            _lblStrokeWidthValue = new Label { Text = "2", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
+            _tbStrokeWidth.ValueChanged += (s, e) => {
+                _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
+                ApplyPropertyChange(cmd => cmd.StrokeWidth = _tbStrokeWidth.Value);
+            };
+            flpStroke.Controls.Add(_tbStrokeWidth); flpStroke.Controls.Add(_lblStrokeWidthValue);
+            tlpApp.Controls.Add(flpStroke, 1, 3);
+
+            tlpApp.Controls.Add(new Label { Text = "線條樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 4);
+            _cbDashStyle = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbDashStyle.Items.AddRange(new string[] { "實線 (Solid)", "虛線 (Dash)", "點線 (Dot)", "點虛線 (DashDot)" });
+            _cbDashStyle.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.StrokeDashStyle = (DashStyle)_cbDashStyle.SelectedIndex);
+            tlpApp.Controls.Add(_cbDashStyle, 1, 4);
+
+            _chkShadow = new CheckBox { Text = "啟用立體陰影", AutoSize = true, Margin = new Padding(0, 7, 0, 0) };
+            _chkShadow.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.EnableShadow = _chkShadow.Checked);
+            tlpApp.Controls.Add(_chkShadow, 1, 5);
+
+            _gbAppearance.Controls.Add(tlpApp);
+            _customPropertiesPanel.Controls.Add(_gbAppearance); 
+
+
+            // ==========================================
+            // 【區塊 2】文字與排版設定 (移至第二)
+            // ==========================================
+            _gbText = new GroupBox { Text = "文字與排版設定", Width = 285, Height = 170, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
+            TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
+            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+
+            tlpText.Controls.Add(new Label { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 0);
+            _btnFontColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
+            _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
+            tlpText.Controls.Add(_btnFontColor, 1, 0);
+
+            tlpText.Controls.Add(new Label { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 1);
+            TableLayoutPanel tlpFont = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
+            _cbFontName = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+            foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
+            _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
+            _nudFontSize = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 6, Maximum = 144 };
+            _nudFontSize.ValueChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontSize = (float)_nudFontSize.Value);
+            tlpFont.Controls.Add(_cbFontName, 0, 0); tlpFont.Controls.Add(_nudFontSize, 1, 0);
+            tlpText.Controls.Add(tlpFont, 1, 1);
+
+            tlpText.Controls.Add(new Label { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 2);
+            FlowLayoutPanel flpStyle = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
+            _chkBold = new CheckBox { Text = "粗", AutoSize = true, Width = 40 }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
+            _chkItalic = new CheckBox { Text = "斜", AutoSize = true, Width = 40 }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
+            _chkUnderline = new CheckBox { Text = "底線", AutoSize = true, Width = 55 }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
+            flpStyle.Controls.Add(_chkBold); flpStyle.Controls.Add(_chkItalic); flpStyle.Controls.Add(_chkUnderline);
+            tlpText.Controls.Add(flpStyle, 1, 2);
+
+            tlpText.Controls.Add(new Label { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 3);
+            _cbTextAlign = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
+            _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
+            tlpText.Controls.Add(_cbTextAlign, 1, 3);
+
+            _gbText.Controls.Add(tlpText);
+            _customPropertiesPanel.Controls.Add(_gbText); 
+
+            // 將外觀與文字加入主面版
+            topPropPanel.Controls.Add(_customPropertiesPanel); 
+
+
+            // ==========================================
+            // 【區塊 3】快速對齊區塊 (移至第三，並調降高度)
+            // ==========================================
+            GroupBox gbAlign = new GroupBox { Text = "快速對齊", Width = 285, Height = 125, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
             _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0) };
             gbAlign.Controls.Add(_chkAlignToPage);
 
@@ -72,7 +181,7 @@ namespace DrawingApp
             topPropPanel.Controls.Add(gbAlign); 
 
             // ==========================================
-            // 2. 圖層順序區塊
+            // 【區塊 4】圖層順序區塊 (移至第四)
             // ==========================================
             GroupBox gbZIndex = new GroupBox { Text = "圖層順序", Width = 285, Height = 65, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
             _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
@@ -85,113 +194,11 @@ namespace DrawingApp
             gbZIndex.Controls.Add(_zIndexPanel);
             topPropPanel.Controls.Add(gbZIndex); 
 
-            // ==========================================
-            // 3. 自訂屬性面板 
-            // ==========================================
-            _customPropertiesPanel = new FlowLayoutPanel 
-            { 
-                Width = 285, 
-                AutoSize = true, 
-                FlowDirection = FlowDirection.TopDown, 
-                WrapContents = false,
-                Margin = new Padding(0)
-            };
 
-            // 3-1. 文字設定區塊
-            _gbText = new GroupBox { Text = "文字與排版設定", Width = 280, Height = 160, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
-            TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
-            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
-            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            tlpText.Controls.Add(new Label { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
-            _btnFontColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
-            tlpText.Controls.Add(_btnFontColor, 1, 0);
-
-            tlpText.Controls.Add(new Label { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
-            TableLayoutPanel tlpFont = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
-            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
-            _cbFontName = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
-            _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
-            _nudFontSize = new NumericUpDown { Dock = DockStyle.Fill, Minimum = 6, Maximum = 144 };
-            _nudFontSize.ValueChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontSize = (float)_nudFontSize.Value);
-            tlpFont.Controls.Add(_cbFontName, 0, 0); tlpFont.Controls.Add(_nudFontSize, 1, 0);
-            tlpText.Controls.Add(tlpFont, 1, 1);
-
-            tlpText.Controls.Add(new Label { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
-            FlowLayoutPanel flpStyle = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
-            _chkBold = new CheckBox { Text = "粗", AutoSize = true, Width = 40 }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
-            _chkItalic = new CheckBox { Text = "斜", AutoSize = true, Width = 40 }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
-            _chkUnderline = new CheckBox { Text = "底線", AutoSize = true, Width = 55 }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
-            flpStyle.Controls.Add(_chkBold); flpStyle.Controls.Add(_chkItalic); flpStyle.Controls.Add(_chkUnderline);
-            tlpText.Controls.Add(flpStyle, 1, 2);
-
-            tlpText.Controls.Add(new Label { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 3);
-            _cbTextAlign = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
-            _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
-            tlpText.Controls.Add(_cbTextAlign, 1, 3);
-
-            _gbText.Controls.Add(tlpText);
-            _customPropertiesPanel.Controls.Add(_gbText); 
-
-            // 3-2. 外觀設定區塊
-            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 280, Height = 210, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
-            TableLayoutPanel tlpApp = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
-            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
-            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-
-            tlpApp.Controls.Add(new Label { Text = "邊框顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 0);
-            _btnShapeColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnShapeColor.Click += (s, e) => PickColor(_btnShapeColor, c => ApplyPropertyChange(cmd => cmd.ShapeColor = c));
-            tlpApp.Controls.Add(_btnShapeColor, 1, 0);
-
-            tlpApp.Controls.Add(new Label { Text = "填色類型", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 1);
-            _cbBrushType = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbBrushType.Items.AddRange(new string[] { "純色填充", "線性漸層" });
-            _cbBrushType.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FillBrushType = (App_Shapes.BrushType)_cbBrushType.SelectedIndex);
-            tlpApp.Controls.Add(_cbBrushType, 1, 1);
-
-            tlpApp.Controls.Add(new Label { Text = "主副填色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 2);
-            TableLayoutPanel tlpColor = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
-            tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            _btnFillColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnFillColor.Click += (s, e) => PickColor(_btnFillColor, c => ApplyPropertyChange(cmd => cmd.FillColor = c), true);
-            _btnGradientColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
-            _btnGradientColor.Click += (s, e) => PickColor(_btnGradientColor, c => ApplyPropertyChange(cmd => cmd.GradientColor2 = c));
-            tlpColor.Controls.Add(_btnFillColor, 0, 0); tlpColor.Controls.Add(_btnGradientColor, 1, 0);
-            tlpApp.Controls.Add(tlpColor, 1, 2);
-
-            tlpApp.Controls.Add(new Label { Text = "線條粗細", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 8, 0, 0) }, 0, 3);
-            FlowLayoutPanel flpStroke = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
-            _tbStrokeWidth = new TrackBar { Width = 140, Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
-            _lblStrokeWidthValue = new Label { Text = "2", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
-            _tbStrokeWidth.ValueChanged += (s, e) => {
-                _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
-                ApplyPropertyChange(cmd => cmd.StrokeWidth = _tbStrokeWidth.Value);
-            };
-            flpStroke.Controls.Add(_tbStrokeWidth); flpStroke.Controls.Add(_lblStrokeWidthValue);
-            tlpApp.Controls.Add(flpStroke, 1, 3);
-
-            tlpApp.Controls.Add(new Label { Text = "線條樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 5, 0, 0) }, 0, 4);
-            _cbDashStyle = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbDashStyle.Items.AddRange(new string[] { "實線 (Solid)", "虛線 (Dash)", "點線 (Dot)", "點虛線 (DashDot)" });
-            _cbDashStyle.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.StrokeDashStyle = (DashStyle)_cbDashStyle.SelectedIndex);
-            tlpApp.Controls.Add(_cbDashStyle, 1, 4);
-
-            _chkShadow = new CheckBox { Text = "啟用立體陰影", AutoSize = true, Margin = new Padding(0, 5, 0, 0) };
-            _chkShadow.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.EnableShadow = _chkShadow.Checked);
-            tlpApp.Controls.Add(_chkShadow, 1, 5);
-
-            _gbAppearance.Controls.Add(tlpApp);
-            _customPropertiesPanel.Controls.Add(_gbAppearance); 
-
-            topPropPanel.Controls.Add(_customPropertiesPanel); 
-
+            // 將排序好的面板加入上半部
             scRight.Panel1.Controls.Add(topPropPanel);
 
-            // 呼叫 Partial Class 的方法建立圖層面板
+            // 【區塊 5】建立圖層面板 (維持在下半部)
             BuildLayerPanel(scRight.Panel2);
 
             _rightPanel.Controls.Add(scRight);
@@ -347,14 +354,12 @@ namespace DrawingApp
             CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
         }
 
-        // 👑 修復：將被截斷的均分圖形 (DistributeShapes) 補齊
         private void DistributeShapes(string type)
         {
             if (CurrentCanvas == null) return;
             var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
             if (shapes.Count < 3) return;
 
-            // 確保均分順序是由左到右或由上到下
             if (type == "Horizontal")
             {
                 shapes = shapes.OrderBy(s => s.Bounds.X).ToList();
@@ -392,7 +397,6 @@ namespace DrawingApp
                 }
             }
 
-            // 透過 Command 執行以便支援復原功能
             CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
         }
     }
