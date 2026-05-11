@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: UI/App_UI_MainForm.Properties.cs
+// ============================================================
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -7,7 +11,6 @@ using System.Windows.Forms;
 
 namespace DrawingApp
 {
-    // --- 負責右側的屬性面板 (外觀、文字) 與屬性連動 ---
     public partial class App_UI_MainForm
     {
         private void BuildRightPanel()
@@ -18,21 +21,20 @@ namespace DrawingApp
             { 
                 Orientation = Orientation.Horizontal, 
                 Dock = DockStyle.Fill,
-                FixedPanel = FixedPanel.Panel2 // 讓底部的圖層面板高度固定
+                FixedPanel = FixedPanel.Panel2
             };
 
             this.Load += (s, e) => 
             {
                 try
                 {
-                    scRight.Panel2MinSize = 150; // 圖層面板最少 150px
-                    // 設定下半部為 250px 高度，上半部自動佔滿剩餘空間
+                    scRight.Panel2MinSize = 150; 
                     if (scRight.Height > 400) 
                     {
                         scRight.SplitterDistance = scRight.Height - 250;
                     }
                 }
-                catch { /* 忽略極端縮放下的計算錯誤 */ }
+                catch { }
             };
 
             FlowLayoutPanel topPropPanel = new FlowLayoutPanel 
@@ -44,9 +46,6 @@ namespace DrawingApp
                 Padding = new Padding(5) 
             };
 
-            // ==========================================
-            // 建立自訂屬性面板容器 (用來裝 外觀 與 文字)
-            // ==========================================
             _customPropertiesPanel = new FlowLayoutPanel 
             { 
                 Width = 285, 
@@ -57,7 +56,7 @@ namespace DrawingApp
             };
 
             // ==========================================
-            // 【區塊 1】外觀與線條設定 (移至最上，並加高)
+            // 【區塊 1】外觀與線條設定
             // ==========================================
             _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 285, Height = 250, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
             TableLayoutPanel tlpApp = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
@@ -111,12 +110,18 @@ namespace DrawingApp
 
 
             // ==========================================
-            // 【區塊 2】文字與排版設定 (移至第二)
+            // 【區塊 2】文字與排版設定 (增加高度，修復截斷)
             // ==========================================
-            _gbText = new GroupBox { Text = "文字與排版設定", Width = 285, Height = 170, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
+            _gbText = new GroupBox { Text = "文字與排版設定", Width = 285, Height = 200, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
             TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            
+            // 強制設定每一列的高度，避免壓縮
+            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
+            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
+            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
+            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
 
             tlpText.Controls.Add(new Label { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 0);
             _btnFontColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
@@ -151,12 +156,10 @@ namespace DrawingApp
             _gbText.Controls.Add(tlpText);
             _customPropertiesPanel.Controls.Add(_gbText); 
 
-            // 將外觀與文字加入主面版
             topPropPanel.Controls.Add(_customPropertiesPanel); 
 
-
             // ==========================================
-            // 【區塊 3】快速對齊區塊 (移至第三，並調降高度)
+            // 【區塊 3】快速對齊區塊
             // ==========================================
             GroupBox gbAlign = new GroupBox { Text = "快速對齊", Width = 285, Height = 125, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
             _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0) };
@@ -181,7 +184,7 @@ namespace DrawingApp
             topPropPanel.Controls.Add(gbAlign); 
 
             // ==========================================
-            // 【區塊 4】圖層順序區塊 (移至第四)
+            // 【區塊 4】圖層順序區塊
             // ==========================================
             GroupBox gbZIndex = new GroupBox { Text = "圖層順序", Width = 285, Height = 65, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
             _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
@@ -194,11 +197,9 @@ namespace DrawingApp
             gbZIndex.Controls.Add(_zIndexPanel);
             topPropPanel.Controls.Add(gbZIndex); 
 
-
-            // 將排序好的面板加入上半部
             scRight.Panel1.Controls.Add(topPropPanel);
 
-            // 【區塊 5】建立圖層面板 (維持在下半部)
+            // 【區塊 5】建立圖層面板
             BuildLayerPanel(scRight.Panel2);
 
             _rightPanel.Controls.Add(scRight);
