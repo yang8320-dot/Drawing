@@ -45,10 +45,10 @@ namespace DrawingApp
             };
 
             // ==========================================
-            // 【區塊 1】外觀與線條設定
+            // 【區塊 1】外觀與線條設定 (修正高度留白與填色框過大)
             // ==========================================
-            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 285, Height = 250, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
-            TableLayoutPanel tlpApp = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 285, AutoSize = true, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10), Padding = new Padding(0, 5, 0, 5) };
+            TableLayoutPanel tlpApp = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
             tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
             tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -64,18 +64,20 @@ namespace DrawingApp
             tlpApp.Controls.Add(_cbBrushType, 1, 1);
 
             tlpApp.Controls.Add(new Label { Text = "主副填色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 2);
-            TableLayoutPanel tlpColor = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
-            tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); tlpColor.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            _btnFillColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
+            
+            // 修正 1: 改用 FlowLayoutPanel 限制按鈕大小，取代原本會拉伸的 TableLayoutPanel
+            FlowLayoutPanel flpColor = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0), WrapContents = false };
+            _btnFillColor = new Button { Width = 60, Height = 25, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 0, 10, 0) };
             _btnFillColor.Click += (s, e) => PickColor(_btnFillColor, c => ApplyPropertyChange(cmd => cmd.FillColor = c), true);
-            _btnGradientColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
+            _btnGradientColor = new Button { Width = 60, Height = 25, FlatStyle = FlatStyle.Flat, Margin = new Padding(0) };
             _btnGradientColor.Click += (s, e) => PickColor(_btnGradientColor, c => ApplyPropertyChange(cmd => cmd.GradientColor2 = c));
-            tlpColor.Controls.Add(_btnFillColor, 0, 0); tlpColor.Controls.Add(_btnGradientColor, 1, 0);
-            tlpApp.Controls.Add(tlpColor, 1, 2);
+            flpColor.Controls.Add(_btnFillColor); 
+            flpColor.Controls.Add(_btnGradientColor);
+            tlpApp.Controls.Add(flpColor, 1, 2);
 
             tlpApp.Controls.Add(new Label { Text = "線條粗細", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 10, 0, 0) }, 0, 3);
-            FlowLayoutPanel flpStroke = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
-            _tbStrokeWidth = new TrackBar { Width = 140, Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
+            FlowLayoutPanel flpStroke = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0) };
+            _tbStrokeWidth = new TrackBar { Width = 140, Height = 30, Minimum = 1, Maximum = 20, TickStyle = TickStyle.None };
             _lblStrokeWidthValue = new Label { Text = "2", AutoSize = true, Margin = new Padding(0, 6, 0, 0) };
             _tbStrokeWidth.ValueChanged += (s, e) => {
                 _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
@@ -98,17 +100,12 @@ namespace DrawingApp
             _customPropertiesPanel.Controls.Add(_gbAppearance); 
 
             // ==========================================
-            // 【區塊 2】文字與排版設定
+            // 【區塊 2】文字與排版設定 (修正高度留白)
             // ==========================================
-            _gbText = new GroupBox { Text = "文字與排版設定", Width = 285, Height = 200, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
-            TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            _gbText = new GroupBox { Text = "文字與排版設定", Width = 285, AutoSize = true, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10), Padding = new Padding(0, 5, 0, 5) };
+            TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 2, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            
-            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-            tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
 
             tlpText.Controls.Add(new Label { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 0);
             _btnFontColor = new Button { Dock = DockStyle.Fill, Height = 25, FlatStyle = FlatStyle.Flat };
@@ -116,7 +113,7 @@ namespace DrawingApp
             tlpText.Controls.Add(_btnFontColor, 1, 0);
 
             tlpText.Controls.Add(new Label { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 1);
-            TableLayoutPanel tlpFont = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
+            TableLayoutPanel tlpFont = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, RowCount = 1, Margin = new Padding(0) };
             tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 65)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
             _cbFontName = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
             foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
@@ -127,7 +124,7 @@ namespace DrawingApp
             tlpText.Controls.Add(tlpFont, 1, 1);
 
             tlpText.Controls.Add(new Label { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 2);
-            FlowLayoutPanel flpStyle = new FlowLayoutPanel { Dock = DockStyle.Fill, Margin = new Padding(0) };
+            FlowLayoutPanel flpStyle = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, Margin = new Padding(0) };
             _chkBold = new CheckBox { Text = "粗", AutoSize = true, Width = 40 }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
             _chkItalic = new CheckBox { Text = "斜", AutoSize = true, Width = 40 }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
             _chkUnderline = new CheckBox { Text = "底線", AutoSize = true, Width = 55 }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
@@ -146,50 +143,58 @@ namespace DrawingApp
             topPropPanel.Controls.Add(_customPropertiesPanel); 
 
             // ==========================================
-            // 【區塊 3】快速對齊區塊 (修正高度與排版錯誤)
+            // 【區塊 3】快速對齊區塊 (修正 4: 改為下拉選單連動)
             // ==========================================
-            _gbAlign = new GroupBox { Text = "▶ 快速對齊", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
-            // 修正：調整展開高度為 155，確保 3 排按鈕完全顯示
-            _gbAlign.Click += (s, e) => ToggleGroupBox(_gbAlign, 155, "快速對齊");
+            _gbAlign = new GroupBox { Text = "快速對齊", Width = 285, AutoSize = true, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5, 5, 5, 5), Margin = new Padding(0, 0, 0, 10) };
             
-            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0), Visible = false };
+            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9, FontStyle.Regular), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 5, 0, 0) };
             _gbAlign.Controls.Add(_chkAlignToPage);
 
-            // 修正：將 FlowLayoutPanel 改為 Panel，讓內部的 DockStyle.Fill 能夠正確撐開高度
-            _alignmentPanel = new Panel { Dock = DockStyle.Fill, Visible = false };
-            TableLayoutPanel tlpAlign = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3 };
-            for (int i = 0; i < 3; i++) tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
-            for (int i = 0; i < 3; i++) tlpAlign.RowStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
-
-            tlpAlign.Controls.Add(CreateGridButton("靠左", (s, e) => AlignShapes("Left")), 0, 0);
-            tlpAlign.Controls.Add(CreateGridButton("置中", (s, e) => AlignShapes("Center")), 1, 0);
-            tlpAlign.Controls.Add(CreateGridButton("靠右", (s, e) => AlignShapes("Right")), 2, 0);
-            tlpAlign.Controls.Add(CreateGridButton("靠上", (s, e) => AlignShapes("Top")), 0, 1);
-            tlpAlign.Controls.Add(CreateGridButton("垂直置中", (s, e) => AlignShapes("Middle")), 1, 1);
-            tlpAlign.Controls.Add(CreateGridButton("靠下", (s, e) => AlignShapes("Bottom")), 2, 1);
-            tlpAlign.Controls.Add(CreateGridButton("水平均分", (s, e) => DistributeShapes("Horizontal")), 0, 2);
-            tlpAlign.Controls.Add(CreateGridButton("垂直均分", (s, e) => DistributeShapes("Vertical")), 1, 2);
+            _alignmentPanel = new Panel { Dock = DockStyle.Top, Height = 35 };
             
-            _alignmentPanel.Controls.Add(tlpAlign);
+            ComboBox cbAlignOptions = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150, Location = new Point(5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
+            cbAlignOptions.Items.AddRange(new string[] { "靠左對齊", "水平置中", "靠右對齊", "靠上對齊", "垂直置中", "靠下對齊", "水平均分", "垂直均分" });
+            cbAlignOptions.SelectedIndex = 0;
+            
+            Button btnApplyAlign = new Button { Text = "執行", Width = 60, Height = 25, Location = new Point(165, 3), FlatStyle = FlatStyle.Flat, Font = new Font("Arial", 9, FontStyle.Regular), Cursor = Cursors.Hand };
+            btnApplyAlign.FlatAppearance.BorderColor = Color.LightGray;
+            btnApplyAlign.Click += (s, e) => {
+                switch (cbAlignOptions.SelectedIndex) {
+                    case 0: AlignShapes("Left"); break;
+                    case 1: AlignShapes("Center"); break;
+                    case 2: AlignShapes("Right"); break;
+                    case 3: AlignShapes("Top"); break;
+                    case 4: AlignShapes("Middle"); break;
+                    case 5: AlignShapes("Bottom"); break;
+                    case 6: DistributeShapes("Horizontal"); break;
+                    case 7: DistributeShapes("Vertical"); break;
+                }
+            };
+
+            _alignmentPanel.Controls.Add(cbAlignOptions);
+            _alignmentPanel.Controls.Add(btnApplyAlign);
             _gbAlign.Controls.Add(_alignmentPanel);
+            
             topPropPanel.Controls.Add(_gbAlign); 
 
             // ==========================================
             // 【區塊 4】圖層順序區塊
             // ==========================================
-            _gbZIndex = new GroupBox { Text = "▶ 圖層順序", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
-            // 修正：調整展開高度為 70
-            _gbZIndex.Click += (s, e) => ToggleGroupBox(_gbZIndex, 70, "圖層順序");
+            _gbZIndex = new GroupBox { Text = "圖層順序", Width = 285, AutoSize = true, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5, 10, 5, 5), Margin = new Padding(0, 0, 0, 10) };
+            _zIndexPanel = new Panel { Dock = DockStyle.Top, Height = 35 };
+            
+            Button btnTop = new Button { Text = "移到最上層", Width = 110, Height = 25, Location = new Point(5, 5), FlatStyle = FlatStyle.Flat, Font = new Font("微軟正黑體", 8), Cursor = Cursors.Hand };
+            btnTop.FlatAppearance.BorderColor = Color.LightGray;
+            btnTop.Click += (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); };
 
-            // 修正：將 FlowLayoutPanel 改為 Panel
-            _zIndexPanel = new Panel { Dock = DockStyle.Fill, Visible = false };
-            TableLayoutPanel tlpZIndex = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            tlpZIndex.Controls.Add(CreateGridButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }), 0, 0);
-            tlpZIndex.Controls.Add(CreateGridButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }), 1, 0);
-            _zIndexPanel.Controls.Add(tlpZIndex);
+            Button btnBottom = new Button { Text = "移到最下層", Width = 110, Height = 25, Location = new Point(125, 5), FlatStyle = FlatStyle.Flat, Font = new Font("微軟正黑體", 8), Cursor = Cursors.Hand };
+            btnBottom.FlatAppearance.BorderColor = Color.LightGray;
+            btnBottom.Click += (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); };
+
+            _zIndexPanel.Controls.Add(btnTop);
+            _zIndexPanel.Controls.Add(btnBottom);
             _gbZIndex.Controls.Add(_zIndexPanel);
+            
             topPropPanel.Controls.Add(_gbZIndex); 
 
             scRight.Panel1.Controls.Add(topPropPanel);
@@ -197,7 +202,6 @@ namespace DrawingApp
             // ==========================================
             // 【區塊 5】圖層管理面板
             // ==========================================
-            // 將整個 SplitContainer 傳入，讓 Layers.cs 能夠控制展開收合的高度
             BuildLayerPanel(scRight);
 
             _rightPanel.Controls.Add(scRight);
@@ -205,35 +209,6 @@ namespace DrawingApp
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
             _customPropertiesPanel.Enabled = true;
-        }
-
-        private void ToggleGroupBox(GroupBox gb, int expandHeight, string title)
-        {
-            if (gb.Height == 25)
-            {
-                gb.Height = expandHeight;
-                gb.Text = "▼ " + title;
-                foreach (Control c in gb.Controls) c.Visible = true;
-            }
-            else
-            {
-                gb.Height = 25;
-                gb.Text = "▶ " + title;
-                foreach (Control c in gb.Controls) c.Visible = false;
-            }
-        }
-
-        private Button CreateGridButton(string text, EventHandler onClick)
-        {
-            Button btn = new Button
-            {
-                Text = text, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat,
-                BackColor = Color.White, Cursor = Cursors.Hand, Font = new Font("微軟正黑體", 8),
-                Margin = new Padding(2) 
-            };
-            btn.FlatAppearance.BorderColor = Color.LightGray;
-            btn.Click += onClick;
-            return btn;
         }
 
         private void RefreshPropertyPanel()
