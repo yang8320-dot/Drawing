@@ -62,7 +62,6 @@ namespace DrawingApp
             });
         }
 
-        // 【Req 5: 根據使用者設定的 PageSize 進行切割與多頁 PDF 匯出】
         public static async Task ExportToPdfMultiPageAsync(App_CanvasControl canvas, string filePath)
         {
             await Task.Run(() =>
@@ -82,7 +81,6 @@ namespace DrawingApp
                         for (int c = 0; c < cols; c++)
                         {
                             PdfPage page = document.AddPage();
-                            // 預設將 PDF 實體紙張調整為與設定相同的比例，以符合列印需求
                             page.Width = singlePageSize.Width / 3.5f; 
                             page.Height = singlePageSize.Height / 3.5f;
 
@@ -92,7 +90,6 @@ namespace DrawingApp
                                 (int)singlePageSize.Width, 
                                 (int)singlePageSize.Height);
 
-                            // 防止裁剪超過全圖邊界
                             if (cropRect.Right > fullBitmap.Width) cropRect.Width = fullBitmap.Width - cropRect.X;
                             if (cropRect.Bottom > fullBitmap.Height) cropRect.Height = fullBitmap.Height - cropRect.Y;
 
@@ -107,19 +104,24 @@ namespace DrawingApp
 
                                 using (XGraphics gfx = XGraphics.FromPdfPage(page))
                                 {
-                                    // 將裁切好的圖片撐滿這一頁 PDF
-                                    gfx.DrawImage(image, 0, 0, page.Width, page.Height);
+                                    // 修正：依原比例繪製，不延展圖片以防失真
+                                    double drawW = image.PixelWidth / 3.5f;
+                                    double drawH = image.PixelHeight / 3.5f;
+                                    gfx.DrawImage(image, 0, 0, drawW, drawH);
                                     
-                                    // 繪製頁碼到 PDF
+                                    // 修正：支援中文字體 (Unicode) 避免方塊亂碼，並置中於底部
                                     if (canvas.ShowPageNumbers)
                                     {
                                         int pageNum = r * cols + c + 1;
                                         int totalPages = cols * rows;
                                         string pageText = $"{canvas.CanvasTitle} - 第 {pageNum} 頁 / 共 {totalPages} 頁";
                                         
-                                        XFont font = new XFont("Arial", 12, XFontStyle.Bold);
+                                        XPdfFontOptions options = new XPdfFontOptions(PdfFontEncoding.Unicode);
+                                        XFont font = new XFont("Microsoft JhengHei", 12, XFontStyle.Regular, options);
                                         XSize size = gfx.MeasureString(pageText, font);
-                                        gfx.DrawString(pageText, font, XBrushes.Gray, new XPoint(page.Width - size.Width - 10, page.Height - 10));
+                                        
+                                        double xCenter = (page.Width - size.Width) / 2;
+                                        gfx.DrawString(pageText, font, XBrushes.Gray, new XPoint(xCenter, page.Height - 15));
                                     }
                                 }
                             }
@@ -157,9 +159,7 @@ namespace DrawingApp
                     string transform = shape.RotationAngle != 0 ? $"transform=\"rotate({shape.RotationAngle},{cx},{cy})\"" : "";
 
                     if (shape is App_Shapes.RectShape)
-                    {
                         svg.AppendLine($"  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
-                    }
                     else if (shape is App_Shapes.RoundedRectShape)
                     {
                         float r = Math.Min(w, h) * 0.2f;
@@ -171,24 +171,15 @@ namespace DrawingApp
                         svg.AppendLine($"  <rect x=\"{x}\" y=\"{y}\" width=\"{w}\" height=\"{h}\" fill=\"{tnsFill}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
                     }
                     else if (shape is App_Shapes.CircleShape)
-                    {
                         svg.AppendLine($"  <ellipse cx=\"{cx}\" cy=\"{cy}\" rx=\"{w/2}\" ry=\"{h/2}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
-                    }
                     else if (shape is App_Shapes.ConnectorShape conn)
-                    {
                         svg.AppendLine($"  <line x1=\"{conn.StartPt.X}\" y1=\"{conn.StartPt.Y}\" x2=\"{conn.EndPt.X}\" y2=\"{conn.EndPt.Y}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
-                    }
                     else if (shape is App_Shapes.FreehandShape fh)
                     {
                         if (fh.LocalPoints.Count > 1)
                         {
                             svg.Append($"  <polyline points=\"");
-                            foreach (var pt in fh.LocalPoints)
-                            {
-                                float px = fh.Bounds.X + pt.X;
-                                float py = fh.Bounds.Y + pt.Y;
-                                svg.Append($"{px},{py} ");
-                            }
+                            foreach (var pt in fh.LocalPoints) svg.Append($"{fh.Bounds.X + pt.X},{fh.Bounds.Y + pt.Y} ");
                             svg.AppendLine($"\" fill=\"none\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
                         }
                     }
@@ -196,60 +187,28 @@ namespace DrawingApp
                     {
                         if (bezier.LocalNodes.Count > 1)
                         {
-                            svg.Append($"  <path d=\"");
-                            
-                            float startX = bezier.Bounds.X + bezier.LocalNodes[0].Anchor.X;
-                            float startY = bezier.Bounds.Y + bezier.LocalNodes[0].Anchor.Y;
-                            svg.Append($"M {startX} {startY} ");
-
+                            svg.Append($"  <path d=\"M {bezier.Bounds.X + bezier.LocalNodes[0].Anchor.X} {bezier.Bounds.Y + bezier.LocalNodes[0].Anchor.Y} ");
                             for (int i = 1; i < bezier.LocalNodes.Count; i++)
-                            {
-                                float c1x = bezier.Bounds.X + bezier.LocalNodes[i - 1].Control2.X;
-                                float c1y = bezier.Bounds.Y + bezier.LocalNodes[i - 1].Control2.Y;
-                                
-                                float c2x = bezier.Bounds.X + bezier.LocalNodes[i].Control1.X;
-                                float c2y = bezier.Bounds.Y + bezier.LocalNodes[i].Control1.Y;
-                                
-                                float endX = bezier.Bounds.X + bezier.LocalNodes[i].Anchor.X;
-                                float endY = bezier.Bounds.Y + bezier.LocalNodes[i].Anchor.Y;
-
-                                svg.Append($"C {c1x} {c1y}, {c2x} {c2y}, {endX} {endY} ");
-                            }
-                            
+                                svg.Append($"C {bezier.Bounds.X + bezier.LocalNodes[i - 1].Control2.X} {bezier.Bounds.Y + bezier.LocalNodes[i - 1].Control2.Y}, {bezier.Bounds.X + bezier.LocalNodes[i].Control1.X} {bezier.Bounds.Y + bezier.LocalNodes[i].Control1.Y}, {bezier.Bounds.X + bezier.LocalNodes[i].Anchor.X} {bezier.Bounds.Y + bezier.LocalNodes[i].Anchor.Y} ");
                             svg.AppendLine($"\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
                         }
                     }
-                    else if (shape is App_Shapes.TriangleShape || shape is App_Shapes.DiamondShape || 
-                             shape is App_Shapes.StarShape || shape is App_Shapes.PentagonShape || shape is App_Shapes.HexagonShape)
+                    else if (shape is App_Shapes.DoubleArrowShape || shape is App_Shapes.BlockArrowShape || shape is App_Shapes.BraceLeftShape || shape is App_Shapes.BraceRightShape || shape is App_Shapes.Branch1To2Shape || shape is App_Shapes.Branch1To3Shape || shape is App_Shapes.Branch1To4Shape || shape is App_Shapes.TriangleShape || shape is App_Shapes.DiamondShape || shape is App_Shapes.StarShape || shape is App_Shapes.PentagonShape || shape is App_Shapes.HexagonShape)
                     {
                         PointF[] pts = null;
-
                         if (shape is App_Shapes.TriangleShape ts) pts = ts.GetPolygonPoints();
                         else if (shape is App_Shapes.DiamondShape ds) pts = ds.GetPolygonPoints();
                         else if (shape is App_Shapes.StarShape ss) pts = ss.GetPolygonPoints();
                         else if (shape is App_Shapes.PentagonShape ps) pts = ps.GetPolygonPoints();
                         else if (shape is App_Shapes.HexagonShape hs) pts = hs.GetPolygonPoints();
-
+                        else if (shape is App_Shapes.DoubleArrowShape das) pts = das.GetPolygonPoints();
+                        
                         if (pts != null)
                         {
                             svg.Append($"  <polygon points=\"");
                             foreach (var pt in pts) svg.Append($"{pt.X},{pt.Y} ");
                             svg.AppendLine($"\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} {transform} />");
                         }
-                    }
-                    else if (shape is App_Shapes.CloudShape)
-                    {
-                        svg.AppendLine($"  <g {transform}>");
-                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.35f}\" cy=\"{y + h * 0.45f}\" rx=\"{w * 0.2f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
-                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.60f}\" cy=\"{y + h * 0.40f}\" rx=\"{w * 0.25f}\" ry=\"{h * 0.30f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
-                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.75f}\" cy=\"{y + h * 0.60f}\" rx=\"{w * 0.17f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
-                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.50f}\" cy=\"{y + h * 0.65f}\" rx=\"{w * 0.25f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
-                        svg.AppendLine($"    <ellipse cx=\"{x + w * 0.25f}\" cy=\"{y + h * 0.60f}\" rx=\"{w * 0.15f}\" ry=\"{h * 0.20f}\" fill=\"{fillHex}\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" {dashArray} />");
-                        
-                        if (shape.FillColor != Color.Transparent) {
-                            svg.AppendLine($"    <ellipse cx=\"{x + w * 0.5f}\" cy=\"{y + h * 0.55f}\" rx=\"{w * 0.3f}\" ry=\"{h * 0.25f}\" fill=\"{fillHex}\" stroke=\"none\" />");
-                        }
-                        svg.AppendLine($"  </g>");
                     }
 
                     if (!string.IsNullOrEmpty(shape.Text))
