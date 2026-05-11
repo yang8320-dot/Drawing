@@ -104,24 +104,50 @@ namespace DrawingApp
 
                                 using (XGraphics gfx = XGraphics.FromPdfPage(page))
                                 {
-                                    // 修正：依原比例繪製，不延展圖片以防失真
                                     double drawW = image.PixelWidth / 3.5f;
                                     double drawH = image.PixelHeight / 3.5f;
                                     gfx.DrawImage(image, 0, 0, drawW, drawH);
                                     
-                                    // 修正：支援中文字體 (Unicode) 避免方塊亂碼，並置中於底部
                                     if (canvas.ShowPageNumbers)
                                     {
                                         int pageNum = r * cols + c + 1;
                                         int totalPages = cols * rows;
                                         string pageText = $"{canvas.CanvasTitle} - 第 {pageNum} 頁 / 共 {totalPages} 頁";
                                         
-                                        XPdfFontOptions options = new XPdfFontOptions(PdfFontEncoding.Unicode);
-                                        XFont font = new XFont("Microsoft JhengHei", 12, XFontStyle.Regular, options);
-                                        XSize size = gfx.MeasureString(pageText, font);
-                                        
-                                        double xCenter = (page.Width - size.Width) / 2;
-                                        gfx.DrawString(pageText, font, XBrushes.Gray, new XPoint(xCenter, page.Height - 15));
+                                        // 【修正】：將文字畫成圖片再貼到 PDF，避開 PDFsharp 字型錯誤
+                                        using (Font gdiFont = new Font("微軟正黑體", 16, FontStyle.Regular))
+                                        {
+                                            SizeF textSize;
+                                            using (Bitmap tempBmp = new Bitmap(1, 1))
+                                            using (Graphics tempG = Graphics.FromImage(tempBmp))
+                                            {
+                                                textSize = tempG.MeasureString(pageText, gdiFont);
+                                            }
+
+                                            using (Bitmap textBmp = new Bitmap((int)Math.Ceiling(textSize.Width), (int)Math.Ceiling(textSize.Height)))
+                                            {
+                                                using (Graphics gText = Graphics.FromImage(textBmp))
+                                                {
+                                                    gText.SmoothingMode = SmoothingMode.AntiAlias;
+                                                    gText.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                                                    gText.Clear(Color.Transparent);
+                                                    gText.DrawString(pageText, gdiFont, Brushes.Gray, 0, 0);
+                                                }
+
+                                                using (MemoryStream msText = new MemoryStream())
+                                                {
+                                                    textBmp.Save(msText, ImageFormat.Png);
+                                                    msText.Position = 0;
+                                                    XImage textImage = XImage.FromStream(msText);
+                                                    
+                                                    // 在 PDF 底部置中繪製轉成圖片的頁碼
+                                                    double textDrawW = textImage.PixelWidth / 3.5f;
+                                                    double textDrawH = textImage.PixelHeight / 3.5f;
+                                                    double xCenter = (page.Width - textDrawW) / 2;
+                                                    gfx.DrawImage(textImage, xCenter, page.Height - textDrawH - 10, textDrawW, textDrawH);
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
