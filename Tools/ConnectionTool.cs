@@ -1,79 +1,89 @@
-using System;
 using System.Drawing;
 using System.Windows.Forms;
 
 namespace DrawingApp.Tools
 {
-    public class DrawingTool : ToolBase
+    public class ConnectionTool : ToolBase
     {
-        private App_Shapes.ShapeBase _tempShape = null;
+        private App_Shapes.ConnectorShape _tempConn;
 
         public override void OnMouseDown(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
         {
             if (e.Button != MouseButtons.Left) return;
 
-            PointF snapPt = canvas.CurrentShapeType == App_Shapes.ShapeType.Freehand ? realPt : new PointF(canvas.Snap(realPt.X), canvas.Snap(realPt.Y));
-            _tempShape = App_Shapes.ShapeFactory.CreateShape(canvas.CurrentShapeType, snapPt, canvas.CurrentColor);
-            canvas.SetTempShape(_tempShape);
+            bool isArrow = (canvas.CurrentShapeType == App_Shapes.ShapeType.ArrowLine || canvas.CurrentShapeType == App_Shapes.ShapeType.OrthogonalLine);
+            bool isOrtho = (canvas.CurrentShapeType == App_Shapes.ShapeType.OrthogonalLine);
+            
+            _tempConn = new App_Shapes.ConnectorShape(realPt, canvas.CurrentColor, isArrow, isOrtho);
+            canvas.SetTempShape(_tempConn);
+            
+            var hitShape = canvas.GetShapeAtPoint(realPt);
+            if (hitShape != null)
+            {
+                _tempConn.SourceId = hitShape.Id; 
+                _tempConn.SourceAnchor = DetectAnchor(hitShape, realPt);
+            }
         }
 
         public override void OnMouseMove(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
         {
-            if (e.Button != MouseButtons.Left || _tempShape == null) return;
+            if (e.Button != MouseButtons.Left || _tempConn == null) return;
 
-            RectangleF oldBounds = _tempShape.Bounds;
+            RectangleF oldBounds = canvas.GetShapesAndConnectorsBounds(new System.Collections.Generic.List<App_Shapes.ShapeBase> { _tempConn });
+            
+            canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
+            var nearShapes = canvas.GetShapesInRect(new RectangleF(realPt.X - 15, realPt.Y - 15, 30, 30));
+            
+            App_Shapes.ShapeBase snapTarget = null;
+            App_Shapes.AnchorPosition snapAnchor = App_Shapes.AnchorPosition.Auto;
 
-            if (_tempShape is App_Shapes.FreehandShape fh)
+            foreach (var other in nearShapes)
             {
-                fh.AddPoint(realPt);
+                if (other.Id != _tempConn.SourceId && other.HitTest(realPt))
+                {
+                    snapTarget = other;
+                    snapAnchor = DetectAnchor(other, realPt);
+                    canvas.SetHoveredConnectionTarget(snapTarget, snapAnchor);
+                    break;
+                }
+            }
+
+            // 【Req 6: 自動磁吸 - 如果偵測到目標，強制將線條末端吸附到錨點座標】
+            if (snapTarget != null && snapAnchor != App_Shapes.AnchorPosition.Auto)
+            {
+                _tempConn.UpdateEndPoint(snapTarget.GetAnchorPoint(snapAnchor));
+            }
+            else if (snapTarget != null)
+            {
+                _tempConn.UpdateEndPoint(snapTarget.GetIntersection(realPt));
             }
             else
             {
-                bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
-                float snapX = canvas.Snap(realPt.X);
-                float snapY = canvas.Snap(realPt.Y);
-                
-                if (keepRatio)
-                {
-                    float diffX = snapX - _tempShape.Bounds.X;
-                    float diffY = snapY - _tempShape.Bounds.Y;
-                    float maxDim = (float)Math.Max(Math.Abs(diffX), Math.Abs(diffY));
-                    snapX = _tempShape.Bounds.X + maxDim * Math.Sign(diffX);
-                    snapY = _tempShape.Bounds.Y + maxDim * Math.Sign(diffY);
-                }
-                _tempShape.UpdateEndPoint(new PointF(snapX, snapY));
+                _tempConn.UpdateEndPoint(realPt);
             }
 
+            RectangleF newBounds = canvas.GetShapesAndConnectorsBounds(new System.Collections.Generic.List<App_Shapes.ShapeBase> { _tempConn });
             canvas.InvalidateWorldRect(oldBounds);
-            canvas.InvalidateWorldRect(_tempShape.Bounds);
+            canvas.InvalidateWorldRect(newBounds);
         }
 
         public override void OnMouseUp(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
         {
-            if (e.Button != MouseButtons.Left || _tempShape == null) return;
+            if (e.Button != MouseButtons.Left || _tempConn == null) return;
 
-            _tempShape.NormalizeBounds();
+            var hoverTarget = canvas.GetHoveredConnectionTarget();
+            if (hoverTarget != null)
+            {
+                _tempConn.TargetId = hoverTarget.Id;
+                _tempConn.TargetAnchor = canvas.GetHoveredAnchor();
+            }
+
+            canvas.CmdManager.ExecuteCommand(new AddShapeCommand(canvas.Shapes, _tempConn));
             
-            // 【Req 1: 如果只是點擊 (寬高過小)，自動給予 100x100 的預設大小】
-            if (!(_tempShape is App_Shapes.FreehandShape) && _tempShape.Bounds.Width <= 5 && _tempShape.Bounds.Height <= 5)
-            {
-                _tempShape.SetBounds(new RectangleF(_tempShape.Bounds.X, _tempShape.Bounds.Y, 100, 100));
-            }
-
-            if (_tempShape.Bounds.Width > 5 && _tempShape.Bounds.Height > 5 || _tempShape is App_Shapes.FreehandShape)
-            {
-                canvas.CmdManager.ExecuteCommand(new AddShapeCommand(canvas.Shapes, _tempShape));
-            }
-            
-            if (_tempShape is App_Shapes.TextNodeShape)
-            {
-                canvas.StartInlineEditing(_tempShape);
-            }
-
             canvas.SetTempShape(null);
-            _tempShape = null;
-
-            // 【Req 1: 新增完後自動跳回滑鼠游標】
+            _tempConn = null;
+            canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
+            
             canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
             canvas.Invalidate();
         }
@@ -82,14 +92,10 @@ namespace DrawingApp.Tools
         {
             if (keyData == Keys.Escape)
             {
-                if (_tempShape != null)
-                {
-                    _tempShape.Dispose();
-                    _tempShape = null;
-                    canvas.SetTempShape(null);
-                    canvas.Invalidate();
-                }
+                if (_tempConn != null) { _tempConn.Dispose(); _tempConn = null; canvas.SetTempShape(null); }
+                canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
                 canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
+                canvas.Invalidate();
                 return true;
             }
             return false;
@@ -97,12 +103,8 @@ namespace DrawingApp.Tools
 
         public override void OnToolDeactivated(App_CanvasControl canvas)
         {
-            if (_tempShape != null)
-            {
-                _tempShape.Dispose();
-                _tempShape = null;
-                canvas.SetTempShape(null);
-            }
+            if (_tempConn != null) { _tempConn.Dispose(); _tempConn = null; canvas.SetTempShape(null); }
+            canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
         }
     }
 }
