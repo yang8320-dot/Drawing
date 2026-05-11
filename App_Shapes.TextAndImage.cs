@@ -23,7 +23,6 @@ namespace DrawingApp
             {
                 if (!IsTransparent)
                 {
-                    // [優化 2]：套用 ShouldDrawShadow 以支援快速渲染
                     if (ShouldDrawShadow)
                         g.FillRectangle(SharedShadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
                     
@@ -40,7 +39,10 @@ namespace DrawingApp
         {
             [Browsable(false)] public override Color FillColor { get; set; } = Color.Transparent;
             [Browsable(false)] public override string Text { get; set; } = "";
-            [Browsable(false)] public override string FontName { get; set; } = "Arial";
+            
+            // 【修正6】: 字型預設改為標楷體
+            [Browsable(false)] public override string FontName { get; set; } = "標楷體";
+            
             [Browsable(false)] public override float FontSize { get; set; } = 12f;
             [Browsable(false)] public override Color FontColor { get; set; } = Color.Black;
             [Browsable(false)] public override bool FontBold { get; set; } = false;
@@ -51,7 +53,6 @@ namespace DrawingApp
             [Browsable(false)]
             public string Base64Image { get; set; }
             
-            // [優化 1]：移除全域靜態 Dictionary 緩存，改由實體自行持有 Bitmap，徹底解決記憶體洩漏！
             [JsonIgnore]
             [Browsable(false)]
             private Bitmap _localImage;
@@ -81,7 +82,6 @@ namespace DrawingApp
                         }
                     }
 
-                    // [優化 2]：套用 ShouldDrawShadow 以支援快速渲染
                     if (ShouldDrawShadow)
                         g.FillRectangle(SharedShadowBrush, Bounds.X + 6, Bounds.Y + 6, Bounds.Width, Bounds.Height);
                     
@@ -90,7 +90,6 @@ namespace DrawingApp
                 DrawText(g);
             }
 
-            // 當圖形被丟棄或被 GC 清除前，釋放專屬的影像資源
             public override void Dispose()
             {
                 base.Dispose();
