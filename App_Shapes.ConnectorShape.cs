@@ -312,14 +312,14 @@ namespace DrawingApp
                 }
                 _cachedPath = pts;
 
+                if (pts.Length < 2) return; // 安全防護：避免長度不足導致崩潰
+
                 Pen p = GetCachedPen();
                 
+                // 💡 [終極修復]：捨棄自訂路徑，改用原生的 AdjustableArrowCap，杜絕崩潰
                 if (HasArrow && p.CustomEndCap == null)
                 {
-                    GraphicsPath capPath = new GraphicsPath();
-                    capPath.AddLine(new PointF(-4, -4), new PointF(0, 0));
-                    capPath.AddLine(new PointF(0, 0), new PointF(4, -4));
-                    p.CustomEndCap = new CustomLineCap(null, capPath);
+                    p.CustomEndCap = new AdjustableArrowCap(5, 5, true); 
                 }
                 else if (!HasArrow && p.CustomEndCap != null)
                 {
