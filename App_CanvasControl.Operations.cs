@@ -8,6 +8,9 @@ namespace DrawingApp
     // 負責處理畫布右鍵選單、剪貼簿操作、群組操作與文字編輯器
     public partial class App_CanvasControl
     {
+        // 【新增功能：觸發更新工具列自訂圖庫的事件】
+        public event Action OnStencilAdded;
+
         private ContextMenuStrip CreateContextMenu()
         {
             var menu = new ContextMenuStrip();
@@ -22,6 +25,20 @@ namespace DrawingApp
             menu.Items.Add("移到最下層", null, (s, e) => ChangeZIndex(-99));
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("鎖定/解鎖圖形", null, (s, e) => ToggleLock());
+            menu.Items.Add(new ToolStripSeparator());
+            
+            // 【新增功能：加入自訂圖庫】
+            menu.Items.Add("⭐ 加入自訂圖庫", null, (s, e) => {
+                if (SelectedShapes.Count == 0) return;
+                string stencilName = Microsoft.VisualBasic.Interaction.InputBox("請輸入自訂圖形名稱：", "加入自訂圖庫", "我的元件");
+                if (!string.IsNullOrWhiteSpace(stencilName))
+                {
+                    App_SaveLoad.SaveStencil(stencilName, SelectedShapes);
+                    OnStencilAdded?.Invoke(); // 通知 MainForm 重新載入圖庫按鈕
+                    MessageBox.Show("已成功加入自訂圖庫！", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            });
+
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add("匯出選取物件 (PNG)", null, async (s, e) => {
                 if (SelectedShapes.Count == 0) return;
@@ -52,7 +69,9 @@ namespace DrawingApp
             menu.Items[7].Enabled = hasSelection; 
             menu.Items[8].Enabled = hasSelection; 
             menu.Items[10].Enabled = hasSelection; 
-            menu.Items[12].Enabled = hasSelection; 
+            
+            menu.Items[12].Enabled = hasSelection; // 加入自訂圖庫
+            menu.Items[14].Enabled = hasSelection; // 匯出 PNG
             
             if (hasSelection)
             {
