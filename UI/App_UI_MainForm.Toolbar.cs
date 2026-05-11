@@ -31,12 +31,12 @@ namespace DrawingApp
         // 屬性面板變數宣告
         private GroupBox _gbAlign;
         private CheckBox _chkAlignToPage;
-        private Panel _alignmentPanel;   // 【修正】：將 FlowLayoutPanel 改為 Panel
+        private Panel _alignmentPanel;
         
         private GroupBox _gbZIndex;
-        private Panel _zIndexPanel;      // 【修正】：將 FlowLayoutPanel 改為 Panel
+        private Panel _zIndexPanel;
         
-        private FlowLayoutPanel _customPropertiesPanel;
+        // 已移除未使用的 _customPropertiesPanel
         private GroupBox _gbAppearance;
         private Button _btnShapeColor;
         private ComboBox _cbBrushType;
@@ -59,7 +59,6 @@ namespace DrawingApp
         private TreeView _tvLayers;
         private bool _isSyncingTree = false;
 
-        // 【新增功能：儲存自訂圖庫面板參照，方便重新載入】
         private FlowLayoutPanel _grpStencilsContainer;
 
         public App_CanvasControl CurrentCanvas
@@ -235,7 +234,6 @@ namespace DrawingApp
             canvas.CmdManager.OnStateChanged += () => { RefreshLayerTree(); _isDirty = true; UpdateWindowTitle(); };
             canvas.OnSelectionChanged += () => { RefreshPropertyPanel(); SyncLayerTreeSelection(); };
             
-            // 【新增功能：畫布觸發存檔後，要求 MainForm 更新圖庫】
             canvas.OnStencilAdded += LoadStencilsIntoLeftPanel;
 
             canvas.OnToolChangedRequested += (toolType) => {
@@ -419,7 +417,6 @@ namespace DrawingApp
                 CreateToolButton(App_Shapes.ShapeType.Text, "純文字")
             });
 
-            // 【新增功能：預留自訂圖庫的區塊位置】
             _grpStencilsContainer = new FlowLayoutPanel { Width = 130, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(3, 5, 3, 0) };
             _leftPanel.Controls.Add(_grpStencilsContainer);
 
@@ -486,13 +483,9 @@ namespace DrawingApp
                 }
             };
 
-            // 初始化時載入圖庫
             LoadStencilsIntoLeftPanel();
         }
 
-        // ==========================================================
-        // 【新增功能：動態讀取存檔的自訂圖庫，產生可點擊按鈕】
-        // ==========================================================
         private void LoadStencilsIntoLeftPanel()
         {
             _grpStencilsContainer.Controls.Clear();
