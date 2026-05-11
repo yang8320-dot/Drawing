@@ -23,7 +23,13 @@ namespace DrawingApp
                     case ShapeType.Pentagon: return new PentagonShape(start, color);
                     case ShapeType.Hexagon: return new HexagonShape(start, color);
                     case ShapeType.Star: return new StarShape(start, color);
-                    case ShapeType.Cloud: return new CloudShape(start, color);
+                    
+                    // 新增圖形
+                    case ShapeType.Parallelogram: return new ParallelogramShape(start, color);
+                    case ShapeType.Cylinder: return new CylinderShape(start, color);
+                    case ShapeType.Document: return new DocumentShape(start, color);
+                    case ShapeType.BlockArrow: return new BlockArrowShape(start, color);
+
                     case ShapeType.TextNode: return new TextNodeShape(start, color, false);
                     case ShapeType.Text: return new TextNodeShape(start, color, true);
                     case ShapeType.Image: return new ImageShape(start, img);
