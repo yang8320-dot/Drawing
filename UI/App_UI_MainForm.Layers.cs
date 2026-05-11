@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: UI/App_UI_MainForm.Layers.cs
+// ============================================================
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -63,12 +67,7 @@ namespace DrawingApp
         {
             if (e.Item is TreeNode node && node.Tag is App_Shapes.ShapeBase shape && !shape.IsLocked)
             {
-                // [修正]：如果這個節點有父節點 (代表它是群組內的子物件)，則禁止拖曳排序避免資料崩潰
-                if (node.Parent != null) 
-                {
-                    return; 
-                }
-                
+                if (node.Parent != null) return; 
                 DoDragDrop(e.Item, DragDropEffects.Move);
             }
         }
@@ -150,7 +149,16 @@ namespace DrawingApp
             else if (shape is App_Shapes.PentagonShape) name = "五邊形";
             else if (shape is App_Shapes.HexagonShape) name = "六邊形";
             else if (shape is App_Shapes.StarShape) name = "星形";
-            else if (shape is App_Shapes.CloudShape) name = "雲朵";
+            else if (shape is App_Shapes.ParallelogramShape) name = "平行四邊形";
+            else if (shape is App_Shapes.CylinderShape) name = "資料庫";
+            else if (shape is App_Shapes.DocumentShape) name = "文件";
+            else if (shape is App_Shapes.BlockArrowShape) name = "粗箭頭";
+            else if (shape is App_Shapes.DoubleArrowShape) name = "雙向箭頭";
+            else if (shape is App_Shapes.BraceLeftShape) name = "左大括號";
+            else if (shape is App_Shapes.BraceRightShape) name = "右大括號";
+            else if (shape is App_Shapes.Branch1To2Shape) name = "一對二分支";
+            else if (shape is App_Shapes.Branch1To3Shape) name = "一對三分支";
+            else if (shape is App_Shapes.Branch1To4Shape) name = "一對四分支";
             else if (shape is App_Shapes.ConnectorShape) name = "連線";
             else if (shape is App_Shapes.TextNodeShape tns) name = tns.IsTransparent ? "純文字" : "文字框";
             else if (shape is App_Shapes.ImageShape) name = "圖片";
