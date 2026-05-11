@@ -13,11 +13,24 @@ namespace DrawingApp
     // --- 負責圖層管理與支援拖曳排序 ---
     public partial class App_UI_MainForm
     {
-        private void BuildLayerPanel(Control parent)
+        private void BuildLayerPanel(SplitContainer scContainer)
         {
-            Panel layerPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10) };
-            Label lblLayers = new Label { Text = "圖層管理 (支援拖曳排序)", Font = new Font("Arial", 10, FontStyle.Bold), Dock = DockStyle.Top, Height = 25 };
-            
+            var parent = scContainer.Panel2;
+
+            // 取代原本的 Label，改用 Button 作為抽屜開關
+            Button btnToggleLayers = new Button
+            {
+                Text = "▶ 圖層管理",
+                Dock = DockStyle.Top,
+                Height = 30,
+                Font = new Font("Arial", 9, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleLeft,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(220, 220, 220)
+            };
+            btnToggleLayers.FlatAppearance.BorderSize = 0;
+
             _tvLayers = new TreeView 
             { 
                 Dock = DockStyle.Fill, 
@@ -25,7 +38,31 @@ namespace DrawingApp
                 FullRowSelect = true,
                 ItemHeight = 22,
                 Font = new Font("微軟正黑體", 9),
-                AllowDrop = true
+                AllowDrop = true,
+                Visible = false // 預設隱藏 TreeView 內容
+            };
+
+            // 點擊按鈕時展開/收合 SplitContainer 的高度
+            btnToggleLayers.Click += (s, e) =>
+            {
+                if (_tvLayers.Visible)
+                {
+                    // 收合
+                    _tvLayers.Visible = false;
+                    btnToggleLayers.Text = "▶ 圖層管理";
+                    scContainer.IsSplitterFixed = true;
+                    if (scContainer.Height > 35)
+                        scContainer.SplitterDistance = scContainer.Height - 30; 
+                }
+                else
+                {
+                    // 展開
+                    _tvLayers.Visible = true;
+                    btnToggleLayers.Text = "▼ 圖層管理";
+                    scContainer.IsSplitterFixed = false;
+                    if (scContainer.Height > 250)
+                        scContainer.SplitterDistance = scContainer.Height - 250;
+                }
             };
             
             _tvLayers.AfterSelect += TvLayers_AfterSelect;
@@ -58,9 +95,22 @@ namespace DrawingApp
                 }
             };
 
-            layerPanel.Controls.Add(_tvLayers);
-            layerPanel.Controls.Add(lblLayers);
-            parent.Controls.Add(layerPanel);
+            parent.Controls.Add(_tvLayers);
+            parent.Controls.Add(btnToggleLayers);
+
+            // 確保視窗載入或縮放時，圖層管理面板的收合高度永遠鎖定在 30px (只顯示按鈕)
+            this.Load += (s, e) => {
+                scContainer.IsSplitterFixed = true;
+                if (scContainer.Height > 35)
+                    scContainer.SplitterDistance = scContainer.Height - 30;
+            };
+
+            scContainer.Resize += (s, e) => {
+                if (!_tvLayers.Visible && scContainer.Height > 35)
+                {
+                    scContainer.SplitterDistance = scContainer.Height - 30;
+                }
+            };
         }
 
         private void TvLayers_ItemDrag(object sender, ItemDragEventArgs e)
