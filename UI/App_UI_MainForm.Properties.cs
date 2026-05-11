@@ -12,23 +12,82 @@ namespace DrawingApp
     {
         private void BuildRightPanel()
         {
+            // 設定右側總寬度
             _rightPanel = new Panel { Dock = DockStyle.Right, Width = 320, BackColor = Color.FromArgb(245, 245, 245) };
 
+            // 👑 關鍵修復 1：反轉分隔條邏輯，保護上半部屬性面板的空間
             SplitContainer scRight = new SplitContainer 
             { 
                 Orientation = Orientation.Horizontal, 
                 Dock = DockStyle.Fill,
-                SplitterDistance = 450, 
-                FixedPanel = FixedPanel.Panel1
+                FixedPanel = FixedPanel.Panel2, // 讓底部的圖層面板固定高度，上半部屬性面板自動填滿剩餘空間
+                Panel2MinSize = 250,            // 圖層面板最少保留 250px
+                SplitterDistance = 450          // 初始高度，視窗放大時會自動長大
             };
 
-            // 最外層採用 AutoScroll，內容過多時會自動產生捲軸
-            Panel topPropPanel = new Panel { Dock = DockStyle.Fill, AutoScroll = true, Padding = new Padding(8) };
+            // 👑 關鍵修復 2：採用「瀑布流 (FlowLayoutPanel)」，從上到下自動堆疊，保證絕對不重疊！
+            FlowLayoutPanel topPropPanel = new FlowLayoutPanel 
+            { 
+                Dock = DockStyle.Fill, 
+                FlowDirection = FlowDirection.TopDown, 
+                WrapContents = false, 
+                AutoScroll = true, 
+                Padding = new Padding(5) 
+            };
 
             // ==========================================
-            // 4. 文字與排版設定 (放最底層)
+            // 1. 快速對齊區塊
             // ==========================================
-            _gbText = new GroupBox { Text = "文字與排版設定", Dock = DockStyle.Top, Height = 160, Font = new Font("Arial", 9, FontStyle.Bold) };
+            GroupBox gbAlign = new GroupBox { Text = "快速對齊", Width = 285, Height = 150, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
+            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0) };
+            gbAlign.Controls.Add(_chkAlignToPage);
+
+            _alignmentPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
+            TableLayoutPanel tlpAlign = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3 };
+            for (int i = 0; i < 3; i++) tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+            for (int i = 0; i < 3; i++) tlpAlign.RowStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
+
+            tlpAlign.Controls.Add(CreateGridButton("靠左", (s, e) => AlignShapes("Left")), 0, 0);
+            tlpAlign.Controls.Add(CreateGridButton("置中", (s, e) => AlignShapes("Center")), 1, 0);
+            tlpAlign.Controls.Add(CreateGridButton("靠右", (s, e) => AlignShapes("Right")), 2, 0);
+            tlpAlign.Controls.Add(CreateGridButton("靠上", (s, e) => AlignShapes("Top")), 0, 1);
+            tlpAlign.Controls.Add(CreateGridButton("垂直置中", (s, e) => AlignShapes("Middle")), 1, 1);
+            tlpAlign.Controls.Add(CreateGridButton("靠下", (s, e) => AlignShapes("Bottom")), 2, 1);
+            tlpAlign.Controls.Add(CreateGridButton("水平均分", (s, e) => DistributeShapes("Horizontal")), 0, 2);
+            tlpAlign.Controls.Add(CreateGridButton("垂直均分", (s, e) => DistributeShapes("Vertical")), 1, 2);
+            
+            _alignmentPanel.Controls.Add(tlpAlign);
+            gbAlign.Controls.Add(_alignmentPanel);
+            topPropPanel.Controls.Add(gbAlign); // 加入瀑布流
+
+            // ==========================================
+            // 2. 圖層順序區塊
+            // ==========================================
+            GroupBox gbZIndex = new GroupBox { Text = "圖層順序", Width = 285, Height = 65, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
+            _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
+            TableLayoutPanel tlpZIndex = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            tlpZIndex.Controls.Add(CreateGridButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }), 0, 0);
+            tlpZIndex.Controls.Add(CreateGridButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }), 1, 0);
+            _zIndexPanel.Controls.Add(tlpZIndex);
+            gbZIndex.Controls.Add(_zIndexPanel);
+            topPropPanel.Controls.Add(gbZIndex); // 加入瀑布流
+
+            // ==========================================
+            // 3. 自訂屬性面板 (包含文字與外觀，用 FlowLayoutPanel 包裝以便一起隱藏)
+            // ==========================================
+            _customPropertiesPanel = new FlowLayoutPanel 
+            { 
+                Width = 285, 
+                AutoSize = true, 
+                FlowDirection = FlowDirection.TopDown, 
+                WrapContents = false,
+                Margin = new Padding(0)
+            };
+
+            // 3-1. 文字設定區塊
+            _gbText = new GroupBox { Text = "文字與排版設定", Width = 280, Height = 160, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
             TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -64,11 +123,10 @@ namespace DrawingApp
             tlpText.Controls.Add(_cbTextAlign, 1, 3);
 
             _gbText.Controls.Add(tlpText);
+            _customPropertiesPanel.Controls.Add(_gbText); // 加入內部瀑布流
 
-            // ==========================================
-            // 3. 外觀與線條設定
-            // ==========================================
-            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Dock = DockStyle.Top, Height = 210, Font = new Font("Arial", 9, FontStyle.Bold) };
+            // 3-2. 外觀設定區塊
+            _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 280, Height = 210, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
             TableLayoutPanel tlpApp = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 6, Padding = new Padding(5), Font = new Font("Arial", 9, FontStyle.Regular) };
             tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
             tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -116,71 +174,21 @@ namespace DrawingApp
             tlpApp.Controls.Add(_chkShadow, 1, 5);
 
             _gbAppearance.Controls.Add(tlpApp);
+            _customPropertiesPanel.Controls.Add(_gbAppearance); // 加入內部瀑布流
 
-            // 將外觀與文字包裝成一個 Panel 以便整體鎖定
-            _customPropertiesPanel = new Panel { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(0, 5, 0, 0) };
-            _customPropertiesPanel.Controls.Add(_gbText);
-            _customPropertiesPanel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 }); // 間距
-            _customPropertiesPanel.Controls.Add(_gbAppearance);
+            topPropPanel.Controls.Add(_customPropertiesPanel); // 加入外部主瀑布流
 
             // ==========================================
-            // 2. 圖層順序區塊
+            // 完成排版，綁定至 SplitContainer
             // ==========================================
-            GroupBox gbZIndex = new GroupBox { Text = "圖層順序", Dock = DockStyle.Top, Height = 65, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5) };
-            _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
-            TableLayoutPanel tlpZIndex = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
-            tlpZIndex.Controls.Add(CreateGridButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }), 0, 0);
-            tlpZIndex.Controls.Add(CreateGridButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }), 1, 0);
-            _zIndexPanel.Controls.Add(tlpZIndex);
-            gbZIndex.Controls.Add(_zIndexPanel);
-
-            // ==========================================
-            // 1. 快速對齊區塊 (使用 TableLayoutPanel 解決跑版)
-            // ==========================================
-            GroupBox gbAlign = new GroupBox { Text = "快速對齊", Dock = DockStyle.Top, Height = 150, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5) };
-            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0) };
-            gbAlign.Controls.Add(_chkAlignToPage);
-
-            _alignmentPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
-            TableLayoutPanel tlpAlign = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3 };
-            for (int i = 0; i < 3; i++) tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
-            for (int i = 0; i < 3; i++) tlpAlign.RowStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
-
-            tlpAlign.Controls.Add(CreateGridButton("靠左", (s, e) => AlignShapes("Left")), 0, 0);
-            tlpAlign.Controls.Add(CreateGridButton("置中", (s, e) => AlignShapes("Center")), 1, 0);
-            tlpAlign.Controls.Add(CreateGridButton("靠右", (s, e) => AlignShapes("Right")), 2, 0);
-            tlpAlign.Controls.Add(CreateGridButton("靠上", (s, e) => AlignShapes("Top")), 0, 1);
-            tlpAlign.Controls.Add(CreateGridButton("垂直置中", (s, e) => AlignShapes("Middle")), 1, 1);
-            tlpAlign.Controls.Add(CreateGridButton("靠下", (s, e) => AlignShapes("Bottom")), 2, 1);
-            tlpAlign.Controls.Add(CreateGridButton("水平均分", (s, e) => DistributeShapes("Horizontal")), 0, 2);
-            tlpAlign.Controls.Add(CreateGridButton("垂直均分", (s, e) => DistributeShapes("Vertical")), 1, 2);
-            
-            _alignmentPanel.Controls.Add(tlpAlign);
-            gbAlign.Controls.Add(_alignmentPanel);
-
-            // ==========================================
-            // 將所有區塊加入容器，並利用 BringToFront 確保由上往下排列
-            // ==========================================
-            topPropPanel.Controls.Add(_customPropertiesPanel);
-            topPropPanel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 }); // 間距
-            topPropPanel.Controls.Add(gbZIndex);
-            topPropPanel.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 10 }); // 間距
-            topPropPanel.Controls.Add(gbAlign);
-
-            _customPropertiesPanel.BringToFront();
-            gbZIndex.BringToFront();
-            gbAlign.BringToFront();
-
             scRight.Panel1.Controls.Add(topPropPanel);
 
-            // 呼叫 Partial Class 的方法建立下方的圖層面板
+            // 呼叫 Partial Class 的方法建立圖層面板 (在下半部)
             BuildLayerPanel(scRight.Panel2);
 
             _rightPanel.Controls.Add(scRight);
 
-            // 初始狀態設為停用 (反灰) 而不是隱藏，讓使用者知道這些功能存在
+            // 初始狀態：禁用 (反灰)，但不隱藏
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
             _customPropertiesPanel.Enabled = false;
@@ -193,7 +201,7 @@ namespace DrawingApp
             {
                 Text = text, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White, Cursor = Cursors.Hand, Font = new Font("微軟正黑體", 8),
-                Margin = new Padding(2) // 讓按鈕之間有微小間距
+                Margin = new Padding(2) 
             };
             btn.FlatAppearance.BorderColor = Color.LightGray;
             btn.Click += onClick;
@@ -211,12 +219,11 @@ namespace DrawingApp
                 
                 if (selCount > 0)
                 {
-                    // 有選取圖形時，解除鎖定
                     _customPropertiesPanel.Enabled = true;
                     
                     var shape = CurrentCanvas.SelectedShapes[0];
                     
-                    _isUpdatingUI = true; // 鎖定事件觸發，避免介面更新時觸發存檔
+                    _isUpdatingUI = true; 
                     
                     _btnShapeColor.BackColor = shape.ShapeColor;
                     _btnFillColor.BackColor = shape.FillColor;
@@ -240,11 +247,10 @@ namespace DrawingApp
 
                     _cbTextAlign.SelectedIndex = (int)shape.TextAlignment;
 
-                    _isUpdatingUI = false; // 解除鎖定
+                    _isUpdatingUI = false; 
                 }
                 else
                 {
-                    // 沒選取圖形時，反灰鎖定 (不要用 Visible = false 避免 UI 突然消失)
                     _customPropertiesPanel.Enabled = false;
                 }
             }
@@ -297,7 +303,6 @@ namespace DrawingApp
             RefreshLayerTree(); 
         }
 
-        // --- 舊有的對齊邏輯 (保持不變) ---
         private void AlignShapes(string type)
         {
             if (CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
