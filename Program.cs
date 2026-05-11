@@ -4,7 +4,6 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Windows.Forms;
-using Safety_System; // 引入 LicenseManager 所在的命名空間
 
 namespace DrawingApp
 {
