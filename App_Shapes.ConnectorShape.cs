@@ -108,11 +108,12 @@ namespace DrawingApp
                 return (float)Math.Sqrt(Math.Pow(pt.X - projection.X, 2) + Math.Pow(pt.Y - projection.Y, 2));
             }
 
+            // 【優化交點算法】：避免微小誤差產生的無效跳線
             private bool GetIntersection(PointF A, PointF B, PointF C, PointF D, out PointF intersection)
             {
                 intersection = PointF.Empty;
                 float den = (B.X - A.X) * (D.Y - C.Y) - (B.Y - A.Y) * (D.X - C.X);
-                if (den == 0) return false;
+                if (Math.Abs(den) < 0.001f) return false; // 平行
                 
                 float num1 = (A.Y - C.Y) * (D.X - C.X) - (A.X - C.X) * (D.Y - C.Y);
                 float num2 = (A.Y - C.Y) * (B.X - A.X) - (A.X - C.X) * (B.Y - A.Y);
@@ -120,6 +121,7 @@ namespace DrawingApp
                 float r = num1 / den;
                 float s = num2 / den;
                 
+                // 必須在線段內部 (避開端點)
                 if (r > 0.05f && r < 0.95f && s > 0.05f && s < 0.95f) 
                 {
                     intersection = new PointF(A.X + r * (B.X - A.X), A.Y + r * (B.Y - A.Y));
@@ -319,7 +321,6 @@ namespace DrawingApp
 
                 Pen basePen = GetCachedPen();
 
-                // 【修正：使用全新的 GraphicsPath 繪製，不要去修改 cachedPen 的 CustomEndCap，徹底避免參數無效崩潰】
                 using (GraphicsPath mainPath = new GraphicsPath())
                 {
                     if (EnableLineJumps && allShapes != null && !isFastMode)
@@ -343,6 +344,7 @@ namespace DrawingApp
 
                             foreach (var other in checkShapes)
                             {
+                                // 只與 Id 更小的連線產生交錯，避免雙方互相畫圓弧
                                 if (other is ConnectorShape otherConn && otherConn != this && otherConn.CachedPath != null && other.Id.CompareTo(this.Id) < 0)
                                 {
                                     for (int j = 0; j < otherConn.CachedPath.Length - 1; j++)
@@ -361,18 +363,24 @@ namespace DrawingApp
                             }
                             else
                             {
+                                // 【完美跳線算法】：依據距離起點的順序排序交點
                                 intersections = intersections.OrderBy(pt => Distance(segStart, pt)).ToList();
                                 PointF currentPt = segStart;
-                                float jumpRadius = 6f;
+                                float jumpRadius = 6f; // 固定弧半徑
 
                                 foreach (var ipt in intersections)
                                 {
-                                    if (Distance(currentPt, ipt) > jumpRadius)
+                                    float distToIntersect = Distance(currentPt, ipt);
+                                    if (distToIntersect > jumpRadius)
                                     {
-                                        float ratio = (Distance(segStart, ipt) - jumpRadius) / Distance(segStart, segEnd);
-                                        PointF preJump = new PointF(segStart.X + ratio * (segEnd.X - segStart.X), segStart.Y + ratio * (segEnd.Y - segStart.Y));
+                                        float segmentLength = Distance(segStart, segEnd);
+                                        
+                                        // 畫到起跳點
+                                        float ratioPre = (Distance(segStart, ipt) - jumpRadius) / segmentLength;
+                                        PointF preJump = new PointF(segStart.X + ratioPre * (segEnd.X - segStart.X), segStart.Y + ratioPre * (segEnd.Y - segStart.Y));
                                         mainPath.AddLine(currentPt, preJump);
                                         
+                                        // 畫半圓弧 (Arc)
                                         bool isHorizontal = Math.Abs(segStart.Y - segEnd.Y) < 1f;
                                         if (isHorizontal)
                                         {
@@ -385,10 +393,12 @@ namespace DrawingApp
                                             mainPath.AddArc(ipt.X - jumpRadius, ipt.Y - jumpRadius, jumpRadius * 2, jumpRadius * 2, segStart.Y < segEnd.Y ? 270 : 90, sweep);
                                         }
 
-                                        ratio = (Distance(segStart, ipt) + jumpRadius) / Distance(segStart, segEnd);
-                                        currentPt = new PointF(segStart.X + ratio * (segEnd.X - segStart.X), segStart.Y + ratio * (segEnd.Y - segStart.Y));
+                                        // 更新目前點為著陸點
+                                        float ratioPost = (Distance(segStart, ipt) + jumpRadius) / segmentLength;
+                                        currentPt = new PointF(segStart.X + ratioPost * (segEnd.X - segStart.X), segStart.Y + ratioPost * (segEnd.Y - segStart.Y));
                                     }
                                 }
+                                // 連接到本段終點
                                 mainPath.AddLine(currentPt, segEnd);
                             }
                         }
@@ -399,7 +409,6 @@ namespace DrawingApp
                         else mainPath.AddLine(p1, p2);
                     }
 
-                    // 依據是否需要箭頭，動態宣告新筆刷來畫，保護共用筆刷
                     if (HasArrow && totalDist > 5f)
                     {
                         using (Pen arrowPen = new Pen(basePen.Color, basePen.Width) { DashStyle = basePen.DashStyle })
