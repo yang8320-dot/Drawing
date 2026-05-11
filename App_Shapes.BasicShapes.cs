@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: App_Shapes.BasicShapes.cs
+// ============================================================
+
 using System;
 using System.ComponentModel;
 using System.Drawing;
@@ -301,6 +305,40 @@ namespace DrawingApp
                     g.FillPolygon(GetCachedFillBrush(Bounds), pts);
                 
                 g.DrawPolygon(GetCachedPen(), pts);
+                DrawText(g);
+            }
+        }
+
+        public class CloudShape : ShapeBase
+        {
+            public CloudShape() { }
+            public CloudShape(PointF start, Color color) : base(start, color) { }
+            
+            public override void Draw(Graphics g)
+            {
+                using (GraphicsPath path = new GraphicsPath())
+                {
+                    float x = Bounds.X, y = Bounds.Y, w = Bounds.Width, h = Bounds.Height;
+                    
+                    path.AddEllipse(x + w * 0.15f, y + h * 0.20f, w * 0.40f, h * 0.50f);
+                    path.AddEllipse(x + w * 0.35f, y + h * 0.10f, w * 0.50f, h * 0.60f);
+                    path.AddEllipse(x + w * 0.58f, y + h * 0.35f, w * 0.34f, h * 0.50f);
+                    path.AddEllipse(x + w * 0.25f, y + h * 0.40f, w * 0.50f, h * 0.50f);
+                    path.AddEllipse(x + w * 0.10f, y + h * 0.40f, w * 0.30f, h * 0.40f);
+
+                    if (ShouldDrawShadow)
+                    {
+                        var m = g.Transform.Clone();
+                        g.TranslateTransform(6, 6);
+                        g.FillPath(SharedShadowBrush, path);
+                        g.Transform = m;
+                    }
+
+                    if (FillColor != Color.Transparent)
+                        g.FillPath(GetCachedFillBrush(Bounds), path);
+                    
+                    g.DrawPath(GetCachedPen(), path);
+                }
                 DrawText(g);
             }
         }
