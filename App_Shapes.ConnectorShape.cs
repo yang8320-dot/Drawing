@@ -312,19 +312,25 @@ namespace DrawingApp
                 }
                 _cachedPath = pts;
 
-                if (pts.Length < 2) return; // 安全防護：避免長度不足導致崩潰
+                if (pts.Length < 2) return; 
+
+                // 💡 [終極修復]：距離過短時不繪製箭頭，避免參數無效崩潰
+                float totalDist = Distance(pts[pts.Length - 2], pts[pts.Length - 1]);
+                if (totalDist < 0.5f) return;
 
                 Pen p = GetCachedPen();
                 
-                // 💡 [終極修復]：捨棄自訂路徑，改用原生的 AdjustableArrowCap，杜絕崩潰
-                if (HasArrow && p.CustomEndCap == null)
+                if (HasArrow && totalDist > 5f)
                 {
-                    p.CustomEndCap = new AdjustableArrowCap(5, 5, true); 
+                    if (p.CustomEndCap == null) p.CustomEndCap = new AdjustableArrowCap(5, 5, true); 
                 }
-                else if (!HasArrow && p.CustomEndCap != null)
+                else 
                 {
-                    p.CustomEndCap.Dispose();
-                    p.CustomEndCap = null;
+                    if (p.CustomEndCap != null)
+                    {
+                        p.CustomEndCap.Dispose();
+                        p.CustomEndCap = null;
+                    }
                 }
 
                 if (EnableLineJumps && allShapes != null && !isFastMode)
