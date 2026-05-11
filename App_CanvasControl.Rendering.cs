@@ -32,7 +32,6 @@ namespace DrawingApp
                 e.ClipRectangle.Height / ZoomFactor
             );
 
-            // 【配合無限擴展畫布，動態取得渲染範圍】
             SizeF currentCanvasSize = ActualPageSize;
 
             RectangleF viewRect = new RectangleF(
@@ -237,6 +236,17 @@ namespace DrawingApp
             vx = Math.Max(_minimapRect.Left, Math.Min(vx, _minimapRect.Right - vw));
             vy = Math.Max(_minimapRect.Top, Math.Min(vy, _minimapRect.Bottom - vh));
             using (Pen vp = new Pen(Color.Red, 2f)) g.DrawRectangle(vp, vx, vy, vw, vh);
+        }
+
+        // 【補回遺失的方法】
+        private void UpdateCameraFromMinimap(Point mouseLoc)
+        {
+            float minimapScale = MINIMAP_WIDTH / ActualPageSize.Width;
+            float targetX = (mouseLoc.X - _minimapRect.X) / minimapScale;
+            float targetY = (mouseLoc.Y - _minimapRect.Y) / minimapScale;
+            _cameraOffset.X = -(targetX * ZoomFactor - this.Width / 2f);
+            _cameraOffset.Y = -(targetY * ZoomFactor - this.Height / 2f);
+            this.Invalidate();
         }
 
         public Bitmap GetTransparentCanvasRender()
