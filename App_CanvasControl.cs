@@ -56,10 +56,13 @@ namespace DrawingApp
         public float GridSize { get; set; } = 20f;
         public bool ShowRulers { get; set; } = true;
 
-        // 【Req 3, 4: 新增邊界顯示與頁碼顯示的開關屬性】
         public bool ShowPageBounds { get; set; } = false;
         public bool ShowPageNumbers { get; set; } = false;
         public string CanvasTitle { get; set; } = "未命名";
+
+        // 【Req 1: 新增 物件鎖點 與 正交模式】
+        public bool EnableObjectSnap { get; set; } = true;
+        public bool EnableOrthoMode { get; set; } = false;
 
         private const int RULER_SIZE = 25;
 
@@ -74,6 +77,9 @@ namespace DrawingApp
         public List<App_Shapes.ShapeBase> SelectedShapes { get; private set; } = new List<App_Shapes.ShapeBase>();
         private App_Shapes.ShapeBase _tempShape = null;
         public App_Shapes.ShapeBase FormatSourceShape { get; set; }
+
+        // 【Req 9: 儲存預設樣式供後續新物件套用】
+        public App_Shapes.ShapeBase DefaultFormatTemplate { get; } = new App_Shapes.RectShape(new PointF(0, 0), Color.Black);
 
         private App_Shapes.ShapeBase _hoveredShapeForConnection = null;
         private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
@@ -145,7 +151,6 @@ namespace DrawingApp
             CurrentTool = App_Shapes.ShapeType.Pointer;
         }
 
-        // ===== 公開 API (供 Tools 與主視窗使用) =====
         public void RequestToolChange(App_Shapes.ShapeType type) => OnToolChangedRequested?.Invoke(type);
         public void SetTempShape(App_Shapes.ShapeBase shape) { _tempShape = shape; }
         public void TriggerSelectionChanged() => OnSelectionChanged?.Invoke();
