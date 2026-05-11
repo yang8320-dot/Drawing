@@ -15,7 +15,8 @@ namespace DrawingApp
             [Browsable(false)] public override Color FillColor { get; set; } = Color.Transparent;
             [Browsable(false)] public override float RotationAngle { get; set; } = 0f;
             [Browsable(false)] public override string Text { get; set; } = "";
-            [Browsable(false)] public override string FontName { get; set; } = "Arial";
+            // 【修正6】: 字型預設改為標楷體
+            [Browsable(false)] public override string FontName { get; set; } = "標楷體";
             [Browsable(false)] public override float FontSize { get; set; } = 12f;
             [Browsable(false)] public override Color FontColor { get; set; } = Color.Black;
             [Browsable(false)] public override bool FontBold { get; set; } = false;
@@ -108,12 +109,11 @@ namespace DrawingApp
                 return (float)Math.Sqrt(Math.Pow(pt.X - projection.X, 2) + Math.Pow(pt.Y - projection.Y, 2));
             }
 
-            // 【優化交點算法】：避免微小誤差產生的無效跳線
             private bool GetIntersection(PointF A, PointF B, PointF C, PointF D, out PointF intersection)
             {
                 intersection = PointF.Empty;
                 float den = (B.X - A.X) * (D.Y - C.Y) - (B.Y - A.Y) * (D.X - C.X);
-                if (Math.Abs(den) < 0.001f) return false; // 平行
+                if (Math.Abs(den) < 0.001f) return false; 
                 
                 float num1 = (A.Y - C.Y) * (D.X - C.X) - (A.X - C.X) * (D.Y - C.Y);
                 float num2 = (A.Y - C.Y) * (B.X - A.X) - (A.X - C.X) * (B.Y - A.Y);
@@ -121,7 +121,6 @@ namespace DrawingApp
                 float r = num1 / den;
                 float s = num2 / den;
                 
-                // 必須在線段內部 (避開端點)
                 if (r > 0.05f && r < 0.95f && s > 0.05f && s < 0.95f) 
                 {
                     intersection = new PointF(A.X + r * (B.X - A.X), A.Y + r * (B.Y - A.Y));
@@ -344,7 +343,6 @@ namespace DrawingApp
 
                             foreach (var other in checkShapes)
                             {
-                                // 只與 Id 更小的連線產生交錯，避免雙方互相畫圓弧
                                 if (other is ConnectorShape otherConn && otherConn != this && otherConn.CachedPath != null && other.Id.CompareTo(this.Id) < 0)
                                 {
                                     for (int j = 0; j < otherConn.CachedPath.Length - 1; j++)
@@ -363,42 +361,36 @@ namespace DrawingApp
                             }
                             else
                             {
-                                // 【完美跳線算法】：依據距離起點的順序排序交點
+                                // 【修正1】: 改為以 Bezier 曲線繪製完美的跳線弧度，解決斜線跳線扭曲問題
                                 intersections = intersections.OrderBy(pt => Distance(segStart, pt)).ToList();
                                 PointF currentPt = segStart;
-                                float jumpRadius = 6f; // 固定弧半徑
+                                float jumpRadius = 6f; 
+
+                                float segmentLength = Distance(segStart, segEnd);
+                                float dx = segEnd.X - segStart.X;
+                                float dy = segEnd.Y - segStart.Y;
+                                float nx = -dy / segmentLength; 
+                                float ny = dx / segmentLength;  
 
                                 foreach (var ipt in intersections)
                                 {
                                     float distToIntersect = Distance(currentPt, ipt);
                                     if (distToIntersect > jumpRadius)
                                     {
-                                        float segmentLength = Distance(segStart, segEnd);
-                                        
-                                        // 畫到起跳點
                                         float ratioPre = (Distance(segStart, ipt) - jumpRadius) / segmentLength;
-                                        PointF preJump = new PointF(segStart.X + ratioPre * (segEnd.X - segStart.X), segStart.Y + ratioPre * (segEnd.Y - segStart.Y));
+                                        PointF preJump = new PointF(segStart.X + ratioPre * dx, segStart.Y + ratioPre * dy);
                                         mainPath.AddLine(currentPt, preJump);
                                         
-                                        // 畫半圓弧 (Arc)
-                                        bool isHorizontal = Math.Abs(segStart.Y - segEnd.Y) < 1f;
-                                        if (isHorizontal)
-                                        {
-                                            float sweep = segStart.X < segEnd.X ? 180 : -180;
-                                            mainPath.AddArc(ipt.X - jumpRadius, ipt.Y - jumpRadius, jumpRadius * 2, jumpRadius * 2, segStart.X < segEnd.X ? 180 : 0, sweep);
-                                        }
-                                        else
-                                        {
-                                            float sweep = segStart.Y < segEnd.Y ? 180 : -180;
-                                            mainPath.AddArc(ipt.X - jumpRadius, ipt.Y - jumpRadius, jumpRadius * 2, jumpRadius * 2, segStart.Y < segEnd.Y ? 270 : 90, sweep);
-                                        }
-
-                                        // 更新目前點為著陸點
                                         float ratioPost = (Distance(segStart, ipt) + jumpRadius) / segmentLength;
-                                        currentPt = new PointF(segStart.X + ratioPost * (segEnd.X - segStart.X), segStart.Y + ratioPost * (segEnd.Y - segStart.Y));
+                                        PointF postJump = new PointF(segStart.X + ratioPost * dx, segStart.Y + ratioPost * dy);
+                                        
+                                        // 用法線向量推出控制點來畫貝茲半圓
+                                        PointF controlPt = new PointF(ipt.X + nx * jumpRadius * 1.5f, ipt.Y + ny * jumpRadius * 1.5f);
+                                        mainPath.AddBezier(preJump, controlPt, controlPt, postJump);
+
+                                        currentPt = postJump;
                                     }
                                 }
-                                // 連接到本段終點
                                 mainPath.AddLine(currentPt, segEnd);
                             }
                         }
