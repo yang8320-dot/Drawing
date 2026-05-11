@@ -28,9 +28,14 @@ namespace DrawingApp
 
         private Dictionary<string, bool> _panelStates = new Dictionary<string, bool>();
 
+        // 屬性面板變數宣告
+        private GroupBox _gbAlign;
         private CheckBox _chkAlignToPage;
         private FlowLayoutPanel _alignmentPanel;
+        
+        private GroupBox _gbZIndex;
         private FlowLayoutPanel _zIndexPanel;
+        
         private FlowLayoutPanel _customPropertiesPanel;
         private GroupBox _gbAppearance;
         private Button _btnShapeColor;
@@ -80,6 +85,8 @@ namespace DrawingApp
             _tabControl.Padding = new Point(15, 6);
             _tabControl.DrawItem += TabControl_DrawItem;
             _tabControl.MouseDown += TabControl_MouseDown;
+            // 【Req 4: 支援雙擊重新命名畫布】
+            _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
             _tabControl.ContextMenuStrip = CreateTabContextMenu();
 
             _tabControl.SelectedIndexChanged += (s, e) => {
@@ -100,6 +107,17 @@ namespace DrawingApp
             this.FormClosing += (s, e) => SavePanelStates(); 
 
             AddNewTab($"畫布 {_tabCounter++}");
+        }
+
+        // 【Req 5: 增加 Ctrl+S 儲存專案】
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.S))
+            {
+                SaveAllTabs();
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         private void TabControl_DrawItem(object sender, DrawItemEventArgs e)
@@ -141,13 +159,63 @@ namespace DrawingApp
             }
         }
 
+        // 【Req 4: 雙擊觸發修改分頁名稱】
+        private void TabControl_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            for (int i = 0; i < _tabControl.TabPages.Count; i++)
+            {
+                if (_tabControl.GetTabRect(i).Contains(e.Location))
+                {
+                    RenameTab(i);
+                    break;
+                }
+            }
+        }
+
         private ContextMenuStrip CreateTabContextMenu()
         {
             var menu = new ContextMenuStrip();
-            menu.Items.Add("關閉此畫布分頁", null, (s, e) => {
+            menu.Items.Add("重新命名", null, (s, e) => {
+                if (_tabControl.SelectedIndex >= 0) RenameTab(_tabControl.SelectedIndex);
+            });
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("關閉此畫布", null, (s, e) => {
                 if (_tabControl.SelectedIndex >= 0) CloseTab(_tabControl.SelectedIndex);
             });
             return menu;
+        }
+
+        // 【Req 4: 跳出輸入框重新命名】
+        private void RenameTab(int index)
+        {
+            TabPage page = _tabControl.TabPages[index];
+            string currentName = page.Text;
+
+            using (Form renameForm = new Form { Text = "重新命名畫布", Size = new Size(300, 150), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
+            {
+                TextBox txtName = new TextBox { Text = currentName, Location = new Point(20, 20), Width = 240 };
+                Button btnOk = new Button { Text = "確定", DialogResult = DialogResult.OK, Location = new Point(80, 60), Width = 80 };
+                Button btnCancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(180, 60), Width = 80 };
+
+                renameForm.Controls.Add(txtName);
+                renameForm.Controls.Add(btnOk);
+                renameForm.Controls.Add(btnCancel);
+                renameForm.AcceptButton = btnOk;
+                renameForm.CancelButton = btnCancel;
+
+                if (renameForm.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(txtName.Text))
+                {
+                    page.Text = txtName.Text;
+                    if (page.Controls.Count > 0 && page.Controls[0] is App_CanvasControl canvas)
+                    {
+                        canvas.CanvasTitle = txtName.Text;
+                        canvas.Invalidate();
+                    }
+                    _isDirty = true;
+                    UpdateWindowTitle();
+                    _tabControl.Invalidate(); 
+                }
+            }
         }
 
         private void CloseTab(int index)
@@ -290,11 +358,7 @@ namespace DrawingApp
             _topBar.Controls.Add(CreateTextButton("縮小 -", 60, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }));
             _topBar.Controls.Add(CreateTextButton("100%", 50, (s, e) => CurrentCanvas?.SetZoom(1.0f)));
 
-            CheckBox chkSnap = new CheckBox { Text = "對齊", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 10, 0) };
-            chkSnap.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.SnapToGrid = chkSnap.Checked; CurrentCanvas.Invalidate(); } };
-            _topBar.Controls.Add(chkSnap);
-
-            CheckBox chkRuler = new CheckBox { Text = "尺規", Checked = true, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
+            CheckBox chkRuler = new CheckBox { Text = "尺規", Checked = true, AutoSize = true, Margin = new Padding(15, 9, 10, 0) };
             chkRuler.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowRulers = chkRuler.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkRuler);
 
@@ -302,9 +366,19 @@ namespace DrawingApp
             chkBounds.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowPageBounds = chkBounds.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkBounds);
 
-            CheckBox chkNumbers = new CheckBox { Text = "顯示頁碼", Checked = false, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
+            CheckBox chkNumbers = new CheckBox { Text = "頁碼", Checked = false, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
             chkNumbers.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowPageNumbers = chkNumbers.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkNumbers);
+
+            // 【Req 1: 加入鎖點與正交控制】
+            _topBar.Controls.Add(CreateDivider());
+            CheckBox chkSnapObject = new CheckBox { Text = "鎖點", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 10, 0) };
+            chkSnapObject.CheckedChanged += (s, e) => { if (CurrentCanvas != null) CurrentCanvas.EnableObjectSnap = chkSnapObject.Checked; };
+            _topBar.Controls.Add(chkSnapObject);
+
+            CheckBox chkOrtho = new CheckBox { Text = "正交模式", Checked = false, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
+            chkOrtho.CheckedChanged += (s, e) => { if (CurrentCanvas != null) CurrentCanvas.EnableOrthoMode = chkOrtho.Checked; };
+            _topBar.Controls.Add(chkOrtho);
 
             _topBar.Controls.Add(CreateDivider());
             _topBar.Controls.Add(CreateTextButton("存檔", 50, (s, e) => SaveAllTabs()));
@@ -316,7 +390,8 @@ namespace DrawingApp
 
         private void BuildLeftPanel()
         {
-            _leftPanelContainer = new Panel { Dock = DockStyle.Left, Width = 130, BackColor = Color.FromArgb(240, 240, 240) };
+            // 【Req 6: 左側寬度 +20 (從 130 變成 150)】
+            _leftPanelContainer = new Panel { Dock = DockStyle.Left, Width = 150, BackColor = Color.FromArgb(240, 240, 240) };
             
             Panel togglePanel = new Panel { Dock = DockStyle.Top, Height = 30, BackColor = Color.LightGray };
             Button btnToggle = new Button { Text = "◀ 隱藏工具", Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, BackColor = Color.White };
@@ -327,7 +402,7 @@ namespace DrawingApp
                     btnToggle.Text = "▶";
                     _leftPanel.Visible = false;
                 } else {
-                    _leftPanelContainer.Width = 130;
+                    _leftPanelContainer.Width = 150;
                     btnToggle.Text = "◀ 隱藏工具";
                     _leftPanel.Visible = true;
                 }
@@ -359,15 +434,20 @@ namespace DrawingApp
                 CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭"),
                 CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線"),
                 CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "折線 (L)"),
-                CreateToolButton(App_Shapes.ShapeType.BlockArrow, "粗箭頭")
+                CreateToolButton(App_Shapes.ShapeType.BlockArrow, "粗箭頭"),
+                CreateToolButton(App_Shapes.ShapeType.DoubleArrow, "雙向箭頭"),
+                CreateToolButton(App_Shapes.ShapeType.BraceLeft, "左大括號"),
+                CreateToolButton(App_Shapes.ShapeType.BraceRight, "右大括號"),
+                CreateToolButton(App_Shapes.ShapeType.Branch1To2, "一對二分支"),
+                CreateToolButton(App_Shapes.ShapeType.Branch1To3, "一對三分支"),
+                CreateToolButton(App_Shapes.ShapeType.Branch1To4, "一對四分支")
             });
 
             var grpAdvanced = CreateToolGroup("流程圖/進階", "grpAdvanced", new Control[] {
                 CreateToolButton(App_Shapes.ShapeType.Document, "文件"),
                 CreateToolButton(App_Shapes.ShapeType.Pentagon, "五邊形"),
                 CreateToolButton(App_Shapes.ShapeType.Hexagon, "六邊形"),
-                CreateToolButton(App_Shapes.ShapeType.Star, "星形"),
-                CreateToolButton(App_Shapes.ShapeType.Cloud, "雲朵")
+                CreateToolButton(App_Shapes.ShapeType.Star, "星形")
             });
 
             var grpDraw = CreateToolGroup("自由繪圖", "grpDraw", new Control[] {
@@ -407,7 +487,7 @@ namespace DrawingApp
         {
             FlowLayoutPanel groupContainer = new FlowLayoutPanel
             {
-                Width = 110,
+                Width = 130, // 搭配 150 寬度稍微加寬
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 FlowDirection = FlowDirection.TopDown,
@@ -418,7 +498,7 @@ namespace DrawingApp
             Button btnHeader = new Button
             {
                 Text = title,
-                Width = 110,
+                Width = 130,
                 Height = 25,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(220, 220, 220),
@@ -430,7 +510,7 @@ namespace DrawingApp
 
             FlowLayoutPanel contentPanel = new FlowLayoutPanel
             {
-                Width = 110,
+                Width = 130,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = Color.White,
@@ -540,10 +620,7 @@ namespace DrawingApp
                     else if (type == App_Shapes.ShapeType.HandPan) 
                     { 
                         g.DrawLine(p, 12, 20, 12, 10); g.DrawArc(p, 10, 8, 4, 4, 180, 180); 
-                        
-                        // 【修正處】：這裡之前漏掉了第四個 4，補齊 DrawArc 的 6 個引數
                         g.DrawLine(p, 16, 20, 16, 6); g.DrawArc(p, 14, 4, 4, 4, 180, 180); 
-                        
                         g.DrawLine(p, 20, 20, 20, 8); g.DrawArc(p, 18, 6, 4, 4, 180, 180); 
                         g.DrawLine(p, 24, 20, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
                         g.DrawArc(p, 10, 20, 14, 10, 0, 180);
@@ -557,7 +634,6 @@ namespace DrawingApp
                     else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 6, 26, 26, 6); g.DrawLine(p, 18, 6, 26, 6); g.DrawLine(p, 26, 6, 26, 14); }
                     else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 6, 26, 26, 6);
                     else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(6, 26), new PointF(16, 26), new PointF(16, 10), new PointF(26, 10) });
-                    
                     else if (type == App_Shapes.ShapeType.Rectangle) g.DrawRectangle(p, 6, 10, 20, 14);
                     else if (type == App_Shapes.ShapeType.RoundedRectangle) 
                     {
@@ -579,9 +655,17 @@ namespace DrawingApp
                         g.DrawLine(p, 6, 22, 6, 8);
                     }
                     else if (type == App_Shapes.ShapeType.BlockArrow) g.DrawPolygon(p, new PointF[] { new PointF(6,12), new PointF(16,12), new PointF(16,8), new PointF(26,16), new PointF(16,24), new PointF(16,20), new PointF(6,20) });
+                    
+                    // 繪製新圖示
+                    else if (type == App_Shapes.ShapeType.DoubleArrow) { g.DrawLine(p, 10,16, 22,16); g.DrawLine(p, 10,16, 14,12); g.DrawLine(p, 10,16, 14,20); g.DrawLine(p, 22,16, 18,12); g.DrawLine(p, 22,16, 18,20); }
+                    else if (type == App_Shapes.ShapeType.BraceLeft) { g.DrawBezier(p, new Point(20,8), new Point(16,8), new Point(16,16), new Point(10,16)); g.DrawBezier(p, new Point(10,16), new Point(16,16), new Point(16,24), new Point(20,24)); }
+                    else if (type == App_Shapes.ShapeType.BraceRight) { g.DrawBezier(p, new Point(10,8), new Point(14,8), new Point(14,16), new Point(20,16)); g.DrawBezier(p, new Point(20,16), new Point(14,16), new Point(14,24), new Point(10,24)); }
+                    else if (type == App_Shapes.ShapeType.Branch1To2) { g.DrawLine(p, 16,8, 16,16); g.DrawLine(p, 10,16, 22,16); g.DrawLine(p, 10,16, 10,24); g.DrawLine(p, 22,16, 22,24); }
+                    else if (type == App_Shapes.ShapeType.Branch1To3) { g.DrawLine(p, 16,8, 16,24); g.DrawLine(p, 10,16, 22,16); g.DrawLine(p, 10,16, 10,24); g.DrawLine(p, 22,16, 22,24); }
+                    else if (type == App_Shapes.ShapeType.Branch1To4) { g.DrawLine(p, 16,8, 16,16); g.DrawLine(p, 6,16, 26,16); g.DrawLine(p, 6,16, 6,24); g.DrawLine(p, 12,16, 12,24); g.DrawLine(p, 20,16, 20,24); g.DrawLine(p, 26,16, 26,24); }
+
                     else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(16, 6), new PointF(26, 16), new PointF(16, 26), new PointF(6, 16) });
                     else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(16, 8), new PointF(26, 24), new PointF(6, 24) });
-                    else if (type == App_Shapes.ShapeType.Cloud) { g.DrawEllipse(p, 10, 10, 8, 8); g.DrawEllipse(p, 15, 8, 10, 10); g.DrawEllipse(p, 18, 12, 8, 8); g.DrawEllipse(p, 8, 14, 18, 8); }
                     else if (type == App_Shapes.ShapeType.Pentagon) 
                     {
                         PointF[] pts = new PointF[5];
