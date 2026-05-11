@@ -15,6 +15,10 @@ namespace DrawingApp.Tools
             bool isOrtho = (canvas.CurrentShapeType == App_Shapes.ShapeType.OrthogonalLine);
             
             _tempConn = new App_Shapes.ConnectorShape(realPt, canvas.CurrentColor, isArrow, isOrtho);
+            
+            // 【修正3】: 新增連線時也要套用預設格式 (粗細/顏色/字型等)
+            _tempConn.ApplyFormatFrom(canvas.DefaultFormatTemplate);
+
             canvas.SetTempShape(_tempConn);
             
             var hitShape = canvas.GetShapeAtPoint(realPt);
@@ -37,18 +41,29 @@ namespace DrawingApp.Tools
             App_Shapes.ShapeBase snapTarget = null;
             App_Shapes.AnchorPosition snapAnchor = App_Shapes.AnchorPosition.Auto;
 
+            // 【修正2】: 優化尋找錨點邏輯，優先判斷錨點，且不符合時不隨意磁吸整個物件邊框
             foreach (var other in nearShapes)
             {
-                if (other.Id != _tempConn.SourceId && other.HitTest(realPt))
+                if (other.Id != _tempConn.SourceId)
                 {
-                    snapTarget = other;
-                    snapAnchor = DetectAnchor(other, realPt);
-                    canvas.SetHoveredConnectionTarget(snapTarget, snapAnchor);
-                    break;
+                    App_Shapes.AnchorPosition tempAnchor = DetectAnchor(other, realPt);
+                    if (tempAnchor != App_Shapes.AnchorPosition.Auto)
+                    {
+                        snapTarget = other;
+                        snapAnchor = tempAnchor;
+                        canvas.SetHoveredConnectionTarget(snapTarget, snapAnchor);
+                        break;
+                    }
+                    else if (other.HitTest(realPt))
+                    {
+                        snapTarget = other;
+                        snapAnchor = App_Shapes.AnchorPosition.Auto;
+                        canvas.SetHoveredConnectionTarget(snapTarget, snapAnchor);
+                        break;
+                    }
                 }
             }
 
-            // 【Req 6: 自動磁吸 - 如果偵測到目標，強制將線條末端吸附到錨點座標】
             if (snapTarget != null && snapAnchor != App_Shapes.AnchorPosition.Auto)
             {
                 _tempConn.UpdateEndPoint(snapTarget.GetAnchorPoint(snapAnchor));
