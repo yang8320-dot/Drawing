@@ -16,7 +16,11 @@ namespace DrawingApp.Tools
             if (_bezierShape == null)
             {
                 _bezierShape = (App_Shapes.BezierShape)App_Shapes.ShapeFactory.CreateShape(App_Shapes.ShapeType.BezierPen, realPt, canvas.CurrentColor);
-                _bezierShape.FillColor = Color.Transparent;
+                
+                // 【修正3】: 鋼筆工具創建時也套用預設格式
+                _bezierShape.ApplyFormatFrom(canvas.DefaultFormatTemplate);
+                _bezierShape.FillColor = Color.Transparent; // 鋼筆預設不填色
+
                 canvas.SetTempShape(_bezierShape);
             }
             else
@@ -32,24 +36,19 @@ namespace DrawingApp.Tools
 
             if (e.Button == MouseButtons.Left)
             {
-                // 滑鼠按住拖曳時：拉出控制桿
                 _bezierShape.UpdateLastControlPoint(realPt);
             }
-            canvas.Invalidate(); // 持續更新以繪製懸停導引線
+            canvas.Invalidate(); 
         }
 
-        public override void OnMouseUp(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
-        {
-            // 鋼筆工具在放開滑鼠時不會結束繪製，而是等待下一次點擊 (或 ESC/Enter 結束)
-        }
+        public override void OnMouseUp(App_CanvasControl canvas, MouseEventArgs e, PointF realPt) { }
 
         public override void OnPaint(App_CanvasControl canvas, Graphics g)
         {
-            // 繪製滑鼠懸停導引線 (Rubber-band line)
             if (_bezierShape != null && _bezierShape.LocalNodes.Count > 0)
             {
                 PointF lastPt = _bezierShape.LocalNodes.Last().Anchor;
-                PointF currentMouseReal = canvas.GetRealPointFromMouse(); // 需要從 Canvas 取得當前滑鼠位置
+                PointF currentMouseReal = canvas.GetRealPointFromMouse(); 
                 
                 using (Pen guidePen = new Pen(Color.CornflowerBlue, 1f) { DashStyle = DashStyle.Dash })
                 {
@@ -60,7 +59,6 @@ namespace DrawingApp.Tools
 
         public override bool OnKeyDown(App_CanvasControl canvas, Keys keyData)
         {
-            // 按 ESC 或 Enter 結束鋼筆繪製並將結果存入
             if (keyData == Keys.Escape || keyData == Keys.Enter)
             {
                 FinishDrawing(canvas);
