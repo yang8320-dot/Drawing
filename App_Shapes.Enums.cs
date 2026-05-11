@@ -11,8 +11,9 @@ namespace DrawingApp
         public enum ShapeType 
         { 
             Pointer, HandPan, FormatPainter, ArrowLine, StraightLine, OrthogonalLine, 
-            Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, Cloud, 
-            Parallelogram, Cylinder, Document, BlockArrow, // 補上這四個圖形列舉
+            Rectangle, RoundedRectangle, Circle, Arc, Diamond, Triangle, Pentagon, Hexagon, Star, 
+            Parallelogram, Cylinder, Document, BlockArrow,
+            DoubleArrow, BraceLeft, BraceRight, Branch1To2, Branch1To3, Branch1To4, // 新增圖形
             TextNode, Text, Image, Freehand, BezierPen 
         }
         public enum HandlePosition { None, NW, N, NE, W, E, SW, S, SE, Rotate, StartPoint, EndPoint }
