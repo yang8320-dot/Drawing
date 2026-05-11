@@ -298,7 +298,6 @@ namespace DrawingApp
             chkRuler.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowRulers = chkRuler.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkRuler);
 
-            // 【Req 3, 4: 加入紙張邊界與頁碼開關】
             CheckBox chkBounds = new CheckBox { Text = "紙張邊界", Checked = false, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
             chkBounds.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowPageBounds = chkBounds.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkBounds);
@@ -541,7 +540,10 @@ namespace DrawingApp
                     else if (type == App_Shapes.ShapeType.HandPan) 
                     { 
                         g.DrawLine(p, 12, 20, 12, 10); g.DrawArc(p, 10, 8, 4, 4, 180, 180); 
-                        g.DrawLine(p, 16, 20, 16, 6); g.DrawArc(p, 14, 4, 4, 180, 180); 
+                        
+                        // 【修正處】：這裡之前漏掉了第四個 4，補齊 DrawArc 的 6 個引數
+                        g.DrawLine(p, 16, 20, 16, 6); g.DrawArc(p, 14, 4, 4, 4, 180, 180); 
+                        
                         g.DrawLine(p, 20, 20, 20, 8); g.DrawArc(p, 18, 6, 4, 4, 180, 180); 
                         g.DrawLine(p, 24, 20, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
                         g.DrawArc(p, 10, 20, 14, 10, 0, 180);
