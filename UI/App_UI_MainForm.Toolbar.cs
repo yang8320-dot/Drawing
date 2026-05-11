@@ -59,6 +59,9 @@ namespace DrawingApp
         private TreeView _tvLayers;
         private bool _isSyncingTree = false;
 
+        // 【新增功能：儲存自訂圖庫面板參照，方便重新載入】
+        private FlowLayoutPanel _grpStencilsContainer;
+
         public App_CanvasControl CurrentCanvas
         {
             get
@@ -85,7 +88,6 @@ namespace DrawingApp
             _tabControl.Padding = new Point(15, 6);
             _tabControl.DrawItem += TabControl_DrawItem;
             _tabControl.MouseDown += TabControl_MouseDown;
-            // 【Req 4: 支援雙擊重新命名畫布】
             _tabControl.MouseDoubleClick += TabControl_MouseDoubleClick;
             _tabControl.ContextMenuStrip = CreateTabContextMenu();
 
@@ -109,7 +111,6 @@ namespace DrawingApp
             AddNewTab($"畫布 {_tabCounter++}");
         }
 
-        // 【Req 5: 增加 Ctrl+S 儲存專案】
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
             if (keyData == (Keys.Control | Keys.S))
@@ -159,7 +160,6 @@ namespace DrawingApp
             }
         }
 
-        // 【Req 4: 雙擊觸發修改分頁名稱】
         private void TabControl_MouseDoubleClick(object sender, MouseEventArgs e)
         {
             for (int i = 0; i < _tabControl.TabPages.Count; i++)
@@ -185,7 +185,6 @@ namespace DrawingApp
             return menu;
         }
 
-        // 【Req 4: 跳出輸入框重新命名】
         private void RenameTab(int index)
         {
             TabPage page = _tabControl.TabPages[index];
@@ -236,6 +235,9 @@ namespace DrawingApp
             canvas.CmdManager.OnStateChanged += () => { RefreshLayerTree(); _isDirty = true; UpdateWindowTitle(); };
             canvas.OnSelectionChanged += () => { RefreshPropertyPanel(); SyncLayerTreeSelection(); };
             
+            // 【新增功能：畫布觸發存檔後，要求 MainForm 更新圖庫】
+            canvas.OnStencilAdded += LoadStencilsIntoLeftPanel;
+
             canvas.OnToolChangedRequested += (toolType) => {
                 foreach (Control group in _leftPanel.Controls)
                 {
@@ -370,7 +372,6 @@ namespace DrawingApp
             chkNumbers.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowPageNumbers = chkNumbers.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkNumbers);
 
-            // 【Req 1: 加入鎖點與正交控制】
             _topBar.Controls.Add(CreateDivider());
             CheckBox chkSnapObject = new CheckBox { Text = "鎖點", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 10, 0) };
             chkSnapObject.CheckedChanged += (s, e) => { if (CurrentCanvas != null) CurrentCanvas.EnableObjectSnap = chkSnapObject.Checked; };
@@ -390,7 +391,6 @@ namespace DrawingApp
 
         private void BuildLeftPanel()
         {
-            // 【Req 6: 左側寬度 +20 (從 130 變成 150)】
             _leftPanelContainer = new Panel { Dock = DockStyle.Left, Width = 150, BackColor = Color.FromArgb(240, 240, 240) };
             
             Panel togglePanel = new Panel { Dock = DockStyle.Top, Height = 30, BackColor = Color.LightGray };
@@ -418,6 +418,10 @@ namespace DrawingApp
                 CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框 (T)"),
                 CreateToolButton(App_Shapes.ShapeType.Text, "純文字")
             });
+
+            // 【新增功能：預留自訂圖庫的區塊位置】
+            _grpStencilsContainer = new FlowLayoutPanel { Width = 130, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(3, 5, 3, 0) };
+            _leftPanel.Controls.Add(_grpStencilsContainer);
 
             var grpBasic = CreateToolGroup("基本圖形", "grpBasic", new Control[] {
                 CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形 (R)"),
@@ -481,17 +485,67 @@ namespace DrawingApp
                     SetActiveButton(_btnPointer);
                 }
             };
+
+            // 初始化時載入圖庫
+            LoadStencilsIntoLeftPanel();
+        }
+
+        // ==========================================================
+        // 【新增功能：動態讀取存檔的自訂圖庫，產生可點擊按鈕】
+        // ==========================================================
+        private void LoadStencilsIntoLeftPanel()
+        {
+            _grpStencilsContainer.Controls.Clear();
+            var stencils = App_SaveLoad.LoadAllStencils();
+            if (stencils.Count == 0) return;
+
+            List<Control> buttons = new List<Control>();
+            foreach (var kvp in stencils)
+            {
+                string name = kvp.Key;
+                var shapes = kvp.Value;
+
+                Button btn = new Button { Size = new Size(120, 35), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(2), Text = name, TextAlign = ContentAlignment.MiddleCenter, Font = new Font("微軟正黑體", 9, FontStyle.Bold), BackColor = Color.White };
+                btn.FlatAppearance.BorderColor = Color.CornflowerBlue;
+                btn.FlatAppearance.BorderSize = 2;
+
+                btn.Click += (s, e) => {
+                    if (CurrentCanvas != null)
+                    {
+                        var newClones = App_SaveLoad.CloneShapes(shapes);
+                        foreach (var clone in newClones)
+                        {
+                            clone.Id = Guid.NewGuid();
+                            clone.IsLocked = false;
+                            
+                            PointF centerScreen = new PointF(CurrentCanvas.Width / 2f, CurrentCanvas.Height / 2f);
+                            PointF realDropPt = CurrentCanvas.GetRealPointFromMouse();
+                            
+                            clone.Move(realDropPt.X, realDropPt.Y);
+                        }
+                        CurrentCanvas.CmdManager.ExecuteCommand(new AddShapesCommand(CurrentCanvas.Shapes, newClones));
+                        CurrentCanvas.ClearSelection();
+                        foreach(var clone in newClones) { clone.IsSelected = true; CurrentCanvas.SelectedShapes.Add(clone); }
+                        CurrentCanvas.TriggerSelectionChanged();
+                        CurrentCanvas.Invalidate();
+                    }
+                };
+                buttons.Add(btn);
+            }
+
+            var grpStencils = CreateToolGroup("⭐ 自訂圖庫", "grpStencils", buttons.ToArray());
+            _grpStencilsContainer.Controls.Add(grpStencils);
         }
 
         private FlowLayoutPanel CreateToolGroup(string title, string groupId, Control[] buttons)
         {
             FlowLayoutPanel groupContainer = new FlowLayoutPanel
             {
-                Width = 130, // 搭配 150 寬度稍微加寬
+                Width = 130, 
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 FlowDirection = FlowDirection.TopDown,
-                Margin = new Padding(3, 5, 3, 0),
+                Margin = new Padding(0),
                 WrapContents = false
             };
 
@@ -655,15 +709,12 @@ namespace DrawingApp
                         g.DrawLine(p, 6, 22, 6, 8);
                     }
                     else if (type == App_Shapes.ShapeType.BlockArrow) g.DrawPolygon(p, new PointF[] { new PointF(6,12), new PointF(16,12), new PointF(16,8), new PointF(26,16), new PointF(16,24), new PointF(16,20), new PointF(6,20) });
-                    
-                    // 繪製新圖示
                     else if (type == App_Shapes.ShapeType.DoubleArrow) { g.DrawLine(p, 10,16, 22,16); g.DrawLine(p, 10,16, 14,12); g.DrawLine(p, 10,16, 14,20); g.DrawLine(p, 22,16, 18,12); g.DrawLine(p, 22,16, 18,20); }
                     else if (type == App_Shapes.ShapeType.BraceLeft) { g.DrawBezier(p, new Point(20,8), new Point(16,8), new Point(16,16), new Point(10,16)); g.DrawBezier(p, new Point(10,16), new Point(16,16), new Point(16,24), new Point(20,24)); }
                     else if (type == App_Shapes.ShapeType.BraceRight) { g.DrawBezier(p, new Point(10,8), new Point(14,8), new Point(14,16), new Point(20,16)); g.DrawBezier(p, new Point(20,16), new Point(14,16), new Point(14,24), new Point(10,24)); }
                     else if (type == App_Shapes.ShapeType.Branch1To2) { g.DrawLine(p, 16,8, 16,16); g.DrawLine(p, 10,16, 22,16); g.DrawLine(p, 10,16, 10,24); g.DrawLine(p, 22,16, 22,24); }
                     else if (type == App_Shapes.ShapeType.Branch1To3) { g.DrawLine(p, 16,8, 16,24); g.DrawLine(p, 10,16, 22,16); g.DrawLine(p, 10,16, 10,24); g.DrawLine(p, 22,16, 22,24); }
                     else if (type == App_Shapes.ShapeType.Branch1To4) { g.DrawLine(p, 16,8, 16,16); g.DrawLine(p, 6,16, 26,16); g.DrawLine(p, 6,16, 6,24); g.DrawLine(p, 12,16, 12,24); g.DrawLine(p, 20,16, 20,24); g.DrawLine(p, 26,16, 26,24); }
-
                     else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(16, 6), new PointF(26, 16), new PointF(16, 26), new PointF(6, 16) });
                     else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(16, 8), new PointF(26, 24), new PointF(6, 24) });
                     else if (type == App_Shapes.ShapeType.Pentagon) 
