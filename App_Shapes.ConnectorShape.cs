@@ -314,34 +314,20 @@ namespace DrawingApp
 
                 if (pts.Length < 2) return; 
 
-                // 💡 [終極修復]：距離過短時不繪製箭頭，避免參數無效崩潰
                 float totalDist = Distance(pts[pts.Length - 2], pts[pts.Length - 1]);
                 if (totalDist < 0.5f) return;
 
-                Pen p = GetCachedPen();
-                
-                if (HasArrow && totalDist > 5f)
-                {
-                    if (p.CustomEndCap == null) p.CustomEndCap = new AdjustableArrowCap(5, 5, true); 
-                }
-                else 
-                {
-                    if (p.CustomEndCap != null)
-                    {
-                        p.CustomEndCap.Dispose();
-                        p.CustomEndCap = null;
-                    }
-                }
+                Pen basePen = GetCachedPen();
 
-                if (EnableLineJumps && allShapes != null && !isFastMode)
+                // 【修正：使用全新的 GraphicsPath 繪製，不要去修改 cachedPen 的 CustomEndCap，徹底避免參數無效崩潰】
+                using (GraphicsPath mainPath = new GraphicsPath())
                 {
-                    using (GraphicsPath mainPath = new GraphicsPath())
+                    if (EnableLineJumps && allShapes != null && !isFastMode)
                     {
                         for (int i = 0; i < pts.Length - 1; i++)
                         {
                             PointF segStart = pts[i];
                             PointF segEnd = pts[i + 1];
-                            
                             List<PointF> intersections = new List<PointF>();
 
                             List<ShapeBase> checkShapes = allShapes.ToList();
@@ -376,7 +362,6 @@ namespace DrawingApp
                             else
                             {
                                 intersections = intersections.OrderBy(pt => Distance(segStart, pt)).ToList();
-                                
                                 PointF currentPt = segStart;
                                 float jumpRadius = 6f;
 
@@ -407,13 +392,26 @@ namespace DrawingApp
                                 mainPath.AddLine(currentPt, segEnd);
                             }
                         }
-                        g.DrawPath(p, mainPath);
                     }
-                }
-                else
-                {
-                    if (pts.Length > 2) g.DrawLines(p, pts);
-                    else g.DrawLine(p, p1, p2);
+                    else
+                    {
+                        if (pts.Length > 2) mainPath.AddLines(pts);
+                        else mainPath.AddLine(p1, p2);
+                    }
+
+                    // 依據是否需要箭頭，動態宣告新筆刷來畫，保護共用筆刷
+                    if (HasArrow && totalDist > 5f)
+                    {
+                        using (Pen arrowPen = new Pen(basePen.Color, basePen.Width) { DashStyle = basePen.DashStyle })
+                        {
+                            arrowPen.CustomEndCap = new AdjustableArrowCap(5, 5, true);
+                            g.DrawPath(arrowPen, mainPath);
+                        }
+                    }
+                    else
+                    {
+                        g.DrawPath(basePen, mainPath);
+                    }
                 }
             }
 
