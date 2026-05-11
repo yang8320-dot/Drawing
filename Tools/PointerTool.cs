@@ -15,17 +15,14 @@ namespace DrawingApp.Tools
         private float _dragTotalDx = 0;
         private float _dragTotalDy = 0;
 
-        // Resizing & Rotating 狀態
         private App_Shapes.HandlePosition _resizingHandle = App_Shapes.HandlePosition.None;
         private RectangleF _initialBounds;
         private float _initialAngle;
 
-        // Connection Adjust 狀態
         private Guid _oldSrcId, _oldTgtId;
         private App_Shapes.AnchorPosition _oldSA, _oldTA;
         private PointF _oldStart, _oldEnd;
 
-        // Box Select 狀態
         private RectangleF _boxSelectRect;
 
         public override void OnMouseDown(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
@@ -36,7 +33,6 @@ namespace DrawingApp.Tools
             _dragTotalDx = 0; 
             _dragTotalDy = 0;
 
-            // 1. 檢查是否點擊到已選取物件的控制代碼 (Handles)
             if (canvas.SelectedShapes.Count == 1 && !canvas.SelectedShapes[0].IsLocked)
             {
                 var handle = canvas.SelectedShapes[0].HitTestHandle(realPt);
@@ -65,7 +61,6 @@ namespace DrawingApp.Tools
                 }
             }
 
-            // 2. 檢查是否點擊到任何圖形實體
             App_Shapes.ShapeBase hitShape = canvas.GetShapeAtPoint(realPt);
 
             if (hitShape != null)
@@ -87,7 +82,6 @@ namespace DrawingApp.Tools
                 }
                 else
                 {
-                    // 若點擊未選取的物件，則清除原本選取並單選該物件
                     if (!canvas.SelectedShapes.Contains(hitShape))
                     {
                         canvas.ClearSelection();
@@ -105,7 +99,6 @@ namespace DrawingApp.Tools
             }
             else
             {
-                // 點擊空白處：清除選取並開始框選
                 canvas.ClearSelection();
                 canvas.TriggerSelectionChanged();
                 
@@ -126,7 +119,6 @@ namespace DrawingApp.Tools
                 var movableShapes = canvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
                 RectangleF oldBounds = canvas.GetShapesAndConnectorsBounds(movableShapes);
 
-                // 智慧導引線吸附邏輯 (Smart Guides) 針對單一物件
                 if (movableShapes.Count == 1)
                 {
                     var me = movableShapes[0];
@@ -146,6 +138,8 @@ namespace DrawingApp.Tools
                         if (other == me || other is App_Shapes.ConnectorShape) continue;
 
                         PointF otherCenter = other.GetCenter();
+                        
+                        // 【新增：中心點對齊】
                         if (Math.Abs(futureCenterX - otherCenter.X) < snapThreshold)
                         {
                             bestDx = otherCenter.X - myCenter.X;
@@ -155,6 +149,18 @@ namespace DrawingApp.Tools
                         {
                             bestDy = otherCenter.Y - myCenter.Y;
                             canvas.AddSmartGuide(new PointF(-10000, otherCenter.Y), new PointF(10000, otherCenter.Y));
+                        }
+
+                        // 【新增：等距與等寬對齊提示 (Snap to Distance / Size)】
+                        if (Math.Abs((me.Bounds.Right + dx) - other.Bounds.Left) < snapThreshold)
+                        {
+                            bestDx = other.Bounds.Left - me.Bounds.Width - me.Bounds.X;
+                            canvas.AddSmartGuide(new PointF(other.Bounds.Left, -10000), new PointF(other.Bounds.Left, 10000));
+                        }
+                        if (Math.Abs((me.Bounds.Left + dx) - other.Bounds.Right) < snapThreshold)
+                        {
+                            bestDx = other.Bounds.Right - me.Bounds.X;
+                            canvas.AddSmartGuide(new PointF(other.Bounds.Right, -10000), new PointF(other.Bounds.Right, 10000));
                         }
                     }
                     dx = bestDx;
@@ -166,6 +172,12 @@ namespace DrawingApp.Tools
                 for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(dx, dy);
 
                 RectangleF newBounds = canvas.GetShapesAndConnectorsBounds(movableShapes);
+
+                // 【新增：畫布自動擴張 (Auto-Expand Canvas)】
+                if (newBounds.Right > canvas.PageSize.Width - 100)
+                    canvas.PageSize = new SizeF(Math.Max(canvas.PageSize.Width, newBounds.Right + 500), canvas.PageSize.Height);
+                if (newBounds.Bottom > canvas.PageSize.Height - 100)
+                    canvas.PageSize = new SizeF(canvas.PageSize.Width, Math.Max(canvas.PageSize.Height, newBounds.Bottom + 500));
 
                 if (canvas.HasSmartGuides()) canvas.Invalidate();
                 else
@@ -276,6 +288,30 @@ namespace DrawingApp.Tools
                     if (keepRatio && _initialBounds.Height != 0) 
                         ratio = _initialBounds.Width / _initialBounds.Height;
 
+                    // 【新增：調整大小時捕捉周圍物件相同長寬 (Snap to Size)】
+                    float snapThreshold = 5.0f / canvas.ZoomFactor;
+                    var nearShapes = canvas.GetShapesInRect(new RectangleF(center.X - 200, center.Y - 200, 400, 400));
+                    canvas.ClearSmartGuides();
+
+                    foreach (var other in nearShapes)
+                    {
+                        if (other == shape || other is App_Shapes.ConnectorShape) continue;
+                        
+                        float futureWidth = b.Width;
+                        float futureHeight = b.Height;
+
+                        if (Math.Abs((b.Width + ldx) - other.Bounds.Width) < snapThreshold)
+                        {
+                            ldx = other.Bounds.Width - b.Width;
+                            canvas.AddSmartGuide(new PointF(shape.Bounds.X, shape.Bounds.Bottom + 10), new PointF(shape.Bounds.Right + ldx, shape.Bounds.Bottom + 10));
+                        }
+                        if (Math.Abs((b.Height + ldy) - other.Bounds.Height) < snapThreshold)
+                        {
+                            ldy = other.Bounds.Height - b.Height;
+                            canvas.AddSmartGuide(new PointF(shape.Bounds.Right + 10, shape.Bounds.Y), new PointF(shape.Bounds.Right + 10, shape.Bounds.Bottom + ldy));
+                        }
+                    }
+
                     switch (_resizingHandle)
                     {
                         case App_Shapes.HandlePosition.NW: 
@@ -324,12 +360,16 @@ namespace DrawingApp.Tools
                 }
 
                 RectangleF newBounds = canvas.GetShapesAndConnectorsBounds(new List<App_Shapes.ShapeBase> { shape });
-                canvas.InvalidateWorldRect(oldBounds);
-                canvas.InvalidateWorldRect(newBounds);
-                canvas.InvalidateMinimap();
+
+                if (canvas.HasSmartGuides()) canvas.Invalidate();
+                else
+                {
+                    canvas.InvalidateWorldRect(oldBounds);
+                    canvas.InvalidateWorldRect(newBounds);
+                    canvas.InvalidateMinimap();
+                }
             }
 
-            // 更新上一次的滑鼠位置，由於已經加入了 dx/dy 變化量，直接覆寫即可
             _lastMouseRealPt = realPt;
         }
 
@@ -344,7 +384,6 @@ namespace DrawingApp.Tools
 
             if (_state == PointerState.Moving && movableShapes.Count > 0 && (_dragTotalDx != 0 || _dragTotalDy != 0))
             {
-                // 先將圖形移回原位，再透過 Command 執行移動，以便支援 Undo/Redo
                 for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(-_dragTotalDx, -_dragTotalDy);
                 canvas.CmdManager.ExecuteCommand(new MoveShapesCommand(movableShapes, _dragTotalDx, _dragTotalDy));
             }
@@ -373,7 +412,6 @@ namespace DrawingApp.Tools
 
         public override void OnPaint(App_CanvasControl canvas, Graphics g)
         {
-            // 繪製框選虛線框
             if (_state == PointerState.BoxSelecting)
             {
                 using (Pen p = new Pen(Color.CornflowerBlue) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash })
