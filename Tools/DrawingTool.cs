@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: Tools/DrawingTool.cs
+// ============================================================
+
 using System;
 using System.Drawing;
 using System.Windows.Forms;
@@ -14,6 +18,10 @@ namespace DrawingApp.Tools
 
             PointF snapPt = canvas.CurrentShapeType == App_Shapes.ShapeType.Freehand ? realPt : new PointF(canvas.Snap(realPt.X), canvas.Snap(realPt.Y));
             _tempShape = App_Shapes.ShapeFactory.CreateShape(canvas.CurrentShapeType, snapPt, canvas.CurrentColor);
+            
+            // 【Req 9: 新增圖形時，自動套用使用者先前的設定格式】
+            _tempShape.ApplyFormatFrom(canvas.DefaultFormatTemplate);
+            
             canvas.SetTempShape(_tempShape);
         }
 
@@ -29,7 +37,8 @@ namespace DrawingApp.Tools
             }
             else
             {
-                bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
+                // 【Req 1: 整合 Shift 鍵與 UI 的正交模式選項】
+                bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift) || canvas.EnableOrthoMode;
                 float snapX = canvas.Snap(realPt.X);
                 float snapY = canvas.Snap(realPt.Y);
                 
@@ -54,7 +63,6 @@ namespace DrawingApp.Tools
 
             _tempShape.NormalizeBounds();
             
-            // 【Req 1: 如果只是點擊 (寬高過小)，自動給予 100x100 的預設大小】
             if (!(_tempShape is App_Shapes.FreehandShape) && _tempShape.Bounds.Width <= 5 && _tempShape.Bounds.Height <= 5)
             {
                 _tempShape.SetBounds(new RectangleF(_tempShape.Bounds.X, _tempShape.Bounds.Y, 100, 100));
@@ -73,7 +81,6 @@ namespace DrawingApp.Tools
             canvas.SetTempShape(null);
             _tempShape = null;
 
-            // 【Req 1: 新增完後自動跳回滑鼠游標】
             canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
             canvas.Invalidate();
         }
