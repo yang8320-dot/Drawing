@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: App_CanvasControl.cs
+// ============================================================
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -7,7 +11,6 @@ using DrawingApp.Tools;
 
 namespace DrawingApp
 {
-    // 負責管理畫布的核心狀態、全域變數與對外公開的 API
     public partial class App_CanvasControl : Panel
     {
         // ===== 核心資料與狀態 =====
@@ -52,6 +55,12 @@ namespace DrawingApp
         public bool SnapToGrid { get; set; } = true;
         public float GridSize { get; set; } = 20f;
         public bool ShowRulers { get; set; } = true;
+
+        // 【Req 3, 4: 新增邊界顯示與頁碼顯示的開關屬性】
+        public bool ShowPageBounds { get; set; } = false;
+        public bool ShowPageNumbers { get; set; } = false;
+        public string CanvasTitle { get; set; } = "未命名";
+
         private const int RULER_SIZE = 25;
 
         // ===== 工具與選取狀態 =====
@@ -118,7 +127,6 @@ namespace DrawingApp
             this.BackColor = Color.White;
             this.AllowDrop = true;
 
-            // 事件綁定 (實作在 App_CanvasControl.Input.cs 與 Operations.cs)
             this.DragEnter += Canvas_DragEnter;
             this.DragDrop += Canvas_DragDrop;
             
@@ -227,7 +235,6 @@ namespace DrawingApp
 
         private PointF GetRealPoint(Point screenPt) => new PointF((screenPt.X - _cameraOffset.X) / ZoomFactor, (screenPt.Y - _cameraOffset.Y) / ZoomFactor);
         
-        // 供其他 Partial 呼叫
         private void TriggerImageInsert(PointF pt) => OnImageInsertRequested?.Invoke(pt);
     }
 }
