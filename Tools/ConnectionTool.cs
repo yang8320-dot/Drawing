@@ -1,102 +1,118 @@
-using System.Drawing;
-using System.Windows.Forms;
-
-namespace DrawingApp.Tools
-{
-    public class ConnectionTool : ToolBase
-    {
-        private App_Shapes.ConnectorShape _tempConn;
-
-        public override void OnMouseDown(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
-        {
-            if (e.Button != MouseButtons.Left) return;
-
-            bool isArrow = (canvas.CurrentShapeType == App_Shapes.ShapeType.ArrowLine || canvas.CurrentShapeType == App_Shapes.ShapeType.OrthogonalLine);
-            bool isOrtho = (canvas.CurrentShapeType == App_Shapes.ShapeType.OrthogonalLine);
-            
-            _tempConn = new App_Shapes.ConnectorShape(realPt, canvas.CurrentColor, isArrow, isOrtho);
-            canvas.SetTempShape(_tempConn);
-            
-            var hitShape = canvas.GetShapeAtPoint(realPt);
-            if (hitShape != null)
+public void DrawDynamic(Graphics g, PointF p1, PointF p2, IEnumerable<ShapeBase> allShapes = null, bool isFastMode = false, QuadTree quadTree = null)
             {
-                _tempConn.SourceId = hitShape.Id; 
-                _tempConn.SourceAnchor = DetectAnchor(hitShape, realPt);
-            }
-        }
-
-        public override void OnMouseMove(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
-        {
-            if (e.Button != MouseButtons.Left || _tempConn == null) return;
-
-            RectangleF oldBounds = canvas.GetShapesAndConnectorsBounds(new System.Collections.Generic.List<App_Shapes.ShapeBase> { _tempConn });
-            _tempConn.UpdateEndPoint(realPt);
-            
-            canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
-
-            var nearShapes = canvas.GetShapesInRect(new RectangleF(realPt.X - 5, realPt.Y - 5, 10, 10));
-            foreach (var other in nearShapes)
-            {
-                if (other.Id != _tempConn.SourceId && other.HitTest(realPt))
+                PointF[] pts;
+                if (IsOrthogonal)
                 {
-                    canvas.SetHoveredConnectionTarget(other, DetectAnchor(other, realPt));
-                    break;
+                    if (isFastMode) pts = BasicOrthogonalPath(p1, p2);
+                    else pts = CalculateOrthogonalPath(p1, p2, allShapes, quadTree);
+                }
+                else
+                {
+                    pts = new PointF[] { p1, p2 };
+                }
+                _cachedPath = pts;
+
+                if (pts.Length < 2) return; 
+
+                float totalDist = Distance(pts[pts.Length - 2], pts[pts.Length - 1]);
+                if (totalDist < 0.5f) return;
+
+                Pen basePen = GetCachedPen();
+
+                // 【修正崩潰】：絕對不要修改 CachedPen 的 CustomEndCap，改用獨立的 Pen 繪製
+                using (GraphicsPath mainPath = new GraphicsPath())
+                {
+                    if (EnableLineJumps && allShapes != null && !isFastMode)
+                    {
+                        for (int i = 0; i < pts.Length - 1; i++)
+                        {
+                            PointF segStart = pts[i];
+                            PointF segEnd = pts[i + 1];
+                            List<PointF> intersections = new List<PointF>();
+
+                            List<ShapeBase> checkShapes = allShapes.ToList();
+                            if (quadTree != null)
+                            {
+                                checkShapes.Clear();
+                                float minX = Math.Min(segStart.X, segEnd.X) - 10;
+                                float minY = Math.Min(segStart.Y, segEnd.Y) - 10;
+                                float maxX = Math.Max(segStart.X, segEnd.X) + 10;
+                                float maxY = Math.Max(segStart.Y, segEnd.Y) + 10;
+                                quadTree.Retrieve(checkShapes, new RectangleF(minX, minY, maxX - minX, maxY - minY));
+                            }
+
+                            foreach (var other in checkShapes)
+                            {
+                                if (other is ConnectorShape otherConn && otherConn != this && otherConn.CachedPath != null && other.Id.CompareTo(this.Id) < 0)
+                                {
+                                    for (int j = 0; j < otherConn.CachedPath.Length - 1; j++)
+                                    {
+                                        if (GetIntersection(segStart, segEnd, otherConn.CachedPath[j], otherConn.CachedPath[j + 1], out PointF intersectPt))
+                                        {
+                                            intersections.Add(intersectPt);
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (intersections.Count == 0)
+                            {
+                                mainPath.AddLine(segStart, segEnd);
+                            }
+                            else
+                            {
+                                intersections = intersections.OrderBy(pt => Distance(segStart, pt)).ToList();
+                                PointF currentPt = segStart;
+                                float jumpRadius = 6f;
+
+                                foreach (var ipt in intersections)
+                                {
+                                    if (Distance(currentPt, ipt) > jumpRadius)
+                                    {
+                                        float ratio = (Distance(segStart, ipt) - jumpRadius) / Distance(segStart, segEnd);
+                                        PointF preJump = new PointF(segStart.X + ratio * (segEnd.X - segStart.X), segStart.Y + ratio * (segEnd.Y - segStart.Y));
+                                        mainPath.AddLine(currentPt, preJump);
+                                        
+                                        bool isHorizontal = Math.Abs(segStart.Y - segEnd.Y) < 1f;
+                                        if (isHorizontal)
+                                        {
+                                            float sweep = segStart.X < segEnd.X ? 180 : -180;
+                                            mainPath.AddArc(ipt.X - jumpRadius, ipt.Y - jumpRadius, jumpRadius * 2, jumpRadius * 2, segStart.X < segEnd.X ? 180 : 0, sweep);
+                                        }
+                                        else
+                                        {
+                                            float sweep = segStart.Y < segEnd.Y ? 180 : -180;
+                                            mainPath.AddArc(ipt.X - jumpRadius, ipt.Y - jumpRadius, jumpRadius * 2, jumpRadius * 2, segStart.Y < segEnd.Y ? 270 : 90, sweep);
+                                        }
+
+                                        ratio = (Distance(segStart, ipt) + jumpRadius) / Distance(segStart, segEnd);
+                                        currentPt = new PointF(segStart.X + ratio * (segEnd.X - segStart.X), segStart.Y + ratio * (segEnd.Y - segStart.Y));
+                                    }
+                                }
+                                mainPath.AddLine(currentPt, segEnd);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (pts.Length > 2) mainPath.AddLines(pts);
+                        else mainPath.AddLine(p1, p2);
+                    }
+
+                    // 繪製：如果有箭頭，建立一個全新的暫存 Pen 來畫，安全且不崩潰
+                    if (HasArrow && totalDist > 5f)
+                    {
+                        using (Pen arrowPen = new Pen(basePen.Color, basePen.Width) { DashStyle = basePen.DashStyle })
+                        {
+                            arrowPen.CustomEndCap = new AdjustableArrowCap(5, 5, true);
+                            g.DrawPath(arrowPen, mainPath);
+                        }
+                    }
+                    else
+                    {
+                        g.DrawPath(basePen, mainPath);
+                    }
                 }
             }
 
-            RectangleF newBounds = canvas.GetShapesAndConnectorsBounds(new System.Collections.Generic.List<App_Shapes.ShapeBase> { _tempConn });
-            canvas.InvalidateWorldRect(oldBounds);
-            canvas.InvalidateWorldRect(newBounds);
-        }
-
-        public override void OnMouseUp(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
-        {
-            if (e.Button != MouseButtons.Left || _tempConn == null) return;
-
-            var hoverTarget = canvas.GetHoveredConnectionTarget();
-            if (hoverTarget != null)
-            {
-                _tempConn.TargetId = hoverTarget.Id;
-                _tempConn.TargetAnchor = canvas.GetHoveredAnchor();
-            }
-
-            canvas.CmdManager.ExecuteCommand(new AddShapeCommand(canvas.Shapes, _tempConn));
-            
-            canvas.SetTempShape(null);
-            _tempConn = null;
-            canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
-            
-            canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
-            canvas.Invalidate();
-        }
-
-        public override bool OnKeyDown(App_CanvasControl canvas, Keys keyData)
-        {
-            if (keyData == Keys.Escape)
-            {
-                if (_tempConn != null)
-                {
-                    _tempConn.Dispose();
-                    _tempConn = null;
-                    canvas.SetTempShape(null);
-                }
-                canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
-                canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
-                canvas.Invalidate();
-                return true;
-            }
-            return false;
-        }
-
-        public override void OnToolDeactivated(App_CanvasControl canvas)
-        {
-            if (_tempConn != null)
-            {
-                _tempConn.Dispose();
-                _tempConn = null;
-                canvas.SetTempShape(null);
-            }
-            canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
-        }
-    }
-}
+            public void DrawDynamic(Graphics g, PointF p1, PointF p2) => DrawDynamic(g, p1, p2, null, false, null);
