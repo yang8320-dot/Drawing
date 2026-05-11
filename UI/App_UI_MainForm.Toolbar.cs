@@ -68,33 +68,103 @@ namespace DrawingApp
         // ===== 主視窗建構子 =====
         public App_UI_MainForm()
         {
-            // 表單基本設定
             this.Text = "簡易畫線軟體";
             this.Size = new Size(1280, 720);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.KeyPreview = true;
 
-            // 建立 TabControl (畫布區)
+            // 👑 建立 TabControl 並啟用自訂繪圖 (為了畫 X 關閉按鈕)
             _tabControl = new TabControl { Dock = DockStyle.Fill };
+            _tabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+            _tabControl.Padding = new Point(15, 6); // 預留空間給 X 按鈕
+            _tabControl.DrawItem += TabControl_DrawItem;
+            _tabControl.MouseDown += TabControl_MouseDown;
+            _tabControl.ContextMenuStrip = CreateTabContextMenu(); // 右鍵選單
+
             _tabControl.SelectedIndexChanged += (s, e) => {
                 RefreshPropertyPanel();
                 RefreshLayerTree();
                 UpdateWindowTitle();
             };
 
-            // 呼叫 Partial Class 中定義的方法來建立面板
             BuildTopBar();
             BuildLeftPanel();
             BuildRightPanel();
 
-            // 加入至主視窗 (注意加入順序影響 Dock 佈局)
             this.Controls.Add(_tabControl);
             this.Controls.Add(_leftPanel);
             this.Controls.Add(_rightPanel);
             this.Controls.Add(_topBar);
 
-            // 預設開啟一張新畫布
             AddNewTab($"畫布 {_tabCounter++}");
+        }
+
+        // 👑 自訂繪製 Tab (包含文字與 X 按鈕)
+        private void TabControl_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            var tabPage = _tabControl.TabPages[e.Index];
+            var tabRect = _tabControl.GetTabRect(e.Index);
+            tabRect.Inflate(-2, -2);
+            
+            // 背景
+            if (e.State == DrawItemState.Selected)
+                e.Graphics.FillRectangle(Brushes.White, _tabControl.GetTabRect(e.Index));
+            else
+                e.Graphics.FillRectangle(SystemBrushes.Control, _tabControl.GetTabRect(e.Index));
+
+            // 文字
+            TextRenderer.DrawText(e.Graphics, tabPage.Text, tabPage.Font, tabRect, e.State == DrawItemState.Selected ? Color.Black : Color.DimGray, TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+
+            // 繪製 'X' 關閉按鈕
+            var xRect = new Rectangle(tabRect.Right - 15, tabRect.Top + (tabRect.Height - 12) / 2, 12, 12);
+            using (var p = new Pen(Color.Gray, 2))
+            {
+                e.Graphics.DrawLine(p, xRect.Left, xRect.Top, xRect.Right, xRect.Bottom);
+                e.Graphics.DrawLine(p, xRect.Right, xRect.Top, xRect.Left, xRect.Bottom);
+            }
+        }
+
+        // 👑 判定是否點擊到了 X 按鈕
+        private void TabControl_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                for (int i = 0; i < _tabControl.TabPages.Count; i++)
+                {
+                    var tabRect = _tabControl.GetTabRect(i);
+                    tabRect.Inflate(-2, -2);
+                    var xRect = new Rectangle(tabRect.Right - 15, tabRect.Top + (tabRect.Height - 12) / 2, 12, 12);
+                    if (xRect.Contains(e.Location))
+                    {
+                        CloseTab(i);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 👑 Tab 右鍵選單
+        private ContextMenuStrip CreateTabContextMenu()
+        {
+            var menu = new ContextMenuStrip();
+            menu.Items.Add("關閉此畫布分頁", null, (s, e) => {
+                if (_tabControl.SelectedIndex >= 0) CloseTab(_tabControl.SelectedIndex);
+            });
+            return menu;
+        }
+
+        // 👑 關閉畫布邏輯
+        private void CloseTab(int index)
+        {
+            if (_tabControl.TabPages.Count > 1)
+            {
+                // 可以選擇在這裡加入「是否儲存」的提示框
+                _tabControl.TabPages.RemoveAt(index);
+            }
+            else
+            {
+                MessageBox.Show("這是最後一個畫布，無法關閉！\n如需新畫布請先點擊 [新增畫布]。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
         }
 
         // ===== 核心功能方法 =====
@@ -103,17 +173,14 @@ namespace DrawingApp
             TabPage page = new TabPage(title);
             App_CanvasControl canvas = new App_CanvasControl { Dock = DockStyle.Fill };
             
-            // [修正 1]：綁定插入圖片的事件，讓畫布呼叫主視窗的圖片選擇器
             canvas.OnImageInsertRequested += HandleImageInsert;
 
-            // [修正 2]：當畫布有任何指令異動(新增、刪除、復原、重做)時，強制更新圖層面板與標題
             canvas.CmdManager.OnStateChanged += () => {
                 RefreshLayerTree();
                 _isDirty = true;
                 UpdateWindowTitle();
             };
 
-            // 綁定畫布選取變更事件
             canvas.OnSelectionChanged += () => {
                 RefreshPropertyPanel();
                 SyncLayerTreeSelection();
@@ -260,7 +327,7 @@ namespace DrawingApp
 
         private void BuildLeftPanel()
         {
-            _leftPanel = new FlowLayoutPanel { Dock = DockStyle.Left, Width = 75, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
+            _leftPanel = new FlowLayoutPanel { Dock = DockStyle.Left, Width = 65, BackColor = Color.FromArgb(230, 233, 237), Padding = new Padding(5), AutoScroll = true };
             
             _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標\n快捷鍵: V\n(可框選、旋轉、縮放)");
             SetActiveButton(_btnPointer);
