@@ -100,10 +100,13 @@ namespace DrawingApp
         public event Action<PointF> OnImageInsertRequested;
         public event Action<App_Shapes.ShapeType> OnToolChangedRequested;
         public event Action OnSelectionChanged;
-        public event Action OnStencilAdded;
-        
-        // 【新增功能：屬性綁定更新機制】
+        public event Action OnStencilAdded; // 唯一宣告的位置
         public event Action OnDefaultFormatChanged;
+
+        public void TriggerStencilAddedEvent()
+        {
+            OnStencilAdded?.Invoke();
+        }
 
         public App_Shapes.ShapeType CurrentTool 
         { 
