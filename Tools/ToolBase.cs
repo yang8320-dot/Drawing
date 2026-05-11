@@ -28,7 +28,8 @@ namespace DrawingApp.Tools
         /// </summary>
         protected App_Shapes.AnchorPosition DetectAnchor(App_Shapes.ShapeBase shape, PointF pt)
         {
-            float threshold = 15f;
+            // 【修正2】: 縮小磁吸半徑由 15f 降為 10f，避免干擾游標繪製直線
+            float threshold = 10f;
             if (Distance(shape.GetAnchorPoint(App_Shapes.AnchorPosition.Top), pt) < threshold) return App_Shapes.AnchorPosition.Top;
             if (Distance(shape.GetAnchorPoint(App_Shapes.AnchorPosition.Bottom), pt) < threshold) return App_Shapes.AnchorPosition.Bottom;
             if (Distance(shape.GetAnchorPoint(App_Shapes.AnchorPosition.Left), pt) < threshold) return App_Shapes.AnchorPosition.Left;
