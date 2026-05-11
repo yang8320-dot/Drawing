@@ -11,6 +11,7 @@ using System.Windows.Forms;
 
 namespace DrawingApp
 {
+    // --- 負責右側的屬性面板 (外觀、文字) 與屬性連動 ---
     public partial class App_UI_MainForm
     {
         private void BuildRightPanel()
@@ -29,12 +30,8 @@ namespace DrawingApp
                 try
                 {
                     scRight.Panel2MinSize = 150; 
-                    if (scRight.Height > 400) 
-                    {
-                        scRight.SplitterDistance = scRight.Height - 250;
-                    }
-                }
-                catch { }
+                    if (scRight.Height > 400) scRight.SplitterDistance = scRight.Height - 250;
+                } catch { }
             };
 
             FlowLayoutPanel topPropPanel = new FlowLayoutPanel 
@@ -108,16 +105,14 @@ namespace DrawingApp
             _gbAppearance.Controls.Add(tlpApp);
             _customPropertiesPanel.Controls.Add(_gbAppearance); 
 
-
             // ==========================================
-            // 【區塊 2】文字與排版設定 (增加高度，修復截斷)
+            // 【區塊 2】文字與排版設定
             // ==========================================
             _gbText = new GroupBox { Text = "文字與排版設定", Width = 285, Height = 200, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
             TableLayoutPanel tlpText = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(5, 8, 5, 5), Font = new Font("Arial", 9, FontStyle.Regular) };
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             
-            // 強制設定每一列的高度，避免壓縮
             tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
             tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
             tlpText.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
@@ -159,13 +154,15 @@ namespace DrawingApp
             topPropPanel.Controls.Add(_customPropertiesPanel); 
 
             // ==========================================
-            // 【區塊 3】快速對齊區塊
+            // 【Req 10: 快速對齊區塊 (預設隱藏並加摺疊按鈕)】
             // ==========================================
-            GroupBox gbAlign = new GroupBox { Text = "快速對齊", Width = 285, Height = 125, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
-            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0) };
-            gbAlign.Controls.Add(_chkAlignToPage);
+            _gbAlign = new GroupBox { Text = "▶ 快速對齊", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
+            _gbAlign.Click += (s, e) => ToggleGroupBox(_gbAlign, 125, "快速對齊");
+            
+            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", Dock = DockStyle.Top, Font = new Font("Arial", 9), ForeColor = Color.DimGray, Height = 25, Padding = new Padding(5, 0, 0, 0), Visible = false };
+            _gbAlign.Controls.Add(_chkAlignToPage);
 
-            _alignmentPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
+            _alignmentPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, Visible = false };
             TableLayoutPanel tlpAlign = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 3 };
             for (int i = 0; i < 3; i++) tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
             for (int i = 0; i < 3; i++) tlpAlign.RowStyles.Add(new ColumnStyle(SizeType.Percent, 33.33F));
@@ -180,22 +177,24 @@ namespace DrawingApp
             tlpAlign.Controls.Add(CreateGridButton("垂直均分", (s, e) => DistributeShapes("Vertical")), 1, 2);
             
             _alignmentPanel.Controls.Add(tlpAlign);
-            gbAlign.Controls.Add(_alignmentPanel);
-            topPropPanel.Controls.Add(gbAlign); 
+            _gbAlign.Controls.Add(_alignmentPanel);
+            topPropPanel.Controls.Add(_gbAlign); 
 
             // ==========================================
-            // 【區塊 4】圖層順序區塊
+            // 【Req 10: 圖層順序區塊 (預設隱藏並加摺疊按鈕)】
             // ==========================================
-            GroupBox gbZIndex = new GroupBox { Text = "圖層順序", Width = 285, Height = 65, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10) };
-            _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill };
+            _gbZIndex = new GroupBox { Text = "▶ 圖層順序", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
+            _gbZIndex.Click += (s, e) => ToggleGroupBox(_gbZIndex, 65, "圖層順序");
+
+            _zIndexPanel = new FlowLayoutPanel { Dock = DockStyle.Fill, Visible = false };
             TableLayoutPanel tlpZIndex = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
             tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
             tlpZIndex.Controls.Add(CreateGridButton("移到最上層", (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); }), 0, 0);
             tlpZIndex.Controls.Add(CreateGridButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }), 1, 0);
             _zIndexPanel.Controls.Add(tlpZIndex);
-            gbZIndex.Controls.Add(_zIndexPanel);
-            topPropPanel.Controls.Add(gbZIndex); 
+            _gbZIndex.Controls.Add(_zIndexPanel);
+            topPropPanel.Controls.Add(_gbZIndex); 
 
             scRight.Panel1.Controls.Add(topPropPanel);
 
@@ -206,7 +205,26 @@ namespace DrawingApp
 
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
-            _customPropertiesPanel.Enabled = false;
+            
+            // 【Req 9: 一開始即使沒有選取物件，也開放使用者修改預設格式】
+            _customPropertiesPanel.Enabled = true;
+        }
+
+        // 動態摺疊 GroupBox
+        private void ToggleGroupBox(GroupBox gb, int expandHeight, string title)
+        {
+            if (gb.Height == 25)
+            {
+                gb.Height = expandHeight;
+                gb.Text = "▼ " + title;
+                foreach (Control c in gb.Controls) c.Visible = true;
+            }
+            else
+            {
+                gb.Height = 25;
+                gb.Text = "▶ " + title;
+                foreach (Control c in gb.Controls) c.Visible = false;
+            }
         }
 
         private Button CreateGridButton(string text, EventHandler onClick)
@@ -231,42 +249,34 @@ namespace DrawingApp
                 _alignmentPanel.Enabled = _chkAlignToPage.Checked ? selCount > 0 : selCount > 1;
                 _zIndexPanel.Enabled = selCount > 0;
                 
-                if (selCount > 0)
-                {
-                    _customPropertiesPanel.Enabled = true;
-                    
-                    var shape = CurrentCanvas.SelectedShapes[0];
-                    
-                    _isUpdatingUI = true; 
-                    
-                    _btnShapeColor.BackColor = shape.ShapeColor;
-                    _btnFillColor.BackColor = shape.FillColor;
-                    _btnFillColor.Text = shape.FillColor == Color.Transparent ? "透明" : "";
-                    
-                    _btnGradientColor.BackColor = shape.GradientColor2;
-                    _cbBrushType.SelectedIndex = (int)shape.FillBrushType;
-                    _chkShadow.Checked = shape.EnableShadow;
-                    
-                    _tbStrokeWidth.Value = Math.Max(1, Math.Min(20, (int)shape.StrokeWidth));
-                    _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
-                    _cbDashStyle.SelectedIndex = (int)shape.StrokeDashStyle;
+                // 【Req 9: 取選中物件或預設格式來更新 UI】
+                App_Shapes.ShapeBase shapeToRead = selCount > 0 ? CurrentCanvas.SelectedShapes[0] : CurrentCanvas.DefaultFormatTemplate;
+                
+                _isUpdatingUI = true; 
+                
+                _btnShapeColor.BackColor = shapeToRead.ShapeColor;
+                _btnFillColor.BackColor = shapeToRead.FillColor;
+                _btnFillColor.Text = shapeToRead.FillColor == Color.Transparent ? "透明" : "";
+                
+                _btnGradientColor.BackColor = shapeToRead.GradientColor2;
+                _cbBrushType.SelectedIndex = (int)shapeToRead.FillBrushType;
+                _chkShadow.Checked = shapeToRead.EnableShadow;
+                
+                _tbStrokeWidth.Value = Math.Max(1, Math.Min(20, (int)shapeToRead.StrokeWidth));
+                _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString();
+                _cbDashStyle.SelectedIndex = (int)shapeToRead.StrokeDashStyle;
 
-                    _btnFontColor.BackColor = shape.FontColor;
-                    if (_cbFontName.Items.Contains(shape.FontName)) _cbFontName.SelectedItem = shape.FontName;
-                    _nudFontSize.Value = (decimal)shape.FontSize;
-                    
-                    _chkBold.Checked = shape.FontBold;
-                    _chkItalic.Checked = shape.FontItalic;
-                    _chkUnderline.Checked = shape.FontUnderline;
+                _btnFontColor.BackColor = shapeToRead.FontColor;
+                if (_cbFontName.Items.Contains(shapeToRead.FontName)) _cbFontName.SelectedItem = shapeToRead.FontName;
+                _nudFontSize.Value = (decimal)shapeToRead.FontSize;
+                
+                _chkBold.Checked = shapeToRead.FontBold;
+                _chkItalic.Checked = shapeToRead.FontItalic;
+                _chkUnderline.Checked = shapeToRead.FontUnderline;
 
-                    _cbTextAlign.SelectedIndex = (int)shape.TextAlignment;
+                _cbTextAlign.SelectedIndex = (int)shapeToRead.TextAlignment;
 
-                    _isUpdatingUI = false; 
-                }
-                else
-                {
-                    _customPropertiesPanel.Enabled = false;
-                }
+                _isUpdatingUI = false; 
             }
             else
             {
@@ -299,7 +309,10 @@ namespace DrawingApp
 
         private void ApplyPropertyChange(Action<App_Shapes.ShapeBase> propertySetter)
         {
-            if (_isUpdatingUI || CurrentCanvas == null || CurrentCanvas.SelectedShapes.Count == 0) return;
+            if (_isUpdatingUI || CurrentCanvas == null) return;
+
+            // 【Req 9: 無論有無選取物件，皆將變更寫入 DefaultFormatTemplate 記憶格式】
+            propertySetter(CurrentCanvas.DefaultFormatTemplate);
 
             var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
             if (shapes.Count == 0) return;
@@ -313,7 +326,6 @@ namespace DrawingApp
             
             _isDirty = true;
             UpdateWindowTitle();
-            
             RefreshLayerTree(); 
         }
 
