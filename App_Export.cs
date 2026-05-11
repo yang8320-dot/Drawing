@@ -1,6 +1,3 @@
-/*
- * 檔案功能：處理匯出 PNG (透明)、PDF 與 SVG 功能
- */
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -86,19 +83,23 @@ namespace DrawingApp
             });
         }
 
+        // 【修正：將 Color 轉為標準的 #RRGGBB Hex 格式，避免 Named Colors 造成其他軟體解析失敗】
+        private static string ToSvgColor(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+
         public static async Task ExportToSvgAsync(List<App_Shapes.ShapeBase> shapes, SizeF pageSize, string filePath)
         {
             await Task.Run(() =>
             {
                 StringBuilder svg = new StringBuilder();
                 svg.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>");
-                svg.AppendLine($"<svg width=\"{pageSize.Width}\" height=\"{pageSize.Height}\" xmlns=\"http://www.w3.org/2000/svg\">");
+                // 【修正：加入 viewBox 與標準 xmlns 屬性】
+                svg.AppendLine($"<svg width=\"{pageSize.Width}\" height=\"{pageSize.Height}\" viewBox=\"0 0 {pageSize.Width} {pageSize.Height}\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\">");
 
                 foreach (var shape in shapes)
                 {
-                    string strokeHex = ColorTranslator.ToHtml(shape.ShapeColor);
-                    string fillHex = shape.FillColor == Color.Transparent ? "none" : ColorTranslator.ToHtml(shape.FillColor);
-                    string fontColorHex = ColorTranslator.ToHtml(shape.FontColor);
+                    string strokeHex = ToSvgColor(shape.ShapeColor);
+                    string fillHex = shape.FillColor == Color.Transparent ? "none" : ToSvgColor(shape.FillColor);
+                    string fontColorHex = ToSvgColor(shape.FontColor);
                     string dashArray = shape.StrokeDashStyle == System.Drawing.Drawing2D.DashStyle.Dash ? "stroke-dasharray=\"5,5\"" : "";
                     
                     float x = shape.Bounds.X;
@@ -146,19 +147,16 @@ namespace DrawingApp
                             svg.AppendLine($"\" fill=\"none\" stroke=\"{strokeHex}\" stroke-width=\"{shape.StrokeWidth}\" stroke-linecap=\"round\" stroke-linejoin=\"round\" {dashArray} {transform} />");
                         }
                     }
-                    // --- 新增：貝茲曲線 (鋼筆工具) 的 SVG 匯出 ---
                     else if (shape is App_Shapes.BezierShape bezier)
                     {
                         if (bezier.LocalNodes.Count > 1)
                         {
                             svg.Append($"  <path d=\"");
                             
-                            // 移至起始點 (MoveTo)
                             float startX = bezier.Bounds.X + bezier.LocalNodes[0].Anchor.X;
                             float startY = bezier.Bounds.Y + bezier.LocalNodes[0].Anchor.Y;
                             svg.Append($"M {startX} {startY} ");
 
-                            // 繪製每一段的三次方貝茲曲線 (Cubic Bezier)
                             for (int i = 1; i < bezier.LocalNodes.Count; i++)
                             {
                                 float c1x = bezier.Bounds.X + bezier.LocalNodes[i - 1].Control2.X;
@@ -214,7 +212,7 @@ namespace DrawingApp
                         string fw = shape.FontBold ? "bold" : "normal";
                         string fs = shape.FontItalic ? "italic" : "normal";
                         string td = shape.FontUnderline ? "text-decoration=\"underline\"" : "";
-                        svg.AppendLine($"  <text x=\"{cx}\" y=\"{cy}\" font-family=\"{shape.FontName}\" font-size=\"{shape.FontSize}\" font-weight=\"{fw}\" font-style=\"{fs}\" fill=\"{fontColorHex}\" text-anchor=\"middle\" dy=\".3em\" {td} {transform}>{System.Security.SecurityElement.Escape(shape.Text)}</text>");
+                        svg.AppendLine($"  <text x=\"{cx}\" y=\"{cy}\" font-family=\"{shape.FontName}\" font-size=\"{shape.FontSize}\" font-weight=\"{fw}\" font-style=\"{fs}\" fill=\"{fontColorHex}\" text-anchor=\"middle\" dominant-baseline=\"central\" {td} {transform}>{System.Security.SecurityElement.Escape(shape.Text)}</text>");
                     }
                 }
                 svg.AppendLine("</svg>");
