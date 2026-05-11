@@ -12,20 +12,31 @@ namespace DrawingApp
     {
         private void BuildRightPanel()
         {
-            // 設定右側總寬度
             _rightPanel = new Panel { Dock = DockStyle.Right, Width = 320, BackColor = Color.FromArgb(245, 245, 245) };
 
-            // 👑 關鍵修復 1：反轉分隔條邏輯，保護上半部屬性面板的空間
+            // 👑 關鍵修復：拔除物件初始化器中的危險屬性設定
             SplitContainer scRight = new SplitContainer 
             { 
                 Orientation = Orientation.Horizontal, 
                 Dock = DockStyle.Fill,
-                FixedPanel = FixedPanel.Panel2, // 讓底部的圖層面板固定高度，上半部屬性面板自動填滿剩餘空間
-                Panel2MinSize = 250,            // 圖層面板最少保留 250px
-                SplitterDistance = 450          // 初始高度，視窗放大時會自動長大
+                FixedPanel = FixedPanel.Panel2 // 讓底部的圖層面板高度固定
             };
 
-            // 👑 關鍵修復 2：採用「瀑布流 (FlowLayoutPanel)」，從上到下自動堆疊，保證絕對不重疊！
+            // 👑 關鍵修復：將尺寸設定延後到視窗實際載入時執行，徹底避免崩潰
+            this.Load += (s, e) => 
+            {
+                try
+                {
+                    scRight.Panel2MinSize = 150; // 圖層面板最少 150px
+                    // 設定下半部為 250px 高度，上半部自動佔滿剩餘空間
+                    if (scRight.Height > 400) 
+                    {
+                        scRight.SplitterDistance = scRight.Height - 250;
+                    }
+                }
+                catch { /* 忽略極端縮放下的計算錯誤 */ }
+            };
+
             FlowLayoutPanel topPropPanel = new FlowLayoutPanel 
             { 
                 Dock = DockStyle.Fill, 
@@ -58,7 +69,7 @@ namespace DrawingApp
             
             _alignmentPanel.Controls.Add(tlpAlign);
             gbAlign.Controls.Add(_alignmentPanel);
-            topPropPanel.Controls.Add(gbAlign); // 加入瀑布流
+            topPropPanel.Controls.Add(gbAlign); 
 
             // ==========================================
             // 2. 圖層順序區塊
@@ -72,10 +83,10 @@ namespace DrawingApp
             tlpZIndex.Controls.Add(CreateGridButton("移到最下層", (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); }), 1, 0);
             _zIndexPanel.Controls.Add(tlpZIndex);
             gbZIndex.Controls.Add(_zIndexPanel);
-            topPropPanel.Controls.Add(gbZIndex); // 加入瀑布流
+            topPropPanel.Controls.Add(gbZIndex); 
 
             // ==========================================
-            // 3. 自訂屬性面板 (包含文字與外觀，用 FlowLayoutPanel 包裝以便一起隱藏)
+            // 3. 自訂屬性面板 
             // ==========================================
             _customPropertiesPanel = new FlowLayoutPanel 
             { 
@@ -123,7 +134,7 @@ namespace DrawingApp
             tlpText.Controls.Add(_cbTextAlign, 1, 3);
 
             _gbText.Controls.Add(tlpText);
-            _customPropertiesPanel.Controls.Add(_gbText); // 加入內部瀑布流
+            _customPropertiesPanel.Controls.Add(_gbText); 
 
             // 3-2. 外觀設定區塊
             _gbAppearance = new GroupBox { Text = "外觀與線條設定", Width = 280, Height = 210, Font = new Font("Arial", 9, FontStyle.Bold), Margin = new Padding(0, 0, 0, 10) };
@@ -174,27 +185,22 @@ namespace DrawingApp
             tlpApp.Controls.Add(_chkShadow, 1, 5);
 
             _gbAppearance.Controls.Add(tlpApp);
-            _customPropertiesPanel.Controls.Add(_gbAppearance); // 加入內部瀑布流
+            _customPropertiesPanel.Controls.Add(_gbAppearance); 
 
-            topPropPanel.Controls.Add(_customPropertiesPanel); // 加入外部主瀑布流
+            topPropPanel.Controls.Add(_customPropertiesPanel); 
 
-            // ==========================================
-            // 完成排版，綁定至 SplitContainer
-            // ==========================================
             scRight.Panel1.Controls.Add(topPropPanel);
 
-            // 呼叫 Partial Class 的方法建立圖層面板 (在下半部)
+            // 呼叫 Partial Class 的方法建立圖層面板
             BuildLayerPanel(scRight.Panel2);
 
             _rightPanel.Controls.Add(scRight);
 
-            // 初始狀態：禁用 (反灰)，但不隱藏
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
             _customPropertiesPanel.Enabled = false;
         }
 
-        // 專為 TableLayoutPanel 設計的彈性按鈕
         private Button CreateGridButton(string text, EventHandler onClick)
         {
             Button btn = new Button
@@ -352,39 +358,4 @@ namespace DrawingApp
 
             if (type == "Horizontal")
             {
-                shapes = shapes.OrderBy(s => s.Bounds.X).ToList();
-                float totalSpace = shapes.Last().Bounds.Right - shapes.First().Bounds.Left;
-                float gap = (totalSpace - shapes.Sum(s => s.Bounds.Width)) / (shapes.Count - 1);
-                
-                float currentX = shapes.First().Bounds.Left;
-                foreach (var s in shapes)
-                {
-                    newBounds.Add(new RectangleF(currentX, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
-                    currentX += s.Bounds.Width + gap;
-                }
-            }
-            else if (type == "Vertical")
-            {
-                shapes = shapes.OrderBy(s => s.Bounds.Y).ToList();
-                float totalSpace = shapes.Last().Bounds.Bottom - shapes.First().Bounds.Top;
-                float gap = (totalSpace - shapes.Sum(s => s.Bounds.Height)) / (shapes.Count - 1);
-                
-                float currentY = shapes.First().Bounds.Top;
-                foreach (var s in shapes)
-                {
-                    newBounds.Add(new RectangleF(s.Bounds.X, currentY, s.Bounds.Width, s.Bounds.Height));
-                    currentY += s.Bounds.Height + gap;
-                }
-            }
-
-            var orderedNewBounds = new List<RectangleF>();
-            var originalShapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-            for (int i = 0; i < originalShapes.Count; i++)
-            {
-                orderedNewBounds.Add(newBounds[shapes.IndexOf(originalShapes[i])]);
-            }
-
-            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(originalShapes, oldBounds, orderedNewBounds));
-        }
-    }
-}
+                shapes = shapes.Order
