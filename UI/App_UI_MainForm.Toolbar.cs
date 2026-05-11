@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: UI/App_UI_MainForm.Toolbar.cs
+// ============================================================
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -27,7 +31,7 @@ namespace DrawingApp
         private CheckBox _chkAlignToPage;
         private FlowLayoutPanel _alignmentPanel;
         private FlowLayoutPanel _zIndexPanel;
-        private Panel _customPropertiesPanel;
+        private FlowLayoutPanel _customPropertiesPanel;
         private GroupBox _gbAppearance;
         private Button _btnShapeColor;
         private ComboBox _cbBrushType;
@@ -158,6 +162,7 @@ namespace DrawingApp
         {
             TabPage page = new TabPage(title);
             App_CanvasControl canvas = new App_CanvasControl { Dock = DockStyle.Fill };
+            canvas.CanvasTitle = title;
             
             canvas.OnImageInsertRequested += HandleImageInsert;
             canvas.CmdManager.OnStateChanged += () => { RefreshLayerTree(); _isDirty = true; UpdateWindowTitle(); };
@@ -277,25 +282,34 @@ namespace DrawingApp
             _topBar.Controls.Add(cbPageSize);
 
             _topBar.Controls.Add(CreateDivider());
-            _topBar.Controls.Add(CreateTextButton("復原", 60, (s, e) => CurrentCanvas?.CmdManager.Undo()));
-            _topBar.Controls.Add(CreateTextButton("重做", 60, (s, e) => CurrentCanvas?.CmdManager.Redo()));
+            _topBar.Controls.Add(CreateTextButton("復原", 50, (s, e) => CurrentCanvas?.CmdManager.Undo()));
+            _topBar.Controls.Add(CreateTextButton("重做", 50, (s, e) => CurrentCanvas?.CmdManager.Redo()));
             _topBar.Controls.Add(CreateDivider());
 
-            _topBar.Controls.Add(CreateTextButton("放大 +", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor + 0.2f); }));
-            _topBar.Controls.Add(CreateTextButton("縮小 -", 65, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }));
-            _topBar.Controls.Add(CreateTextButton("100%", 60, (s, e) => CurrentCanvas?.SetZoom(1.0f)));
+            _topBar.Controls.Add(CreateTextButton("放大 +", 60, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor + 0.2f); }));
+            _topBar.Controls.Add(CreateTextButton("縮小 -", 60, (s, e) => { if (CurrentCanvas != null) CurrentCanvas.SetZoom(CurrentCanvas.ZoomFactor - 0.2f); }));
+            _topBar.Controls.Add(CreateTextButton("100%", 50, (s, e) => CurrentCanvas?.SetZoom(1.0f)));
 
-            CheckBox chkSnap = new CheckBox { Text = "網格對齊", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 10, 0) };
+            CheckBox chkSnap = new CheckBox { Text = "對齊", Checked = true, AutoSize = true, Margin = new Padding(5, 9, 10, 0) };
             chkSnap.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.SnapToGrid = chkSnap.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkSnap);
 
-            CheckBox chkRuler = new CheckBox { Text = "顯示尺規", Checked = true, AutoSize = true, Margin = new Padding(0, 9, 15, 0) };
+            CheckBox chkRuler = new CheckBox { Text = "尺規", Checked = true, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
             chkRuler.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowRulers = chkRuler.Checked; CurrentCanvas.Invalidate(); } };
             _topBar.Controls.Add(chkRuler);
 
+            // 【Req 3, 4: 加入紙張邊界與頁碼開關】
+            CheckBox chkBounds = new CheckBox { Text = "紙張邊界", Checked = false, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
+            chkBounds.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowPageBounds = chkBounds.Checked; CurrentCanvas.Invalidate(); } };
+            _topBar.Controls.Add(chkBounds);
+
+            CheckBox chkNumbers = new CheckBox { Text = "顯示頁碼", Checked = false, AutoSize = true, Margin = new Padding(0, 9, 10, 0) };
+            chkNumbers.CheckedChanged += (s, e) => { if (CurrentCanvas != null) { CurrentCanvas.ShowPageNumbers = chkNumbers.Checked; CurrentCanvas.Invalidate(); } };
+            _topBar.Controls.Add(chkNumbers);
+
             _topBar.Controls.Add(CreateDivider());
-            _topBar.Controls.Add(CreateTextButton("存檔", 60, (s, e) => SaveAllTabs()));
-            _topBar.Controls.Add(CreateTextButton("讀取", 60, (s, e) => LoadTabs()));
+            _topBar.Controls.Add(CreateTextButton("存檔", 50, (s, e) => SaveAllTabs()));
+            _topBar.Controls.Add(CreateTextButton("讀取", 50, (s, e) => LoadTabs()));
             _topBar.Controls.Add(CreateDivider());
 
             _topBar.Controls.Add(CreateTextButton("📤 匯出圖檔", 100, (s, e) => ShowExportDialog()));
@@ -303,7 +317,6 @@ namespace DrawingApp
 
         private void BuildLeftPanel()
         {
-            // 將寬度從 110 改為 130
             _leftPanelContainer = new Panel { Dock = DockStyle.Left, Width = 130, BackColor = Color.FromArgb(240, 240, 240) };
             
             Panel togglePanel = new Panel { Dock = DockStyle.Top, Height = 30, BackColor = Color.LightGray };
@@ -354,7 +367,8 @@ namespace DrawingApp
                 CreateToolButton(App_Shapes.ShapeType.Document, "文件"),
                 CreateToolButton(App_Shapes.ShapeType.Pentagon, "五邊形"),
                 CreateToolButton(App_Shapes.ShapeType.Hexagon, "六邊形"),
-                CreateToolButton(App_Shapes.ShapeType.Star, "星形")
+                CreateToolButton(App_Shapes.ShapeType.Star, "星形"),
+                CreateToolButton(App_Shapes.ShapeType.Cloud, "雲朵")
             });
 
             var grpDraw = CreateToolGroup("自由繪圖", "grpDraw", new Control[] {
@@ -394,7 +408,7 @@ namespace DrawingApp
         {
             FlowLayoutPanel groupContainer = new FlowLayoutPanel
             {
-                Width = 110, // 群組加寬
+                Width = 110,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 FlowDirection = FlowDirection.TopDown,
@@ -405,7 +419,7 @@ namespace DrawingApp
             Button btnHeader = new Button
             {
                 Text = title,
-                Width = 110, // 按鈕加寬
+                Width = 110,
                 Height = 25,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(220, 220, 220),
@@ -417,7 +431,7 @@ namespace DrawingApp
 
             FlowLayoutPanel contentPanel = new FlowLayoutPanel
             {
-                Width = 110, // 內容區加寬
+                Width = 110,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = Color.White,
@@ -523,12 +537,11 @@ namespace DrawingApp
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 using (Pen p = new Pen(iconColor, 1.5f))
                 {
-                    // 縮小 icon 偏移量，適應 33x33 大小
                     if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(10, 8), new Point(10, 24), new Point(15, 18), new Point(22, 18) });
                     else if (type == App_Shapes.ShapeType.HandPan) 
                     { 
                         g.DrawLine(p, 12, 20, 12, 10); g.DrawArc(p, 10, 8, 4, 4, 180, 180); 
-                        g.DrawLine(p, 16, 20, 16, 6); g.DrawArc(p, 14, 4, 4, 4, 180, 180); 
+                        g.DrawLine(p, 16, 20, 16, 6); g.DrawArc(p, 14, 4, 4, 180, 180); 
                         g.DrawLine(p, 20, 20, 20, 8); g.DrawArc(p, 18, 6, 4, 4, 180, 180); 
                         g.DrawLine(p, 24, 20, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
                         g.DrawArc(p, 10, 20, 14, 10, 0, 180);
@@ -554,8 +567,6 @@ namespace DrawingApp
                     }
                     else if (type == App_Shapes.ShapeType.Circle) g.DrawEllipse(p, 6, 6, 20, 20);
                     else if (type == App_Shapes.ShapeType.Arc) g.DrawArc(p, 6, 6, 20, 20, 180, 180);
-                    
-                    // 新增的圖示
                     else if (type == App_Shapes.ShapeType.Parallelogram) g.DrawPolygon(p, new PointF[] { new PointF(12,8), new PointF(26,8), new PointF(20,24), new PointF(6,24) });
                     else if (type == App_Shapes.ShapeType.Cylinder) {
                         g.DrawEllipse(p, 8, 6, 16, 6); g.DrawLine(p, 8, 9, 8, 24); g.DrawLine(p, 24, 9, 24, 24); g.DrawArc(p, 8, 21, 16, 6, 0, 180);
@@ -566,9 +577,9 @@ namespace DrawingApp
                         g.DrawLine(p, 6, 22, 6, 8);
                     }
                     else if (type == App_Shapes.ShapeType.BlockArrow) g.DrawPolygon(p, new PointF[] { new PointF(6,12), new PointF(16,12), new PointF(16,8), new PointF(26,16), new PointF(16,24), new PointF(16,20), new PointF(6,20) });
-
                     else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(16, 6), new PointF(26, 16), new PointF(16, 26), new PointF(6, 16) });
                     else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(16, 8), new PointF(26, 24), new PointF(6, 24) });
+                    else if (type == App_Shapes.ShapeType.Cloud) { g.DrawEllipse(p, 10, 10, 8, 8); g.DrawEllipse(p, 15, 8, 10, 10); g.DrawEllipse(p, 18, 12, 8, 8); g.DrawEllipse(p, 8, 14, 18, 8); }
                     else if (type == App_Shapes.ShapeType.Pentagon) 
                     {
                         PointF[] pts = new PointF[5];
@@ -620,22 +631,8 @@ namespace DrawingApp
                 Label lblFormat = new Label { Text = "請選擇匯出格式：", Location = new Point(20, 20), AutoSize = true };
                 
                 ComboBox cbFormat = new ComboBox { Location = new Point(20, 45), Width = 240, DropDownStyle = ComboBoxStyle.DropDownList };
-                cbFormat.Items.AddRange(new string[] { "PNG (透明背景圖片)", "PDF (向量文件)", "SVG (向量網頁圖形)" });
+                cbFormat.Items.AddRange(new string[] { "PNG (透明背景圖片)", "PDF (分頁向量文件)", "SVG (向量網頁圖形)" });
                 cbFormat.SelectedIndex = 0;
-
-                Label lblPdfSize = new Label { Text = "PDF 尺寸 (僅限 PDF):", Location = new Point(20, 85), AutoSize = true, Enabled = false };
-                ComboBox cbPdfSize = new ComboBox { Location = new Point(20, 110), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList, Enabled = false };
-                cbPdfSize.Items.AddRange(new string[] { "A4", "A3", "A2", "A1" });
-                cbPdfSize.SelectedIndex = 0;
-
-                ComboBox cbPdfOri = new ComboBox { Location = new Point(150, 110), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList, Enabled = false };
-                cbPdfOri.Items.AddRange(new string[] { "直式", "橫式" });
-                cbPdfOri.SelectedIndex = 0;
-
-                cbFormat.SelectedIndexChanged += (s, e) => {
-                    bool isPdf = cbFormat.SelectedIndex == 1;
-                    lblPdfSize.Enabled = cbPdfSize.Enabled = cbPdfOri.Enabled = isPdf;
-                };
 
                 Button btnOk = new Button { Text = "選擇存檔位置...", Location = new Point(80, 160), Width = 130, Height = 35 };
                 btnOk.Click += async (sender, ev) => {
@@ -648,8 +645,8 @@ namespace DrawingApp
                             btnOk.Text = "處理中...";
 
                             if (cbFormat.SelectedIndex == 0) await App_Export.ExportToPngAsync(CurrentCanvas.GetTransparentCanvasRender(), sfd.FileName);
-                            else if (cbFormat.SelectedIndex == 1) await App_Export.ExportToPdfAsync(CurrentCanvas.GetTransparentCanvasRender(), sfd.FileName, cbPdfOri.SelectedIndex == 1);
-                            else if (cbFormat.SelectedIndex == 2) await App_Export.ExportToSvgAsync(CurrentCanvas.Shapes, CurrentCanvas.PageSize, sfd.FileName);
+                            else if (cbFormat.SelectedIndex == 1) await App_Export.ExportToPdfMultiPageAsync(CurrentCanvas, sfd.FileName);
+                            else if (cbFormat.SelectedIndex == 2) await App_Export.ExportToSvgAsync(CurrentCanvas.Shapes, CurrentCanvas.ActualPageSize, sfd.FileName);
 
                             MessageBox.Show("匯出成功！", "系統通知", MessageBoxButtons.OK, MessageBoxIcon.Information);
                             exportForm.Close();
@@ -657,7 +654,7 @@ namespace DrawingApp
                     }
                 };
 
-                exportForm.Controls.AddRange(new Control[] { lblFormat, cbFormat, lblPdfSize, cbPdfSize, cbPdfOri, btnOk });
+                exportForm.Controls.AddRange(new Control[] { lblFormat, cbFormat, btnOk });
                 exportForm.ShowDialog();
             }
         }
