@@ -32,6 +32,7 @@ namespace DrawingApp
                 e.ClipRectangle.Height / ZoomFactor
             );
 
+            // 【配合無限擴展畫布，動態取得渲染範圍】
             SizeF currentCanvasSize = ActualPageSize;
 
             RectangleF viewRect = new RectangleF(
@@ -46,7 +47,6 @@ namespace DrawingApp
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
-            // 【Req 3, 4: 繪製虛線的紙張邊界與頁碼】
             if (ShowPageBounds)
             {
                 int cols = (int)Math.Ceiling(currentCanvasSize.Width / PageSize.Width);
@@ -70,7 +70,6 @@ namespace DrawingApp
                                 int pageNum = r * cols + c + 1;
                                 string pageText = $"{CanvasTitle} - 第 {pageNum} 頁 / 共 {totalPages} 頁";
                                 
-                                // 文字繪製在每頁的右下角
                                 SizeF textSize = g.MeasureString(pageText, pageFont);
                                 g.DrawString(pageText, pageFont, pageBrush, x + PageSize.Width - textSize.Width - 20, y + PageSize.Height - textSize.Height - 20);
                             }
@@ -238,16 +237,6 @@ namespace DrawingApp
             vx = Math.Max(_minimapRect.Left, Math.Min(vx, _minimapRect.Right - vw));
             vy = Math.Max(_minimapRect.Top, Math.Min(vy, _minimapRect.Bottom - vh));
             using (Pen vp = new Pen(Color.Red, 2f)) g.DrawRectangle(vp, vx, vy, vw, vh);
-        }
-
-        private void UpdateCameraFromMinimap(Point mouseLoc)
-        {
-            float minimapScale = MINIMAP_WIDTH / ActualPageSize.Width;
-            float targetX = (mouseLoc.X - _minimapRect.X) / minimapScale;
-            float targetY = (mouseLoc.Y - _minimapRect.Y) / minimapScale;
-            _cameraOffset.X = -(targetX * ZoomFactor - this.Width / 2f);
-            _cameraOffset.Y = -(targetY * ZoomFactor - this.Height / 2f);
-            this.Invalidate();
         }
 
         public Bitmap GetTransparentCanvasRender()
