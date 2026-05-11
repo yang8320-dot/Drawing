@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: App_CanvasControl.Rendering.cs
+// ============================================================
+
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -7,7 +11,6 @@ using System.Windows.Forms;
 
 namespace DrawingApp
 {
-    // 負責處理畫布的繪圖引擎 (OnPaint)、尺規、格線與小地圖的渲染
     public partial class App_CanvasControl
     {
         protected override void OnPaint(PaintEventArgs e)
@@ -39,33 +42,60 @@ namespace DrawingApp
 
             if (SnapToGrid) DrawGrid(g, viewRect);
 
+            // 繪製最外層的保護框線（代表有圖形的範圍）
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
-            // [優化 2]：觸發所有 ShapeBase 與筆刷進入「快速渲染模式」，大幅提升拖曳流暢度
+            // 【Req 3, 4: 繪製虛線的紙張邊界與頁碼】
+            if (ShowPageBounds)
+            {
+                int cols = (int)Math.Ceiling(currentCanvasSize.Width / PageSize.Width);
+                int rows = (int)Math.Ceiling(currentCanvasSize.Height / PageSize.Height);
+                int totalPages = cols * rows;
+
+                using (Pen pBounds = new Pen(Color.Gray, 1.5f) { DashStyle = DashStyle.Dash })
+                using (Font pageFont = new Font("Arial", 16, FontStyle.Bold))
+                using (Brush pageBrush = new SolidBrush(Color.FromArgb(100, 100, 100)))
+                {
+                    for (int r = 0; r < rows; r++)
+                    {
+                        for (int c = 0; c < cols; c++)
+                        {
+                            float x = c * PageSize.Width;
+                            float y = r * PageSize.Height;
+                            g.DrawRectangle(pBounds, x, y, PageSize.Width, PageSize.Height);
+
+                            if (ShowPageNumbers)
+                            {
+                                int pageNum = r * cols + c + 1;
+                                string pageText = $"{CanvasTitle} - 第 {pageNum} 頁 / 共 {totalPages} 頁";
+                                
+                                // 文字繪製在每頁的右下角
+                                SizeF textSize = g.MeasureString(pageText, pageFont);
+                                g.DrawString(pageText, pageFont, pageBrush, x + PageSize.Width - textSize.Width - 20, y + PageSize.Height - textSize.Height - 20);
+                            }
+                        }
+                    }
+                }
+            }
+
             App_Shapes.ShapeBase.IsFastRendering = _isPanning;
 
             List<App_Shapes.ShapeBase> visibleShapes = new List<App_Shapes.ShapeBase>();
             if (_quadTree != null) _quadTree.Retrieve(visibleShapes, clipWorldBounds);
 
-            // 強制包含選取中或暫存的圖形，確保它們在拖曳時不消失
             foreach (var s in SelectedShapes) if (!visibleShapes.Contains(s)) visibleShapes.Add(s);
             if (_tempShape != null && !visibleShapes.Contains(_tempShape)) visibleShapes.Add(_tempShape);
 
             var sortedVisibleShapes = visibleShapes.Distinct().OrderBy(s => Shapes.IndexOf(s)).ToList();
 
-            // 1. 繪製非連線圖形
             for (int i = 0; i < sortedVisibleShapes.Count; i++)
             {
                 var shape = sortedVisibleShapes[i];
-                if (!(shape is App_Shapes.ConnectorShape))
-                {
-                    shape.DrawWithTransform(g);
-                }
+                if (!(shape is App_Shapes.ConnectorShape)) shape.DrawWithTransform(g);
             }
 
-            // 2. 繪製連線圖形 (包含跳線與避障運算)
-            bool isFastMode = _isPanning; // 如果正在平移畫布，切換為快速渲染模式，避免卡頓
+            bool isFastMode = _isPanning;
             for (int i = 0; i < Shapes.Count; i++)
             {
                 if (Shapes[i] is App_Shapes.ConnectorShape shape)
@@ -90,14 +120,11 @@ namespace DrawingApp
                 }
             }
 
-            // 3. 繪製暫存圖形
             _tempShape?.DrawWithTransform(g);
             if (_tempShape is App_Shapes.ConnectorShape tc) tc.DrawDynamic(g, tc.StartPt, tc.EndPt, Shapes, true, _quadTree); 
             
-            // 4. 交給 Tool 繪製額外的 UI (例如懸停導引線、框選框)
             _currentToolInstance?.OnPaint(this, g);
 
-            // 5. 繪製連線吸附提示紅點
             if (_hoveredShapeForConnection != null)
             {
                 PointF anchorPt = _hoveredAnchor == App_Shapes.AnchorPosition.Auto 
@@ -108,10 +135,8 @@ namespace DrawingApp
                 g.DrawEllipse(Pens.Red, anchorPt.X - 5, anchorPt.Y - 5, 10, 10);
             }
 
-            // 6. 繪製選取框
             for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].DrawSelection(g);
 
-            // 7. 繪製智慧導引線
             using (Pen guidePen = new Pen(Color.DeepPink, 1.5f) { DashStyle = DashStyle.Dash })
             {
                 for (int i = 0; i < _smartGuides.Count; i++) g.DrawLine(guidePen, _smartGuides[i].Item1, _smartGuides[i].Item2);
@@ -119,7 +144,6 @@ namespace DrawingApp
 
             g.Transform = oldTransform; 
 
-            // 8. 繪製小地圖與尺規
             DrawMinimap(g, currentCanvasSize);
             if (ShowRulers) DrawRulers(g);
         }
