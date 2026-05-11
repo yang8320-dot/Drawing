@@ -25,12 +25,15 @@ namespace DrawingApp
                 FixedPanel = FixedPanel.Panel2
             };
 
+            // 【修正4】: 預設隱藏圖層面板
+            scRight.Panel2Collapsed = true; 
+
             this.Load += (s, e) => 
             {
                 try
                 {
                     scRight.Panel2MinSize = 150; 
-                    if (scRight.Height > 400) scRight.SplitterDistance = scRight.Height - 250;
+                    if (scRight.Height > 400 && !scRight.Panel2Collapsed) scRight.SplitterDistance = scRight.Height - 250;
                 } catch { }
             };
 
@@ -144,7 +147,9 @@ namespace DrawingApp
 
             tlpText.Controls.Add(new Label { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Top, AutoSize = true, Margin = new Padding(0, 7, 0, 0) }, 0, 3);
             _cbTextAlign = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cbTextAlign.Items.AddRange(Enum.GetNames(typeof(App_Shapes.TextAlign)));
+            
+            // 【修正5】: 對齊方式改為中文選項 (對應 Enum 的 9 個順序)
+            _cbTextAlign.Items.AddRange(new string[] { "左上", "中上", "右上", "左中", "正中", "右中", "左下", "中下", "右下" });
             _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
             tlpText.Controls.Add(_cbTextAlign, 1, 3);
 
@@ -154,7 +159,7 @@ namespace DrawingApp
             topPropPanel.Controls.Add(_customPropertiesPanel); 
 
             // ==========================================
-            // 【Req 10: 快速對齊區塊 (預設隱藏並加摺疊按鈕)】
+            // 【區塊 3】快速對齊區塊
             // ==========================================
             _gbAlign = new GroupBox { Text = "▶ 快速對齊", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
             _gbAlign.Click += (s, e) => ToggleGroupBox(_gbAlign, 125, "快速對齊");
@@ -181,7 +186,7 @@ namespace DrawingApp
             topPropPanel.Controls.Add(_gbAlign); 
 
             // ==========================================
-            // 【Req 10: 圖層順序區塊 (預設隱藏並加摺疊按鈕)】
+            // 【區塊 4】圖層順序區塊
             // ==========================================
             _gbZIndex = new GroupBox { Text = "▶ 圖層順序", Width = 285, Height = 25, Font = new Font("Arial", 9, FontStyle.Bold), Padding = new Padding(5), Margin = new Padding(0, 0, 0, 10), Cursor = Cursors.Hand };
             _gbZIndex.Click += (s, e) => ToggleGroupBox(_gbZIndex, 65, "圖層順序");
@@ -196,21 +201,32 @@ namespace DrawingApp
             _gbZIndex.Controls.Add(_zIndexPanel);
             topPropPanel.Controls.Add(_gbZIndex); 
 
+            // ==========================================
+            // 【區塊 5】圖層管理 (需求 4：動態展開並貼合高度)
+            // ==========================================
+            Button btnToggleLayers = new Button { Text = "▶ 圖層管理", Width = 285, Height = 30, Font = new Font("Arial", 9, FontStyle.Bold), TextAlign = ContentAlignment.MiddleLeft, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 10, 0, 10), Cursor = Cursors.Hand, BackColor = Color.FromArgb(220, 220, 220) };
+            btnToggleLayers.FlatAppearance.BorderSize = 0;
+            btnToggleLayers.Click += (s, e) => {
+                scRight.Panel2Collapsed = !scRight.Panel2Collapsed;
+                btnToggleLayers.Text = scRight.Panel2Collapsed ? "▶ 圖層管理" : "▼ 圖層管理";
+                if (!scRight.Panel2Collapsed && scRight.Height > 300) {
+                    scRight.SplitterDistance = scRight.Height - 250;
+                }
+            };
+            topPropPanel.Controls.Add(btnToggleLayers);
+
             scRight.Panel1.Controls.Add(topPropPanel);
 
-            // 【區塊 5】建立圖層面板
+            // 將圖層面板加到 SplitContainer 的 Panel2，利用 SplitContainer 自動貼合剩餘高度
             BuildLayerPanel(scRight.Panel2);
 
             _rightPanel.Controls.Add(scRight);
 
             _alignmentPanel.Enabled = false;
             _zIndexPanel.Enabled = false;
-            
-            // 【Req 9: 一開始即使沒有選取物件，也開放使用者修改預設格式】
             _customPropertiesPanel.Enabled = true;
         }
 
-        // 動態摺疊 GroupBox
         private void ToggleGroupBox(GroupBox gb, int expandHeight, string title)
         {
             if (gb.Height == 25)
@@ -249,7 +265,6 @@ namespace DrawingApp
                 _alignmentPanel.Enabled = _chkAlignToPage.Checked ? selCount > 0 : selCount > 1;
                 _zIndexPanel.Enabled = selCount > 0;
                 
-                // 【Req 9: 取選中物件或預設格式來更新 UI】
                 App_Shapes.ShapeBase shapeToRead = selCount > 0 ? CurrentCanvas.SelectedShapes[0] : CurrentCanvas.DefaultFormatTemplate;
                 
                 _isUpdatingUI = true; 
@@ -311,7 +326,6 @@ namespace DrawingApp
         {
             if (_isUpdatingUI || CurrentCanvas == null) return;
 
-            // 【Req 9: 無論有無選取物件，皆將變更寫入 DefaultFormatTemplate 記憶格式】
             propertySetter(CurrentCanvas.DefaultFormatTemplate);
 
             var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
