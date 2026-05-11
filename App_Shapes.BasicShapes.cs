@@ -305,38 +305,93 @@ namespace DrawingApp
             }
         }
 
-        public class CloudShape : ShapeBase
+        // ==========================================
+        // 以下為新增的四種流程圖形
+        // ==========================================
+        public class ParallelogramShape : ShapeBase
         {
-            public CloudShape() { }
-            public CloudShape(PointF start, Color color) : base(start, color) { }
-
+            public ParallelogramShape() { }
+            public ParallelogramShape(PointF start, Color color) : base(start, color) { }
             public override void Draw(Graphics g)
             {
-                if (Bounds.Width <= 0 || Bounds.Height <= 0) return;
+                float offset = Bounds.Width * 0.2f;
+                PointF[] pts = new PointF[] {
+                    new PointF(Bounds.X + offset, Bounds.Y), 
+                    new PointF(Bounds.Right, Bounds.Y),
+                    new PointF(Bounds.Right - offset, Bounds.Bottom), 
+                    new PointF(Bounds.X, Bounds.Bottom)
+                };
+                if (ShouldDrawShadow) { var m = g.Transform.Clone(); g.TranslateTransform(6, 6); g.FillPolygon(SharedShadowBrush, pts); g.Transform = m; }
+                if (FillColor != Color.Transparent) g.FillPolygon(GetCachedFillBrush(Bounds), pts);
+                g.DrawPolygon(GetCachedPen(), pts);
+                DrawText(g);
+            }
+        }
 
+        public class CylinderShape : ShapeBase
+        {
+            public CylinderShape() { }
+            public CylinderShape(PointF start, Color color) : base(start, color) { }
+            public override void Draw(Graphics g)
+            {
+                float ellipseHeight = Math.Min(Bounds.Height * 0.25f, 20f);
                 using (GraphicsPath path = new GraphicsPath())
                 {
-                    path.FillMode = FillMode.Winding;
-                    
-                    float x = Bounds.X, y = Bounds.Y, w = Bounds.Width, h = Bounds.Height;
-                    path.AddEllipse(x + w * 0.15f, y + h * 0.2f, w * 0.4f, h * 0.5f);
-                    path.AddEllipse(x + w * 0.35f, y + h * 0.1f, w * 0.5f, h * 0.6f);
-                    path.AddEllipse(x + w * 0.55f, y + h * 0.3f, w * 0.35f, h * 0.5f);
-                    path.AddEllipse(x + w * 0.25f, y + h * 0.4f, w * 0.5f, h * 0.5f);
+                    path.AddArc(Bounds.X, Bounds.Bottom - ellipseHeight, Bounds.Width, ellipseHeight, 0, 180);
+                    path.AddLine(Bounds.X, Bounds.Bottom - ellipseHeight / 2, Bounds.X, Bounds.Y + ellipseHeight / 2);
+                    path.AddArc(Bounds.X, Bounds.Y, Bounds.Width, ellipseHeight, 180, 180);
+                    path.AddLine(Bounds.Right, Bounds.Y + ellipseHeight / 2, Bounds.Right, Bounds.Bottom - ellipseHeight / 2);
+                    if (ShouldDrawShadow) { var m = g.Transform.Clone(); g.TranslateTransform(6, 6); g.FillPath(SharedShadowBrush, path); g.Transform = m; }
+                    if (FillColor != Color.Transparent) g.FillPath(GetCachedFillBrush(Bounds), path);
+                    g.DrawPath(GetCachedPen(), path);
+                    g.DrawEllipse(GetCachedPen(), Bounds.X, Bounds.Y, Bounds.Width, ellipseHeight);
+                }
+                DrawText(g);
+            }
+        }
 
-                    if (ShouldDrawShadow)
-                    {
-                        var m = g.Transform.Clone();
-                        g.TranslateTransform(6, 6);
-                        g.FillPath(SharedShadowBrush, path);
-                        g.Transform = m;
-                    }
-
-                    if (FillColor != Color.Transparent)
-                        g.FillPath(GetCachedFillBrush(Bounds), path);
-                    
+        public class DocumentShape : ShapeBase
+        {
+            public DocumentShape() { }
+            public DocumentShape(PointF start, Color color) : base(start, color) { }
+            public override void Draw(Graphics g)
+            {
+                float waveH = Math.Min(Bounds.Height * 0.15f, 15f);
+                using (GraphicsPath path = new GraphicsPath())
+                {
+                    path.AddLine(Bounds.X, Bounds.Y, Bounds.Right, Bounds.Y);
+                    path.AddLine(Bounds.Right, Bounds.Y, Bounds.Right, Bounds.Bottom - waveH);
+                    path.AddBezier(Bounds.Right, Bounds.Bottom - waveH, Bounds.X + Bounds.Width * 0.75f, Bounds.Bottom, 
+                                   Bounds.X + Bounds.Width * 0.25f, Bounds.Bottom - waveH * 2, Bounds.X, Bounds.Bottom - waveH);
+                    path.CloseFigure();
+                    if (ShouldDrawShadow) { var m = g.Transform.Clone(); g.TranslateTransform(6, 6); g.FillPath(SharedShadowBrush, path); g.Transform = m; }
+                    if (FillColor != Color.Transparent) g.FillPath(GetCachedFillBrush(Bounds), path);
                     g.DrawPath(GetCachedPen(), path);
                 }
+                DrawText(g);
+            }
+        }
+
+        public class BlockArrowShape : ShapeBase
+        {
+            public BlockArrowShape() { }
+            public BlockArrowShape(PointF start, Color color) : base(start, color) { }
+            public override void Draw(Graphics g)
+            {
+                float shaftH = Bounds.Height * 0.5f;
+                float headW = Bounds.Width * 0.4f;
+                PointF[] pts = new PointF[] {
+                    new PointF(Bounds.X, Bounds.Y + Bounds.Height/2 - shaftH/2),
+                    new PointF(Bounds.Right - headW, Bounds.Y + Bounds.Height/2 - shaftH/2),
+                    new PointF(Bounds.Right - headW, Bounds.Y),
+                    new PointF(Bounds.Right, Bounds.Y + Bounds.Height/2),
+                    new PointF(Bounds.Right - headW, Bounds.Bottom),
+                    new PointF(Bounds.Right - headW, Bounds.Y + Bounds.Height/2 + shaftH/2),
+                    new PointF(Bounds.X, Bounds.Y + Bounds.Height/2 + shaftH/2)
+                };
+                if (ShouldDrawShadow) { var m = g.Transform.Clone(); g.TranslateTransform(6, 6); g.FillPolygon(SharedShadowBrush, pts); g.Transform = m; }
+                if (FillColor != Color.Transparent) g.FillPolygon(GetCachedFillBrush(Bounds), pts);
+                g.DrawPolygon(GetCachedPen(), pts);
                 DrawText(g);
             }
         }
