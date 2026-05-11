@@ -1,3 +1,7 @@
+// ============================================================
+// FILE: App_CanvasControl.Input.cs
+// ============================================================
+
 using System;
 using System.Drawing;
 using System.Linq;
@@ -5,7 +9,6 @@ using System.Windows.Forms;
 
 namespace DrawingApp
 {
-    // 負責處理畫布上所有的滑鼠、鍵盤以及拖曳輸入事件
     public partial class App_CanvasControl
     {
         private void Canvas_MouseDown(object sender, MouseEventArgs e)
@@ -154,6 +157,21 @@ namespace DrawingApp
             if (keyData == Keys.L) { RequestToolChange(App_Shapes.ShapeType.OrthogonalLine); return true; }
             if (keyData == Keys.R) { RequestToolChange(App_Shapes.ShapeType.Rectangle); return true; }
 
+            // === 快捷鍵實作 ===
+            if (keyData == (Keys.Control | Keys.A)) 
+            { 
+                ClearSelection(); 
+                foreach (var s in Shapes) { s.IsSelected = true; SelectedShapes.Add(s); }
+                TriggerSelectionChanged();
+                this.Invalidate();
+                return true; 
+            }
+            if (keyData == (Keys.Control | Keys.X)) 
+            { 
+                Copy(); 
+                DeleteSelectedShapes();
+                return true; 
+            }
             if (keyData == (Keys.Control | Keys.Z)) { CmdManager.Undo(); return true; }
             if (keyData == (Keys.Control | Keys.Y)) { CmdManager.Redo(); return true; }
             if (keyData == (Keys.Control | Keys.G)) { GroupSelected(); return true; }
@@ -181,31 +199,37 @@ namespace DrawingApp
 
             if (keyData == Keys.Delete && SelectedShapes.Count > 0)
             {
-                var toRemove = new System.Collections.Generic.List<App_Shapes.ShapeBase>();
-                for (int i = 0; i < SelectedShapes.Count; i++) if (!SelectedShapes[i].IsLocked) toRemove.Add(SelectedShapes[i]);
-                
-                if (toRemove.Count == 0) return true;
-
-                int initialCount = toRemove.Count;
-                for (int i = 0; i < initialCount; i++)
-                {
-                    var s = toRemove[i];
-                    for (int j = 0; j < Shapes.Count; j++)
-                    {
-                        if (Shapes[j] is App_Shapes.ConnectorShape c && (c.SourceId == s.Id || c.TargetId == s.Id))
-                        {
-                            if (!toRemove.Contains(c)) toRemove.Add(c);
-                        }
-                    }
-                }
-                
-                CmdManager.ExecuteCommand(new RemoveShapesCommand(Shapes, toRemove));
-                SelectedShapes.RemoveAll(s => !s.IsLocked);
-                TriggerSelectionChanged();
+                DeleteSelectedShapes();
                 return true;
             }
 
             return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        private void DeleteSelectedShapes()
+        {
+            var toRemove = new System.Collections.Generic.List<App_Shapes.ShapeBase>();
+            for (int i = 0; i < SelectedShapes.Count; i++) if (!SelectedShapes[i].IsLocked) toRemove.Add(SelectedShapes[i]);
+            
+            if (toRemove.Count == 0) return;
+
+            int initialCount = toRemove.Count;
+            for (int i = 0; i < initialCount; i++)
+            {
+                var s = toRemove[i];
+                for (int j = 0; j < Shapes.Count; j++)
+                {
+                    if (Shapes[j] is App_Shapes.ConnectorShape c && (c.SourceId == s.Id || c.TargetId == s.Id))
+                    {
+                        if (!toRemove.Contains(c)) toRemove.Add(c);
+                    }
+                }
+            }
+            
+            CmdManager.ExecuteCommand(new RemoveShapesCommand(Shapes, toRemove));
+            SelectedShapes.RemoveAll(s => !s.IsLocked);
+            TriggerSelectionChanged();
+            this.Invalidate();
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
