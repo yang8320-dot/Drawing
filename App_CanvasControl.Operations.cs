@@ -8,8 +8,6 @@ namespace DrawingApp
     // 負責處理畫布右鍵選單、剪貼簿操作、群組操作與文字編輯器
     public partial class App_CanvasControl
     {
-        // 這裡移除了重複的 public event Action OnStencilAdded; 宣告
-
         private ContextMenuStrip CreateContextMenu()
         {
             var menu = new ContextMenuStrip();
@@ -26,18 +24,33 @@ namespace DrawingApp
             menu.Items.Add("鎖定/解鎖圖形", null, (s, e) => ToggleLock());
             menu.Items.Add(new ToolStripSeparator());
             
-            // 【新增功能：加入自訂圖庫】
+            // 【修正：移除 Microsoft.VisualBasic 依賴，自建輸入視窗】
             menu.Items.Add("⭐ 加入自訂圖庫", null, (s, e) => {
                 if (SelectedShapes.Count == 0) return;
-                string stencilName = Microsoft.VisualBasic.Interaction.InputBox("請輸入自訂圖形名稱：", "加入自訂圖庫", "我的元件");
-                if (!string.IsNullOrWhiteSpace(stencilName))
+                
+                string stencilName = "我的元件";
+                
+                using (Form inputForm = new Form { Text = "加入自訂圖庫", Size = new Size(300, 150), StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog, MaximizeBox = false, MinimizeBox = false })
                 {
-                    App_SaveLoad.SaveStencil(stencilName, SelectedShapes);
-                    
-                    // 這裡呼叫的是 App_CanvasControl.cs 裡面宣告的 OnStencilAdded 事件
-                    NotifyStencilAdded(); 
-                    
-                    MessageBox.Show("已成功加入自訂圖庫！", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    Label lbl = new Label { Text = "請輸入自訂圖形名稱：", Location = new Point(20, 20), AutoSize = true };
+                    TextBox txtName = new TextBox { Text = stencilName, Location = new Point(20, 45), Width = 240 };
+                    Button btnOk = new Button { Text = "確定", DialogResult = DialogResult.OK, Location = new Point(80, 80), Width = 80 };
+                    Button btnCancel = new Button { Text = "取消", DialogResult = DialogResult.Cancel, Location = new Point(180, 80), Width = 80 };
+
+                    inputForm.Controls.Add(lbl);
+                    inputForm.Controls.Add(txtName);
+                    inputForm.Controls.Add(btnOk);
+                    inputForm.Controls.Add(btnCancel);
+                    inputForm.AcceptButton = btnOk;
+                    inputForm.CancelButton = btnCancel;
+
+                    if (inputForm.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(txtName.Text))
+                    {
+                        stencilName = txtName.Text;
+                        App_SaveLoad.SaveStencil(stencilName, SelectedShapes);
+                        NotifyStencilAdded(); 
+                        MessageBox.Show("已成功加入自訂圖庫！", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                 }
             });
 
@@ -56,11 +69,8 @@ namespace DrawingApp
             return menu;
         }
 
-        // 提供給同 Class 但不同檔案呼叫事件的方法
         public void NotifyStencilAdded()
         {
-            // 此方法會透過 App_CanvasControl.cs 中定義的委派觸發
-            // 因為直接寫 OnStencilAdded?.Invoke() 有可能編譯器會誤判作用域，因此用一個 public 方法封裝
             this.TriggerStencilAddedEvent(); 
         }
 
@@ -80,8 +90,8 @@ namespace DrawingApp
             menu.Items[8].Enabled = hasSelection; 
             menu.Items[10].Enabled = hasSelection; 
             
-            menu.Items[12].Enabled = hasSelection; // 加入自訂圖庫
-            menu.Items[14].Enabled = hasSelection; // 匯出 PNG
+            menu.Items[12].Enabled = hasSelection; 
+            menu.Items[14].Enabled = hasSelection; 
             
             if (hasSelection)
             {
