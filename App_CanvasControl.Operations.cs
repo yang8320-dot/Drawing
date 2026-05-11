@@ -8,8 +8,7 @@ namespace DrawingApp
     // 負責處理畫布右鍵選單、剪貼簿操作、群組操作與文字編輯器
     public partial class App_CanvasControl
     {
-        // 【新增功能：觸發更新工具列自訂圖庫的事件】
-        public event Action OnStencilAdded;
+        // 這裡移除了重複的 public event Action OnStencilAdded; 宣告
 
         private ContextMenuStrip CreateContextMenu()
         {
@@ -34,7 +33,10 @@ namespace DrawingApp
                 if (!string.IsNullOrWhiteSpace(stencilName))
                 {
                     App_SaveLoad.SaveStencil(stencilName, SelectedShapes);
-                    OnStencilAdded?.Invoke(); // 通知 MainForm 重新載入圖庫按鈕
+                    
+                    // 這裡呼叫的是 App_CanvasControl.cs 裡面宣告的 OnStencilAdded 事件
+                    NotifyStencilAdded(); 
+                    
                     MessageBox.Show("已成功加入自訂圖庫！", "完成", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             });
@@ -52,6 +54,14 @@ namespace DrawingApp
                 }
             });
             return menu;
+        }
+
+        // 提供給同 Class 但不同檔案呼叫事件的方法
+        public void NotifyStencilAdded()
+        {
+            // 此方法會透過 App_CanvasControl.cs 中定義的委派觸發
+            // 因為直接寫 OnStencilAdded?.Invoke() 有可能編譯器會誤判作用域，因此用一個 public 方法封裝
+            this.TriggerStencilAddedEvent(); 
         }
 
         private void ContextMenuStrip_Opening(object sender, System.ComponentModel.CancelEventArgs e)
