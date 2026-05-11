@@ -31,10 +31,10 @@ namespace DrawingApp
         // 屬性面板變數宣告
         private GroupBox _gbAlign;
         private CheckBox _chkAlignToPage;
-        private FlowLayoutPanel _alignmentPanel;
+        private Panel _alignmentPanel;   // 【修正】：將 FlowLayoutPanel 改為 Panel
         
         private GroupBox _gbZIndex;
-        private FlowLayoutPanel _zIndexPanel;
+        private Panel _zIndexPanel;      // 【修正】：將 FlowLayoutPanel 改為 Panel
         
         private FlowLayoutPanel _customPropertiesPanel;
         private GroupBox _gbAppearance;
