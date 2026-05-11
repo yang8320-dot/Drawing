@@ -347,15 +347,53 @@ namespace DrawingApp
             CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
         }
 
+        // 👑 修復：將被截斷的均分圖形 (DistributeShapes) 補齊
         private void DistributeShapes(string type)
         {
             if (CurrentCanvas == null) return;
             var shapes = CurrentCanvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
             if (shapes.Count < 3) return;
 
+            // 確保均分順序是由左到右或由上到下
+            if (type == "Horizontal")
+            {
+                shapes = shapes.OrderBy(s => s.Bounds.X).ToList();
+            }
+            else if (type == "Vertical")
+            {
+                shapes = shapes.OrderBy(s => s.Bounds.Y).ToList();
+            }
+
             var oldBounds = shapes.Select(s => s.Bounds).ToList();
             var newBounds = new List<RectangleF>();
 
             if (type == "Horizontal")
             {
-                shapes = shapes.Order
+                float firstX = shapes.First().Bounds.X;
+                float lastX = shapes.Last().Bounds.X;
+                float step = (lastX - firstX) / (shapes.Count - 1);
+
+                for (int i = 0; i < shapes.Count; i++)
+                {
+                    var s = shapes[i];
+                    newBounds.Add(new RectangleF(firstX + i * step, s.Bounds.Y, s.Bounds.Width, s.Bounds.Height));
+                }
+            }
+            else if (type == "Vertical")
+            {
+                float firstY = shapes.First().Bounds.Y;
+                float lastY = shapes.Last().Bounds.Y;
+                float step = (lastY - firstY) / (shapes.Count - 1);
+
+                for (int i = 0; i < shapes.Count; i++)
+                {
+                    var s = shapes[i];
+                    newBounds.Add(new RectangleF(s.Bounds.X, firstY + i * step, s.Bounds.Width, s.Bounds.Height));
+                }
+            }
+
+            // 透過 Command 執行以便支援復原功能
+            CurrentCanvas.CmdManager.ExecuteCommand(new TransformShapesCommand(shapes, oldBounds, newBounds));
+        }
+    }
+}
