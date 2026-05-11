@@ -33,7 +33,6 @@ namespace DrawingApp
                     case ShapeType.Document: return new DocumentShape(start, color);
                     case ShapeType.BlockArrow: return new BlockArrowShape(start, color);
                     
-                    // 新增圖形實作
                     case ShapeType.DoubleArrow: return new DoubleArrowShape(start, color);
                     case ShapeType.BraceLeft: return new BraceLeftShape(start, color);
                     case ShapeType.BraceRight: return new BraceRightShape(start, color);
