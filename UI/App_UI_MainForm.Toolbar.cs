@@ -22,7 +22,6 @@ namespace DrawingApp
         private Button _btnPointer;
         private Button _btnFormatPainter;
 
-        // 面板展開狀態記憶
         private Dictionary<string, bool> _panelStates = new Dictionary<string, bool>();
 
         private CheckBox _chkAlignToPage;
@@ -302,12 +301,10 @@ namespace DrawingApp
             _topBar.Controls.Add(CreateTextButton("📤 匯出圖檔", 100, (s, e) => ShowExportDialog()));
         }
 
-        // ==========================================
-        // 【修正的左側面板】解決群組消失的問題
-        // ==========================================
         private void BuildLeftPanel()
         {
-            _leftPanelContainer = new Panel { Dock = DockStyle.Left, Width = 110, BackColor = Color.FromArgb(240, 240, 240) };
+            // 將寬度從 110 改為 130
+            _leftPanelContainer = new Panel { Dock = DockStyle.Left, Width = 130, BackColor = Color.FromArgb(240, 240, 240) };
             
             Panel togglePanel = new Panel { Dock = DockStyle.Top, Height = 30, BackColor = Color.LightGray };
             Button btnToggle = new Button { Text = "◀ 隱藏工具", Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat, BackColor = Color.White };
@@ -318,7 +315,7 @@ namespace DrawingApp
                     btnToggle.Text = "▶";
                     _leftPanel.Visible = false;
                 } else {
-                    _leftPanelContainer.Width = 110;
+                    _leftPanelContainer.Width = 130;
                     btnToggle.Text = "◀ 隱藏工具";
                     _leftPanel.Visible = true;
                 }
@@ -330,30 +327,34 @@ namespace DrawingApp
             var grpGeneral = CreateToolGroup("通用工具", "grpGeneral", new Control[] {
                 _btnPointer = CreateToolButton(App_Shapes.ShapeType.Pointer, "游標 (V)"),
                 CreateToolButton(App_Shapes.ShapeType.HandPan, "拖曳畫布 (H)"),
-                _btnFormatPainter = CreateToolButton(App_Shapes.ShapeType.FormatPainter, "格式刷")
-            });
-
-            var grpConnectors = CreateToolGroup("連線工具", "grpConnectors", new Control[] {
-                CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭"),
-                CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線"),
-                CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "折線 (L)")
+                _btnFormatPainter = CreateToolButton(App_Shapes.ShapeType.FormatPainter, "格式刷"),
+                CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框 (T)"),
+                CreateToolButton(App_Shapes.ShapeType.Text, "純文字")
             });
 
             var grpBasic = CreateToolGroup("基本圖形", "grpBasic", new Control[] {
                 CreateToolButton(App_Shapes.ShapeType.Rectangle, "矩形 (R)"),
                 CreateToolButton(App_Shapes.ShapeType.RoundedRectangle, "圓角矩形"),
                 CreateToolButton(App_Shapes.ShapeType.Circle, "圓形"),
+                CreateToolButton(App_Shapes.ShapeType.Arc, "圓弧"),
                 CreateToolButton(App_Shapes.ShapeType.Triangle, "三角形"),
-                CreateToolButton(App_Shapes.ShapeType.TextNode, "文字框 (T)"),
-                CreateToolButton(App_Shapes.ShapeType.Text, "純文字")
+                CreateToolButton(App_Shapes.ShapeType.Diamond, "菱形"),
+                CreateToolButton(App_Shapes.ShapeType.Parallelogram, "平行四邊形"),
+                CreateToolButton(App_Shapes.ShapeType.Cylinder, "資料庫/圓柱體")
             });
 
-            var grpAdvanced = CreateToolGroup("進階圖形", "grpAdvanced", new Control[] {
-                CreateToolButton(App_Shapes.ShapeType.Diamond, "菱形"),
+            var grpConnectors = CreateToolGroup("箭頭與連線", "grpConnectors", new Control[] {
+                CreateToolButton(App_Shapes.ShapeType.ArrowLine, "智慧箭頭"),
+                CreateToolButton(App_Shapes.ShapeType.StraightLine, "智慧直線"),
+                CreateToolButton(App_Shapes.ShapeType.OrthogonalLine, "折線 (L)"),
+                CreateToolButton(App_Shapes.ShapeType.BlockArrow, "粗箭頭")
+            });
+
+            var grpAdvanced = CreateToolGroup("流程圖/進階", "grpAdvanced", new Control[] {
+                CreateToolButton(App_Shapes.ShapeType.Document, "文件"),
                 CreateToolButton(App_Shapes.ShapeType.Pentagon, "五邊形"),
                 CreateToolButton(App_Shapes.ShapeType.Hexagon, "六邊形"),
-                CreateToolButton(App_Shapes.ShapeType.Star, "星形"),
-                CreateToolButton(App_Shapes.ShapeType.Cloud, "雲朵")
+                CreateToolButton(App_Shapes.ShapeType.Star, "星形")
             });
 
             var grpDraw = CreateToolGroup("自由繪圖", "grpDraw", new Control[] {
@@ -363,8 +364,8 @@ namespace DrawingApp
             });
 
             _leftPanel.Controls.Add(grpGeneral);
-            _leftPanel.Controls.Add(grpConnectors);
             _leftPanel.Controls.Add(grpBasic);
+            _leftPanel.Controls.Add(grpConnectors);
             _leftPanel.Controls.Add(grpAdvanced);
             _leftPanel.Controls.Add(grpDraw);
 
@@ -389,23 +390,22 @@ namespace DrawingApp
             };
         }
 
-        // 【安全穩定的群組容器】
         private FlowLayoutPanel CreateToolGroup(string title, string groupId, Control[] buttons)
         {
             FlowLayoutPanel groupContainer = new FlowLayoutPanel
             {
-                Width = 90,
+                Width = 110, // 群組加寬
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 FlowDirection = FlowDirection.TopDown,
-                Margin = new Padding(0, 5, 0, 0),
+                Margin = new Padding(3, 5, 3, 0),
                 WrapContents = false
             };
 
             Button btnHeader = new Button
             {
                 Text = title,
-                Width = 90,
+                Width = 110, // 按鈕加寬
                 Height = 25,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(220, 220, 220),
@@ -417,7 +417,7 @@ namespace DrawingApp
 
             FlowLayoutPanel contentPanel = new FlowLayoutPanel
             {
-                Width = 90,
+                Width = 110, // 內容區加寬
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = Color.White,
@@ -484,10 +484,9 @@ namespace DrawingApp
             _activeToolBtn.BackColor = Color.LightSkyBlue;
         }
 
-        // 【完整補回畫圖示與拖曳邏輯】
         private Button CreateToolButton(App_Shapes.ShapeType type, string tooltip)
         {
-            Button btn = new Button { Size = new Size(40, 40), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(1, 1, 1, 1) };
+            Button btn = new Button { Size = new Size(33, 33), FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Margin = new Padding(1) };
             btn.FlatAppearance.BorderSize = 0;
             btn.Tag = type; 
             Color iconColor = Color.FromArgb(80, 80, 80);
@@ -522,45 +521,60 @@ namespace DrawingApp
             btn.Paint += (s, e) => {
                 Graphics g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                using (Pen p = new Pen(iconColor, 2))
+                using (Pen p = new Pen(iconColor, 1.5f))
                 {
-                    if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(14, 12), new Point(14, 32), new Point(20, 24), new Point(27, 24) });
+                    // 縮小 icon 偏移量，適應 33x33 大小
+                    if (type == App_Shapes.ShapeType.Pointer) g.DrawPolygon(p, new Point[] { new Point(10, 8), new Point(10, 24), new Point(15, 18), new Point(22, 18) });
                     else if (type == App_Shapes.ShapeType.HandPan) 
                     { 
-                        g.DrawLine(p, 16, 26, 16, 14); g.DrawArc(p, 14, 12, 4, 4, 180, 180); 
-                        g.DrawLine(p, 20, 26, 20, 10); g.DrawArc(p, 18, 8, 4, 4, 180, 180); 
-                        g.DrawLine(p, 24, 26, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
-                        g.DrawLine(p, 28, 26, 28, 16); g.DrawArc(p, 26, 14, 4, 4, 180, 180); 
-                        g.DrawArc(p, 14, 26, 18, 12, 0, 180);
+                        g.DrawLine(p, 12, 20, 12, 10); g.DrawArc(p, 10, 8, 4, 4, 180, 180); 
+                        g.DrawLine(p, 16, 20, 16, 6); g.DrawArc(p, 14, 4, 4, 4, 180, 180); 
+                        g.DrawLine(p, 20, 20, 20, 8); g.DrawArc(p, 18, 6, 4, 4, 180, 180); 
+                        g.DrawLine(p, 24, 20, 24, 12); g.DrawArc(p, 22, 10, 4, 4, 180, 180); 
+                        g.DrawArc(p, 10, 20, 14, 10, 0, 180);
                     }
                     else if (type == App_Shapes.ShapeType.FormatPainter) 
                     {
-                        g.FillRectangle(new SolidBrush(iconColor), 14, 10, 16, 8);
-                        g.DrawRectangle(p, 16, 18, 12, 4);
-                        g.DrawLine(p, 22, 22, 22, 34);
+                        g.FillRectangle(new SolidBrush(iconColor), 10, 6, 14, 6);
+                        g.DrawRectangle(p, 12, 12, 10, 4);
+                        g.DrawLine(p, 17, 16, 17, 26);
                     }
-                    else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 10, 32, 32, 10); g.DrawLine(p, 22, 10, 32, 10); g.DrawLine(p, 32, 10, 32, 20); }
-                    else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 10, 32, 32, 10);
-                    else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(10, 32), new PointF(22, 32), new PointF(22, 12), new PointF(32, 12) });
-                    else if (type == App_Shapes.ShapeType.Rectangle) g.DrawRectangle(p, 8, 12, 24, 16);
+                    else if (type == App_Shapes.ShapeType.ArrowLine) { g.DrawLine(p, 6, 26, 26, 6); g.DrawLine(p, 18, 6, 26, 6); g.DrawLine(p, 26, 6, 26, 14); }
+                    else if (type == App_Shapes.ShapeType.StraightLine) g.DrawLine(p, 6, 26, 26, 6);
+                    else if (type == App_Shapes.ShapeType.OrthogonalLine) g.DrawLines(p, new PointF[] { new PointF(6, 26), new PointF(16, 26), new PointF(16, 10), new PointF(26, 10) });
+                    
+                    else if (type == App_Shapes.ShapeType.Rectangle) g.DrawRectangle(p, 6, 10, 20, 14);
                     else if (type == App_Shapes.ShapeType.RoundedRectangle) 
                     {
                         using(GraphicsPath gp = new GraphicsPath()) {
-                            gp.AddArc(8, 12, 6, 6, 180, 90); gp.AddArc(26, 12, 6, 6, 270, 90);
-                            gp.AddArc(26, 22, 6, 6, 0, 90); gp.AddArc(8, 22, 6, 6, 90, 90);
+                            gp.AddArc(6, 10, 4, 4, 180, 90); gp.AddArc(22, 10, 4, 4, 270, 90);
+                            gp.AddArc(22, 20, 4, 4, 0, 90); gp.AddArc(6, 20, 4, 4, 90, 90);
                             gp.CloseFigure(); g.DrawPath(p, gp);
                         }
                     }
-                    else if (type == App_Shapes.ShapeType.Circle) g.DrawEllipse(p, 10, 10, 20, 20);
-                    else if (type == App_Shapes.ShapeType.Arc) g.DrawArc(p, 10, 10, 20, 20, 180, 180);
-                    else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(20, 8), new PointF(32, 20), new PointF(20, 32), new PointF(8, 20) });
-                    else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(20, 10), new PointF(32, 30), new PointF(8, 30) });
+                    else if (type == App_Shapes.ShapeType.Circle) g.DrawEllipse(p, 6, 6, 20, 20);
+                    else if (type == App_Shapes.ShapeType.Arc) g.DrawArc(p, 6, 6, 20, 20, 180, 180);
+                    
+                    // 新增的圖示
+                    else if (type == App_Shapes.ShapeType.Parallelogram) g.DrawPolygon(p, new PointF[] { new PointF(12,8), new PointF(26,8), new PointF(20,24), new PointF(6,24) });
+                    else if (type == App_Shapes.ShapeType.Cylinder) {
+                        g.DrawEllipse(p, 8, 6, 16, 6); g.DrawLine(p, 8, 9, 8, 24); g.DrawLine(p, 24, 9, 24, 24); g.DrawArc(p, 8, 21, 16, 6, 0, 180);
+                    }
+                    else if (type == App_Shapes.ShapeType.Document) {
+                        g.DrawLine(p, 6, 8, 24, 8); g.DrawLine(p, 24, 8, 24, 22);
+                        g.DrawBezier(p, new Point(24,22), new Point(18,26), new Point(12,18), new Point(6,22));
+                        g.DrawLine(p, 6, 22, 6, 8);
+                    }
+                    else if (type == App_Shapes.ShapeType.BlockArrow) g.DrawPolygon(p, new PointF[] { new PointF(6,12), new PointF(16,12), new PointF(16,8), new PointF(26,16), new PointF(16,24), new PointF(16,20), new PointF(6,20) });
+
+                    else if (type == App_Shapes.ShapeType.Diamond) g.DrawPolygon(p, new PointF[] { new PointF(16, 6), new PointF(26, 16), new PointF(16, 26), new PointF(6, 16) });
+                    else if (type == App_Shapes.ShapeType.Triangle) g.DrawPolygon(p, new PointF[] { new PointF(16, 8), new PointF(26, 24), new PointF(6, 24) });
                     else if (type == App_Shapes.ShapeType.Pentagon) 
                     {
                         PointF[] pts = new PointF[5];
                         for (int i = 0; i < 5; i++) {
                             double a = Math.PI / 2 + (i * 2 * Math.PI / 5);
-                            pts[i] = new PointF(20 - (float)(11 * Math.Cos(a)), 20 - (float)(11 * Math.Sin(a)));
+                            pts[i] = new PointF(16 - (float)(10 * Math.Cos(a)), 16 - (float)(10 * Math.Sin(a)));
                         }
                         g.DrawPolygon(p, pts);
                     }
@@ -569,7 +583,7 @@ namespace DrawingApp
                         PointF[] pts = new PointF[6];
                         for (int i = 0; i < 6; i++) {
                             double a = i * Math.PI / 3;
-                            pts[i] = new PointF(20 + (float)(11 * Math.Cos(a)), 20 + (float)(11 * Math.Sin(a)));
+                            pts[i] = new PointF(16 + (float)(10 * Math.Cos(a)), 16 + (float)(10 * Math.Sin(a)));
                         }
                         g.DrawPolygon(p, pts);
                     }
@@ -578,26 +592,20 @@ namespace DrawingApp
                         PointF[] pts = new PointF[10];
                         for (int i = 0; i < 10; i++) {
                             double a = Math.PI / 2 + (i * Math.PI / 5);
-                            float r = (i % 2 == 0) ? 12 : 5;
-                            pts[i] = new PointF(20 - (float)(r * Math.Cos(a)), 20 - (float)(r * Math.Sin(a)));
+                            float r = (i % 2 == 0) ? 10 : 4;
+                            pts[i] = new PointF(16 - (float)(r * Math.Cos(a)), 16 - (float)(r * Math.Sin(a)));
                         }
                         g.DrawPolygon(p, pts);
                     }
-                    else if (type == App_Shapes.ShapeType.Cloud) 
-                    {
-                        g.DrawArc(p, 8, 16, 10, 10, 90, 180); g.DrawArc(p, 12, 10, 12, 12, 180, 180);
-                        g.DrawArc(p, 20, 12, 12, 12, 270, 180); g.DrawArc(p, 22, 18, 10, 10, 0, 180);
-                        g.DrawLine(p, 13, 26, 27, 26);
-                    }
-                    else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 6, 12, 28, 16); g.DrawString("A", new Font("Arial", 10), new SolidBrush(iconColor), 12, 12); }
-                    else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 14, FontStyle.Bold), new SolidBrush(iconColor), 11, 8);
-                    else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 8, 8, 24, 24); g.DrawEllipse(p, 12, 12, 4, 4); g.DrawLine(p, 8, 32, 22, 18); }
-                    else if (type == App_Shapes.ShapeType.Freehand) { g.DrawBezier(p, new Point(8, 20), new Point(18, 8), new Point(23, 32), new Point(33, 20)); }
+                    else if (type == App_Shapes.ShapeType.TextNode) { g.DrawRectangle(p, 4, 10, 24, 14); g.DrawString("A", new Font("Arial", 9), new SolidBrush(iconColor), 9, 9); }
+                    else if (type == App_Shapes.ShapeType.Text) g.DrawString("T", new Font("Arial", 12, FontStyle.Bold), new SolidBrush(iconColor), 8, 6);
+                    else if (type == App_Shapes.ShapeType.Image) { g.DrawRectangle(p, 6, 6, 20, 20); g.DrawEllipse(p, 10, 10, 3, 3); g.DrawLine(p, 6, 26, 18, 14); }
+                    else if (type == App_Shapes.ShapeType.Freehand) { g.DrawBezier(p, new Point(6, 18), new Point(14, 6), new Point(18, 28), new Point(26, 18)); }
                     else if (type == App_Shapes.ShapeType.BezierPen) 
                     { 
-                        g.DrawLine(p, 20, 10, 14, 24); g.DrawLine(p, 20, 10, 26, 24); 
-                        g.DrawLine(p, 14, 24, 20, 32); g.DrawLine(p, 26, 24, 20, 32);
-                        g.FillEllipse(Brushes.White, 18, 8, 4, 4); g.DrawEllipse(p, 18, 8, 4, 4); 
+                        g.DrawLine(p, 16, 8, 10, 20); g.DrawLine(p, 16, 8, 22, 20); 
+                        g.DrawLine(p, 10, 20, 16, 28); g.DrawLine(p, 22, 20, 16, 28);
+                        g.FillEllipse(Brushes.White, 14, 6, 4, 4); g.DrawEllipse(p, 14, 6, 4, 4); 
                     }
                 }
             };
