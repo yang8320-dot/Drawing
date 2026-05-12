@@ -46,7 +46,7 @@ namespace DrawingApp
         }
         
         // ===== 視角與渲染設定 =====
-        public float ZoomFactor { get; private set; } = 1.0f;
+        public float ZoomFactor { get; set; } = 1.0f;
         private PointF _cameraOffset = new PointF(0, 0);
         private bool _isPanning = false;
         private Point _lastMousePos;
@@ -70,44 +70,6 @@ namespace DrawingApp
         private App_Shapes.ShapeType _currentToolType = App_Shapes.ShapeType.Pointer;
         private App_Shapes.ShapeType _previousToolType = App_Shapes.ShapeType.Pointer;
         
-        public App_Shapes.ShapeType CurrentShapeType => _currentToolType;
-        public Color CurrentColor { get; set; } = Color.Black;
-
-        public List<App_Shapes.ShapeBase> SelectedShapes { get; private set; } = new List<App_Shapes.ShapeBase>();
-        private App_Shapes.ShapeBase _tempShape = null;
-        public App_Shapes.ShapeBase FormatSourceShape { get; set; }
-
-        public App_Shapes.ShapeBase DefaultFormatTemplate { get; } = new App_Shapes.RectShape(new PointF(0, 0), Color.Black);
-
-        private App_Shapes.ShapeBase _hoveredShapeForConnection = null;
-        private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
-        private List<Tuple<PointF, PointF>> _smartGuides = new List<Tuple<PointF, PointF>>();
-
-        // ===== 附屬元件狀態 =====
-        private Rectangle _minimapRect;
-        private bool _isDraggingMinimap = false;
-        private const int MINIMAP_WIDTH = 200;
-
-        private TextBox _inlineTextBox;
-        private App_Shapes.ShapeBase _editingShape = null;
-
-        private App_Shapes.QuadTree _quadTree;
-        private bool _isQuadTreeDirty = true;
-        
-        private List<App_Shapes.ShapeBase> _clipboard = new List<App_Shapes.ShapeBase>();
-
-        // ===== 事件委派 =====
-        public event Action<PointF> OnImageInsertRequested;
-        public event Action<App_Shapes.ShapeType> OnToolChangedRequested;
-        public event Action OnSelectionChanged;
-        public event Action OnStencilAdded; // 唯一宣告的位置
-        public event Action OnDefaultFormatChanged;
-
-        public void TriggerStencilAddedEvent()
-        {
-            OnStencilAdded?.Invoke();
-        }
-
         public App_Shapes.ShapeType CurrentTool 
         { 
             get => _currentToolType; 
@@ -131,6 +93,44 @@ namespace DrawingApp
                 }
             } 
         }
+
+        public App_Shapes.ShapeType CurrentShapeType => _currentToolType;
+        public Color CurrentColor { get; set; } = Color.Black;
+
+        public List<App_Shapes.ShapeBase> SelectedShapes { get; private set; } = new List<App_Shapes.ShapeBase>();
+        private App_Shapes.ShapeBase _tempShape = null;
+        public App_Shapes.ShapeBase FormatSourceShape { get; set; }
+
+        public App_Shapes.ShapeBase DefaultFormatTemplate { get; } = new App_Shapes.RectShape(new PointF(0, 0), Color.Black);
+
+        private App_Shapes.ShapeBase _hoveredShapeForConnection = null;
+        private App_Shapes.AnchorPosition _hoveredAnchor = App_Shapes.AnchorPosition.Auto;
+        private List<Tuple<PointF, PointF>> _smartGuides = new List<Tuple<PointF, PointF>>();
+
+        // 視覺對焦點
+        public PointF? ActiveSnapPoint { get; set; } = null;
+
+        // ===== 附屬元件狀態 =====
+        private Rectangle _minimapRect;
+        private bool _isDraggingMinimap = false;
+        private const int MINIMAP_WIDTH = 200;
+
+        private TextBox _inlineTextBox;
+        private App_Shapes.ShapeBase _editingShape = null;
+
+        private App_Shapes.QuadTree _quadTree;
+        private bool _isQuadTreeDirty = true;
+        
+        private List<App_Shapes.ShapeBase> _clipboard = new List<App_Shapes.ShapeBase>();
+
+        // ===== 事件委派 =====
+        public event Action<PointF> OnImageInsertRequested;
+        public event Action<App_Shapes.ShapeType> OnToolChangedRequested;
+        public event Action OnSelectionChanged;
+        public event Action OnStencilAdded; 
+        public event Action OnDefaultFormatChanged;
+
+        public void TriggerStencilAddedEvent() => OnStencilAdded?.Invoke();
 
         public App_CanvasControl()
         {
@@ -157,7 +157,6 @@ namespace DrawingApp
         }
 
         public void NotifyDefaultFormatChanged() => OnDefaultFormatChanged?.Invoke();
-
         public void RequestToolChange(App_Shapes.ShapeType type) => OnToolChangedRequested?.Invoke(type);
         public void SetTempShape(App_Shapes.ShapeBase shape) { _tempShape = shape; }
         public void TriggerSelectionChanged() => OnSelectionChanged?.Invoke();
