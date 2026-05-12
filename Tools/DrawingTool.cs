@@ -17,10 +17,13 @@ namespace DrawingApp.Tools
         {
             if (e.Button != MouseButtons.Left) return;
 
-            // 第一下點擊也能抓取對焦點
-            PointF snapPt = FindSnapPoint(canvas, realPt);
+            PointF snapPt = realPt;
             
-            // 如果沒抓到對焦點，才套用格線鎖點
+            // 只有開啟鎖點，才去尋找對焦點
+            if (canvas.EnableObjectSnap) snapPt = FindSnapPoint(canvas, realPt);
+            else canvas.ActiveSnapPoint = null;
+            
+            // 若沒鎖到物件，套用網格鎖點
             if (canvas.ActiveSnapPoint == null && canvas.CurrentShapeType != App_Shapes.ShapeType.Freehand)
             {
                 snapPt = new PointF(canvas.Snap(snapPt.X), canvas.Snap(snapPt.Y));
@@ -38,8 +41,9 @@ namespace DrawingApp.Tools
         {
             if (e.Button != MouseButtons.Left || _tempShape == null) 
             {
-                // 空手移動時尋找對焦點提示
-                FindSnapPoint(canvas, realPt);
+                if (canvas.EnableObjectSnap) FindSnapPoint(canvas, realPt);
+                else canvas.ActiveSnapPoint = null;
+                
                 if (canvas.ActiveSnapPoint != null) canvas.Invalidate();
                 return;
             }
@@ -53,16 +57,14 @@ namespace DrawingApp.Tools
             }
             else
             {
-                // 1. 尋找物件鎖點 (優先)
-                targetPt = FindSnapPoint(canvas, realPt, _tempShape);
+                if (canvas.EnableObjectSnap) targetPt = FindSnapPoint(canvas, realPt, _tempShape);
+                else canvas.ActiveSnapPoint = null;
                 
-                // 2. 如果沒有吸附到物件，才套用格線
                 if (canvas.ActiveSnapPoint == null)
                 {
                     targetPt = new PointF(canvas.Snap(targetPt.X), canvas.Snap(targetPt.Y));
                 }
 
-                // 3. 套用正交約束 (Shift 或 UI 勾選)
                 if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift))
                 {
                     targetPt = ApplyOrtho(_startRealPt, targetPt);
@@ -98,7 +100,7 @@ namespace DrawingApp.Tools
 
             canvas.SetTempShape(null);
             _tempShape = null;
-            canvas.ActiveSnapPoint = null; // 清除視覺
+            canvas.ActiveSnapPoint = null;
 
             canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
             canvas.Invalidate();
