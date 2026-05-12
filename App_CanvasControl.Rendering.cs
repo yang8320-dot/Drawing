@@ -42,7 +42,6 @@ namespace DrawingApp
 
             if (SnapToGrid) DrawGrid(g, viewRect);
 
-            // 繪製最外層的保護框線（代表有圖形的範圍）
             using (Pen pPage = new Pen(Color.LightCoral, 2) { DashStyle = DashStyle.Dash })
                 g.DrawRectangle(pPage, 0, 0, currentCanvasSize.Width, currentCanvasSize.Height);
 
@@ -68,7 +67,6 @@ namespace DrawingApp
                             {
                                 int pageNum = r * cols + c + 1;
                                 string pageText = $"{CanvasTitle} - 第 {pageNum} 頁 / 共 {totalPages} 頁";
-                                
                                 SizeF textSize = g.MeasureString(pageText, pageFont);
                                 g.DrawString(pageText, pageFont, pageBrush, x + PageSize.Width - textSize.Width - 20, y + PageSize.Height - textSize.Height - 20);
                             }
@@ -123,14 +121,16 @@ namespace DrawingApp
             
             _currentToolInstance?.OnPaint(this, g);
 
-            if (_hoveredShapeForConnection != null)
+            // 繪製明確的對焦點視覺提示 (綠色十字與圓圈)
+            if (ActiveSnapPoint.HasValue)
             {
-                PointF anchorPt = _hoveredAnchor == App_Shapes.AnchorPosition.Auto 
-                    ? _hoveredShapeForConnection.GetIntersection(GetRealPointFromMouse()) 
-                    : _hoveredShapeForConnection.GetAnchorPoint(_hoveredAnchor);
-                
-                g.FillEllipse(Brushes.LightCoral, anchorPt.X - 5, anchorPt.Y - 5, 10, 10);
-                g.DrawEllipse(Pens.Red, anchorPt.X - 5, anchorPt.Y - 5, 10, 10);
+                PointF sp = ActiveSnapPoint.Value;
+                using (Pen snapPen = new Pen(Color.LimeGreen, 2f))
+                {
+                    g.DrawEllipse(snapPen, sp.X - 6, sp.Y - 6, 12, 12);
+                    g.DrawLine(snapPen, sp.X - 10, sp.Y, sp.X + 10, sp.Y);
+                    g.DrawLine(snapPen, sp.X, sp.Y - 10, sp.X, sp.Y + 10);
+                }
             }
 
             for (int i = 0; i < SelectedShapes.Count; i++) SelectedShapes[i].DrawSelection(g);
@@ -238,7 +238,6 @@ namespace DrawingApp
             using (Pen vp = new Pen(Color.Red, 2f)) g.DrawRectangle(vp, vx, vy, vw, vh);
         }
 
-        // 【補回遺失的方法】
         private void UpdateCameraFromMinimap(Point mouseLoc)
         {
             float minimapScale = MINIMAP_WIDTH / ActualPageSize.Width;
