@@ -11,46 +11,59 @@ namespace DrawingApp.Tools
     public class DrawingTool : ToolBase
     {
         private App_Shapes.ShapeBase _tempShape = null;
+        private PointF _startRealPt;
 
         public override void OnMouseDown(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
         {
             if (e.Button != MouseButtons.Left) return;
 
-            PointF snapPt = canvas.CurrentShapeType == App_Shapes.ShapeType.Freehand ? realPt : new PointF(canvas.Snap(realPt.X), canvas.Snap(realPt.Y));
-            _tempShape = App_Shapes.ShapeFactory.CreateShape(canvas.CurrentShapeType, snapPt, canvas.CurrentColor);
+            // 第一下點擊也能抓取對焦點
+            PointF snapPt = FindSnapPoint(canvas, realPt);
+            if (canvas.CurrentShapeType != App_Shapes.ShapeType.Freehand)
+            {
+                snapPt = new PointF(canvas.Snap(snapPt.X), canvas.Snap(snapPt.Y));
+            }
             
-            // 【Req 9: 新增圖形時，自動套用使用者先前的設定格式】
+            _startRealPt = snapPt;
+            _tempShape = App_Shapes.ShapeFactory.CreateShape(canvas.CurrentShapeType, snapPt, canvas.CurrentColor);
             _tempShape.ApplyFormatFrom(canvas.DefaultFormatTemplate);
             
             canvas.SetTempShape(_tempShape);
+            canvas.Invalidate();
         }
 
         public override void OnMouseMove(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
         {
-            if (e.Button != MouseButtons.Left || _tempShape == null) return;
+            if (e.Button != MouseButtons.Left || _tempShape == null) 
+            {
+                // 就算還沒按下，只要移動就去尋找周圍是否有對焦點可提示
+                PointF hoverSnap = FindSnapPoint(canvas, realPt);
+                if (canvas.ActiveSnapPoint != null) canvas.Invalidate();
+                return;
+            }
 
             RectangleF oldBounds = _tempShape.Bounds;
+            PointF targetPt = realPt;
 
             if (_tempShape is App_Shapes.FreehandShape fh)
             {
-                fh.AddPoint(realPt);
+                fh.AddPoint(targetPt);
             }
             else
             {
-                // 【Req 1: 整合 Shift 鍵與 UI 的正交模式選項】
-                bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift) || canvas.EnableOrthoMode;
-                float snapX = canvas.Snap(realPt.X);
-                float snapY = canvas.Snap(realPt.Y);
+                // 優先尋找鎖點 (會設定綠色十字)
+                targetPt = FindSnapPoint(canvas, realPt, _tempShape);
                 
-                if (keepRatio)
+                // 套用網格吸附
+                targetPt = new PointF(canvas.Snap(targetPt.X), canvas.Snap(targetPt.Y));
+
+                // 套用正交約束 (Shift 或 UI 勾選)
+                if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift))
                 {
-                    float diffX = snapX - _tempShape.Bounds.X;
-                    float diffY = snapY - _tempShape.Bounds.Y;
-                    float maxDim = (float)Math.Max(Math.Abs(diffX), Math.Abs(diffY));
-                    snapX = _tempShape.Bounds.X + maxDim * Math.Sign(diffX);
-                    snapY = _tempShape.Bounds.Y + maxDim * Math.Sign(diffY);
+                    targetPt = ApplyOrtho(_startRealPt, targetPt);
                 }
-                _tempShape.UpdateEndPoint(new PointF(snapX, snapY));
+
+                _tempShape.UpdateEndPoint(targetPt);
             }
 
             canvas.InvalidateWorldRect(oldBounds);
@@ -80,6 +93,7 @@ namespace DrawingApp.Tools
 
             canvas.SetTempShape(null);
             _tempShape = null;
+            canvas.ActiveSnapPoint = null; // 清除對焦點視覺
 
             canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
             canvas.Invalidate();
@@ -94,6 +108,7 @@ namespace DrawingApp.Tools
                     _tempShape.Dispose();
                     _tempShape = null;
                     canvas.SetTempShape(null);
+                    canvas.ActiveSnapPoint = null;
                     canvas.Invalidate();
                 }
                 canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
@@ -110,6 +125,7 @@ namespace DrawingApp.Tools
                 _tempShape = null;
                 canvas.SetTempShape(null);
             }
+            canvas.ActiveSnapPoint = null;
         }
     }
 }
