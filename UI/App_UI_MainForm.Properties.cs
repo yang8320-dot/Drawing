@@ -27,7 +27,7 @@ namespace DrawingApp
                 FlowDirection = FlowDirection.TopDown, 
                 WrapContents = false, 
                 AutoScroll = true, 
-                Padding = new Padding(5, 10, 5, 10) 
+                Padding = new Padding(5, 5, 5, 10) 
             };
 
             Font contentFont = new Font("微軟正黑體", 9, FontStyle.Regular);
@@ -35,22 +35,22 @@ namespace DrawingApp
             // ==========================================
             // 【大框 1】外觀與線條設定
             // ==========================================
-            TableLayoutPanel tlpApp = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, Width = 265, Font = contentFont, Padding = new Padding(5, 10, 5, 15) };
-            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
-            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            TableLayoutPanel tlpApp = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, Width = 265, Font = contentFont, Padding = new Padding(5, 10, 5, 10) };
+            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 85)); // 增加左側標籤寬度，避免文字被切斷
+            tlpApp.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // 右側自動填滿剩餘寬度
 
-            tlpApp.Controls.Add(new Label { Text = "邊框顏色", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 0);
+            tlpApp.Controls.Add(new Label { Text = "邊框顏色", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 0);
             _btnShapeColor = new Button { Height = 25, FlatStyle = FlatStyle.Flat, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
             _btnShapeColor.Click += (s, e) => PickColor(_btnShapeColor, c => ApplyPropertyChange(cmd => cmd.ShapeColor = c));
             tlpApp.Controls.Add(_btnShapeColor, 1, 0);
 
-            tlpApp.Controls.Add(new Label { Text = "填色類型", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 1);
+            tlpApp.Controls.Add(new Label { Text = "填色類型", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 1);
             _cbBrushType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
             _cbBrushType.Items.AddRange(new string[] { "純色填充", "線性漸層" });
             _cbBrushType.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FillBrushType = (App_Shapes.BrushType)_cbBrushType.SelectedIndex);
             tlpApp.Controls.Add(_cbBrushType, 1, 1);
 
-            tlpApp.Controls.Add(new Label { Text = "主副填色", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 2);
+            tlpApp.Controls.Add(new Label { Text = "主副填色", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 2);
             TableLayoutPanel tlpColors = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
             tlpColors.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); tlpColors.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             _btnFillColor = new Button { Height = 25, FlatStyle = FlatStyle.Flat, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 2, 0) };
@@ -60,22 +60,22 @@ namespace DrawingApp
             tlpColors.Controls.Add(_btnFillColor, 0, 0); tlpColors.Controls.Add(_btnGradientColor, 1, 0);
             tlpApp.Controls.Add(tlpColors, 1, 2);
 
-            tlpApp.Controls.Add(new Label { Text = "線條粗細", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 30 }, 0, 3);
+            tlpApp.Controls.Add(new Label { Text = "線條粗細", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 8, 0, 0) }, 0, 3);
             TableLayoutPanel tlpStroke = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
             tlpStroke.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); tlpStroke.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
-            _tbStrokeWidth = new TrackBar { Minimum = 1, Maximum = 20, TickStyle = TickStyle.None, Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 30 };
-            _lblStrokeWidthValue = new Label { Text = "2", TextAlign = ContentAlignment.MiddleCenter, Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 30 };
+            _tbStrokeWidth = new TrackBar { Minimum = 1, Maximum = 20, TickStyle = TickStyle.None, Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 25 };
+            _lblStrokeWidthValue = new Label { Text = "2", TextAlign = ContentAlignment.MiddleCenter, Anchor = AnchorStyles.Left | AnchorStyles.Right, Height = 25 };
             _tbStrokeWidth.ValueChanged += (s, e) => { _lblStrokeWidthValue.Text = _tbStrokeWidth.Value.ToString(); ApplyPropertyChange(cmd => cmd.StrokeWidth = _tbStrokeWidth.Value); };
             tlpStroke.Controls.Add(_tbStrokeWidth, 0, 0); tlpStroke.Controls.Add(_lblStrokeWidthValue, 1, 0);
             tlpApp.Controls.Add(tlpStroke, 1, 3);
 
-            tlpApp.Controls.Add(new Label { Text = "線條樣式", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 4);
+            tlpApp.Controls.Add(new Label { Text = "線條樣式", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 4);
             _cbDashStyle = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
             _cbDashStyle.Items.AddRange(new string[] { "實線 (Solid)", "虛線 (Dash)", "點線 (Dot)", "點虛線 (DashDot)" });
             _cbDashStyle.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.StrokeDashStyle = (DashStyle)_cbDashStyle.SelectedIndex);
             tlpApp.Controls.Add(_cbDashStyle, 1, 4);
 
-            _chkShadow = new CheckBox { Text = "啟用立體陰影", Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 5, 0, 0) };
+            _chkShadow = new CheckBox { Text = "啟用立體陰影", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 5, 0, 0) };
             _chkShadow.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.EnableShadow = _chkShadow.Checked);
             tlpApp.Controls.Add(_chkShadow, 1, 5);
 
@@ -85,19 +85,19 @@ namespace DrawingApp
             // ==========================================
             // 【大框 2】文字與排版設定
             // ==========================================
-            TableLayoutPanel tlpText = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, Width = 265, Font = contentFont, Padding = new Padding(5, 10, 5, 15) };
-            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 70));
+            TableLayoutPanel tlpText = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, Width = 265, Font = contentFont, Padding = new Padding(5, 10, 5, 10) };
+            tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 85));
             tlpText.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
-            tlpText.Controls.Add(new Label { Text = "字體顏色", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 0);
+            tlpText.Controls.Add(new Label { Text = "字體顏色", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 0);
             _btnFontColor = new Button { Height = 25, FlatStyle = FlatStyle.Flat, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
             _btnFontColor.Click += (s, e) => PickColor(_btnFontColor, c => ApplyPropertyChange(cmd => cmd.FontColor = c));
             tlpText.Controls.Add(_btnFontColor, 1, 0);
 
-            tlpText.Controls.Add(new Label { Text = "字型/大小", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 1);
+            tlpText.Controls.Add(new Label { Text = "字型與大小", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 1);
             TableLayoutPanel tlpFont = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
-            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 55));
-            _cbFontName = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 5, 0) };
+            tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); tlpFont.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 45));
+            _cbFontName = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 2, 0) };
             foreach (FontFamily font in FontFamily.Families) _cbFontName.Items.Add(font.Name);
             _cbFontName.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontName = _cbFontName.Text);
             _nudFontSize = new NumericUpDown { Minimum = 6, Maximum = 144, Anchor = AnchorStyles.Left | AnchorStyles.Right };
@@ -105,16 +105,15 @@ namespace DrawingApp
             tlpFont.Controls.Add(_cbFontName, 0, 0); tlpFont.Controls.Add(_nudFontSize, 1, 0);
             tlpText.Controls.Add(tlpFont, 1, 1);
 
-            tlpText.Controls.Add(new Label { Text = "樣式", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 2);
-            TableLayoutPanel tlpStyle = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
-            tlpStyle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33)); tlpStyle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33)); tlpStyle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33));
-            _chkBold = new CheckBox { Text = "粗體", AutoSize = true }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
-            _chkItalic = new CheckBox { Text = "斜體", AutoSize = true }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
-            _chkUnderline = new CheckBox { Text = "底線", AutoSize = true }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
-            tlpStyle.Controls.Add(_chkBold, 0, 0); tlpStyle.Controls.Add(_chkItalic, 1, 0); tlpStyle.Controls.Add(_chkUnderline, 2, 0);
-            tlpText.Controls.Add(tlpStyle, 1, 2);
+            tlpText.Controls.Add(new Label { Text = "文字樣式", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 2);
+            FlowLayoutPanel flpStyle = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 0, 5) };
+            _chkBold = new CheckBox { Text = "粗", AutoSize = true, Width = 38, Margin = new Padding(0, 3, 3, 0) }; _chkBold.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontBold = _chkBold.Checked);
+            _chkItalic = new CheckBox { Text = "斜", AutoSize = true, Width = 38, Margin = new Padding(0, 3, 3, 0) }; _chkItalic.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontItalic = _chkItalic.Checked);
+            _chkUnderline = new CheckBox { Text = "底線", AutoSize = true, Width = 50, Margin = new Padding(0, 3, 0, 0) }; _chkUnderline.CheckedChanged += (s, e) => ApplyPropertyChange(cmd => cmd.FontUnderline = _chkUnderline.Checked);
+            flpStyle.Controls.Add(_chkBold); flpStyle.Controls.Add(_chkItalic); flpStyle.Controls.Add(_chkUnderline);
+            tlpText.Controls.Add(flpStyle, 1, 2);
 
-            tlpText.Controls.Add(new Label { Text = "對齊方式", Anchor = AnchorStyles.Left | AnchorStyles.Right, TextAlign = ContentAlignment.MiddleLeft, Height = 25 }, 0, 3);
+            tlpText.Controls.Add(new Label { Text = "對齊方式", AutoSize = true, Anchor = AnchorStyles.Left | AnchorStyles.Top, Margin = new Padding(0, 6, 0, 0) }, 0, 3);
             _cbTextAlign = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right };
             _cbTextAlign.Items.AddRange(new string[] { "左上", "中上", "右上", "左中", "正中", "右中", "左下", "中下", "右下" });
             _cbTextAlign.SelectedIndexChanged += (s, e) => ApplyPropertyChange(cmd => cmd.TextAlignment = (App_Shapes.TextAlign)_cbTextAlign.SelectedIndex);
@@ -124,58 +123,58 @@ namespace DrawingApp
 
 
             // ==========================================
-            // 【大框 3】快速對齊
+            // 【大框 3】快速對齊 (改為純按鈕，無多餘留白)
             // ==========================================
-            _alignmentPanel = new Panel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 265, Font = contentFont, Padding = new Padding(5, 10, 5, 15) };
+            FlowLayoutPanel flpAlignMain = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown, Width = 265, Font = contentFont, Padding = new Padding(5, 5, 5, 10) };
             
-            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣", AutoSize = true, Location = new Point(5, 10), ForeColor = Color.DimGray };
+            _chkAlignToPage = new CheckBox { Text = "對齊畫布邊緣 (不勾選則相對於彼此對齊)", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(5, 5, 0, 5) };
             
-            TableLayoutPanel tlpAlign = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Width = 255, Location = new Point(5, 35) };
-            tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); tlpAlign.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 60));
-            ComboBox cbAlignOptions = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Anchor = AnchorStyles.Left | AnchorStyles.Right };
-            cbAlignOptions.Items.AddRange(new string[] { "靠左對齊", "水平置中", "靠右對齊", "靠上對齊", "垂直置中", "靠下對齊", "水平均分", "垂直均分" });
-            cbAlignOptions.SelectedIndex = 0;
+            TableLayoutPanel tlpAlignGrid = new TableLayoutPanel { ColumnCount = 2, RowCount = 4, AutoSize = true, Width = 255 };
+            tlpAlignGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            tlpAlignGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+
+            // 左欄：水平相關 / 右欄：垂直相關
+            Button btnLeft = CreateAlignButton("靠左對齊", () => AlignShapes("Left"));
+            Button btnCenter = CreateAlignButton("水平置中", () => AlignShapes("Center"));
+            Button btnRight = CreateAlignButton("靠右對齊", () => AlignShapes("Right"));
+            Button btnDistH = CreateAlignButton("水平均分", () => DistributeShapes("Horizontal"));
+
+            Button btnTop = CreateAlignButton("靠上對齊", () => AlignShapes("Top"));
+            Button btnMiddle = CreateAlignButton("垂直置中", () => AlignShapes("Middle"));
+            Button btnBottom = CreateAlignButton("靠下對齊", () => AlignShapes("Bottom"));
+            Button btnDistV = CreateAlignButton("垂直均分", () => DistributeShapes("Vertical"));
+
+            tlpAlignGrid.Controls.Add(btnLeft, 0, 0);   tlpAlignGrid.Controls.Add(btnTop, 1, 0);
+            tlpAlignGrid.Controls.Add(btnCenter, 0, 1); tlpAlignGrid.Controls.Add(btnMiddle, 1, 1);
+            tlpAlignGrid.Controls.Add(btnRight, 0, 2);  tlpAlignGrid.Controls.Add(btnBottom, 1, 2);
+            tlpAlignGrid.Controls.Add(btnDistH, 0, 3);  tlpAlignGrid.Controls.Add(btnDistV, 1, 3);
+
+            flpAlignMain.Controls.Add(_chkAlignToPage);
+            flpAlignMain.Controls.Add(tlpAlignGrid);
             
-            Button btnApplyAlign = new Button { Text = "執行", Height = 25, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Anchor = AnchorStyles.Left | AnchorStyles.Right };
-            btnApplyAlign.FlatAppearance.BorderColor = Color.LightGray;
-            btnApplyAlign.Click += (s, e) => {
-                switch (cbAlignOptions.SelectedIndex) {
-                    case 0: AlignShapes("Left"); break;
-                    case 1: AlignShapes("Center"); break;
-                    case 2: AlignShapes("Right"); break;
-                    case 3: AlignShapes("Top"); break;
-                    case 4: AlignShapes("Middle"); break;
-                    case 5: AlignShapes("Bottom"); break;
-                    case 6: DistributeShapes("Horizontal"); break;
-                    case 7: DistributeShapes("Vertical"); break;
-                }
-            };
-            tlpAlign.Controls.Add(cbAlignOptions, 0, 0); tlpAlign.Controls.Add(btnApplyAlign, 1, 0);
-            
-            _alignmentPanel.Controls.Add(_chkAlignToPage);
-            _alignmentPanel.Controls.Add(tlpAlign);
-            
+            _alignmentPanel = flpAlignMain; // 指派給通用變數以利狀態控制
             _topPropPanel.Controls.Add(CreateCollapsiblePanel("快速對齊", _alignmentPanel));
 
 
             // ==========================================
-            // 【大框 4】圖層順序
+            // 【大框 4】圖層順序 (緊密貼合，無留白)
             // ==========================================
-            _zIndexPanel = new Panel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 265, Font = contentFont, Padding = new Padding(5, 10, 5, 15) };
-            TableLayoutPanel tlpZIndex = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Width = 255, Location = new Point(5, 10) };
-            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            TableLayoutPanel tlpZIndex = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Width = 265, Font = contentFont, Padding = new Padding(5, 10, 5, 10) };
+            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); 
+            tlpZIndex.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
             
-            Button btnTop = new Button { Text = "移到最上層", Height = 28, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 5, 0) };
-            btnTop.FlatAppearance.BorderColor = Color.LightGray;
-            btnTop.Click += (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); };
+            Button btnBringTop = new Button { Text = "移到最上層", Height = 28, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(0, 0, 3, 0) };
+            btnBringTop.FlatAppearance.BorderColor = Color.LightGray;
+            btnBringTop.Click += (s, e) => { CurrentCanvas?.ChangeZIndex(0); RefreshLayerTree(); };
 
-            Button btnBottom = new Button { Text = "移到最下層", Height = 28, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(5, 0, 0, 0) };
-            btnBottom.FlatAppearance.BorderColor = Color.LightGray;
-            btnBottom.Click += (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); };
+            Button btnSendBottom = new Button { Text = "移到最下層", Height = 28, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(3, 0, 0, 0) };
+            btnSendBottom.FlatAppearance.BorderColor = Color.LightGray;
+            btnSendBottom.Click += (s, e) => { CurrentCanvas?.ChangeZIndex(-99); RefreshLayerTree(); };
 
-            tlpZIndex.Controls.Add(btnTop, 0, 0); tlpZIndex.Controls.Add(btnBottom, 1, 0);
-            _zIndexPanel.Controls.Add(tlpZIndex);
-
+            tlpZIndex.Controls.Add(btnBringTop, 0, 0); 
+            tlpZIndex.Controls.Add(btnSendBottom, 1, 0);
+            
+            _zIndexPanel = tlpZIndex; // 指派給通用變數以利狀態控制
             _topPropPanel.Controls.Add(CreateCollapsiblePanel("圖層順序", _zIndexPanel));
 
 
@@ -192,8 +191,17 @@ namespace DrawingApp
         }
 
         // ==========================================
-        // 輔助方法：建立可展開/收合的面板區塊
+        // 輔助方法
         // ==========================================
+        private Button CreateAlignButton(string text, Action onClick)
+        {
+            Button btn = new Button { Text = text, Height = 28, FlatStyle = FlatStyle.Flat, Cursor = Cursors.Hand, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(2) };
+            btn.FlatAppearance.BorderColor = Color.LightGray;
+            btn.FlatAppearance.MouseOverBackColor = Color.FromArgb(235, 245, 255);
+            btn.Click += (s, e) => onClick();
+            return btn;
+        }
+
         private Control CreateCollapsiblePanel(string title, Control contentPanel)
         {
             FlowLayoutPanel container = new FlowLayoutPanel 
@@ -202,7 +210,7 @@ namespace DrawingApp
                 AutoSize = true, 
                 AutoSizeMode = AutoSizeMode.GrowAndShrink, 
                 FlowDirection = FlowDirection.TopDown,
-                Margin = new Padding(0, 0, 0, 10),
+                Margin = new Padding(0, 0, 0, 8),
                 BackColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -211,7 +219,7 @@ namespace DrawingApp
             { 
                 Text = $"▼ {title}", 
                 Width = 270, 
-                Height = 35, 
+                Height = 32, 
                 FlatStyle = FlatStyle.Flat, 
                 TextAlign = ContentAlignment.MiddleLeft, 
                 BackColor = Color.FromArgb(235, 235, 235),
@@ -221,7 +229,7 @@ namespace DrawingApp
             };
             btnToggle.FlatAppearance.BorderSize = 0;
 
-            contentPanel.Width = 265;
+            contentPanel.Width = 268; // 配合外框微調
             contentPanel.Margin = new Padding(0);
 
             btnToggle.Click += (s, e) => {
