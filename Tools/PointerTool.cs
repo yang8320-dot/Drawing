@@ -21,6 +21,7 @@ namespace DrawingApp.Tools
 
         private App_Shapes.HandlePosition _resizingHandle = App_Shapes.HandlePosition.None;
         private RectangleF _initialBounds;
+        private List<RectangleF> _initialBoundsList; // 用於記憶所有選取物件的初始位置，消除浮點數誤差
         private float _initialAngle;
 
         private Guid _oldSrcId, _oldTgtId;
@@ -86,7 +87,13 @@ namespace DrawingApp.Tools
                     }
                 }
                 canvas.TriggerSelectionChanged();
-                if (canvas.SelectedShapes.Any(s => !s.IsLocked)) _state = PointerState.Moving;
+
+                if (canvas.SelectedShapes.Any(s => !s.IsLocked))
+                {
+                    _state = PointerState.Moving;
+                    // 紀錄所有拖曳物件的「絕對原始座標」
+                    _initialBoundsList = canvas.SelectedShapes.Where(s => !s.IsLocked).Select(s => s.Bounds).ToList();
+                }
             }
             else
             {
@@ -101,7 +108,10 @@ namespace DrawingApp.Tools
         {
             if (e.Button != MouseButtons.Left) 
             {
-                FindSnapPoint(canvas, realPt);
+                // 空手移動時尋找對焦點提示 (若鎖點開啟)
+                if (canvas.EnableObjectSnap) FindSnapPoint(canvas, realPt);
+                else canvas.ActiveSnapPoint = null;
+                
                 if (canvas.ActiveSnapPoint != null) canvas.Invalidate();
                 return;
             }
@@ -110,38 +120,38 @@ namespace DrawingApp.Tools
             {
                 var movableShapes = canvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
                 
-                // 1. 還原到拖曳前的狀態 (完全消除浮點數累積誤差)
-                for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(-_dragTotalDx, -_dragTotalDy);
-
-                // 2. 計算絕對位移量
+                // 1. 計算絕對位移量
                 float totalDx = realPt.X - _dragStartPt.X;
                 float totalDy = realPt.Y - _dragStartPt.Y;
 
                 canvas.ClearSmartGuides();
                 canvas.ActiveSnapPoint = null;
 
-                // 3. 正交約束
+                // 2. 正交約束
                 if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift)) {
                     PointF orthoPt = ApplyOrtho(_dragStartPt, realPt);
                     totalDx = orthoPt.X - _dragStartPt.X;
                     totalDy = orthoPt.Y - _dragStartPt.Y;
                 }
 
-                // 4. 精確鎖點
+                // 3. 精確鎖點 (基於原始座標計算，0誤差)
                 if (movableShapes.Count == 1 && canvas.EnableObjectSnap)
                 {
                     var me = movableShapes[0];
-                    float snapThreshold = 10.0f / canvas.ZoomFactor;
-                    var nearShapes = canvas.GetShapesInRect(new RectangleF(me.Bounds.X + totalDx - 200, me.Bounds.Y + totalDy - 200, 400, 400));
-
+                    float snapThreshold = 15.0f / canvas.ZoomFactor;
                     PointF bestSnap = PointF.Empty;
                     float minDistance = float.MaxValue;
                     bool snapped = false;
 
-                    PointF[] myPoints = new PointF[] {
-                        me.GetCenter(), new PointF(me.Bounds.Left, me.Bounds.Top), new PointF(me.Bounds.Right, me.Bounds.Top),
-                        new PointF(me.Bounds.Left, me.Bounds.Bottom), new PointF(me.Bounds.Right, me.Bounds.Bottom)
+                    RectangleF initialB = _initialBoundsList[0];
+                    PointF initialCenter = new PointF(initialB.X + initialB.Width/2, initialB.Y + initialB.Height/2);
+                    
+                    PointF[] myInitialPoints = new PointF[] {
+                        initialCenter, new PointF(initialB.Left, initialB.Top), new PointF(initialB.Right, initialB.Top),
+                        new PointF(initialB.Left, initialB.Bottom), new PointF(initialB.Right, initialB.Bottom)
                     };
+
+                    var nearShapes = canvas.GetShapesInRect(new RectangleF(initialB.X + totalDx - 200, initialB.Y + totalDy - 200, 400, 400));
 
                     foreach (var other in nearShapes)
                     {
@@ -154,7 +164,7 @@ namespace DrawingApp.Tools
                             new PointF(other.Bounds.Left, other.Bounds.Bottom), new PointF(other.Bounds.Right, other.Bounds.Bottom)
                         };
 
-                        foreach (var myPt in myPoints)
+                        foreach (var myPt in myInitialPoints)
                         {
                             PointF futureMyPt = new PointF(myPt.X + totalDx, myPt.Y + totalDy);
                             foreach (var otherPt in otherAnchors)
@@ -163,8 +173,8 @@ namespace DrawingApp.Tools
                                 if (d < snapThreshold && d < minDistance)
                                 {
                                     minDistance = d; bestSnap = otherPt;
-                                    // 確保位移量能 100% 讓點對齊
-                                    totalDx = otherPt.X - myPt.X;
+                                    // 直接覆蓋位移量，讓原始點 100% 貼合對焦點
+                                    totalDx = otherPt.X - myPt.X; 
                                     totalDy = otherPt.Y - myPt.Y;
                                     snapped = true;
                                 }
@@ -174,12 +184,16 @@ namespace DrawingApp.Tools
                     if (snapped) canvas.ActiveSnapPoint = bestSnap;
                 }
 
-                // 5. 套用全新的絕對位移
-                for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(totalDx, totalDy);
+                // 4. 套用全新的絕對位移 (完全消除誤差)
+                for (int i = 0; i < movableShapes.Count; i++) {
+                    RectangleF ib = _initialBoundsList[i];
+                    movableShapes[i].SetBounds(new RectangleF(ib.X + totalDx, ib.Y + totalDy, ib.Width, ib.Height));
+                }
+                
                 _dragTotalDx = totalDx;
                 _dragTotalDy = totalDy;
 
-                canvas.Invalidate();
+                canvas.Invalidate(); 
             }
             else if (_state == PointerState.Resizing)
             {
@@ -188,7 +202,9 @@ namespace DrawingApp.Tools
                 if (shape is App_Shapes.ConnectorShape conn)
                 {
                     PointF targetPt = realPt;
-                    targetPt = FindSnapPoint(canvas, targetPt, conn); // 抓對焦點
+                    
+                    if (canvas.EnableObjectSnap) targetPt = FindSnapPoint(canvas, targetPt, conn);
+                    else canvas.ActiveSnapPoint = null;
                     
                     if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift)) 
                         targetPt = ApplyOrtho(_dragStartPt, targetPt);
@@ -198,14 +214,17 @@ namespace DrawingApp.Tools
                     if (_resizingHandle == App_Shapes.HandlePosition.StartPoint) { conn.StartPt = targetPt; conn.SourceId = Guid.Empty; } 
                     else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint) { conn.EndPt = targetPt; conn.TargetId = Guid.Empty; }
 
-                    var nearShapes = canvas.GetShapesInRect(new RectangleF(targetPt.X - 5, targetPt.Y - 5, 10, 10));
-                    foreach (var other in nearShapes) {
-                        if (other != conn && other.HitTest(targetPt)) {
-                            var hoverAnchor = DetectAnchor(other, targetPt);
-                            canvas.SetHoveredConnectionTarget(other, hoverAnchor);
-                            if (_resizingHandle == App_Shapes.HandlePosition.StartPoint) { conn.SourceId = other.Id; conn.SourceAnchor = hoverAnchor; } 
-                            else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint) { conn.TargetId = other.Id; conn.TargetAnchor = hoverAnchor; }
-                            break;
+                    if (canvas.EnableObjectSnap)
+                    {
+                        var nearShapes = canvas.GetShapesInRect(new RectangleF(targetPt.X - 5, targetPt.Y - 5, 10, 10));
+                        foreach (var other in nearShapes) {
+                            if (other != conn && other.HitTest(targetPt)) {
+                                var hoverAnchor = DetectAnchor(other, targetPt);
+                                canvas.SetHoveredConnectionTarget(other, hoverAnchor);
+                                if (_resizingHandle == App_Shapes.HandlePosition.StartPoint) { conn.SourceId = other.Id; conn.SourceAnchor = hoverAnchor; } 
+                                else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint) { conn.TargetId = other.Id; conn.TargetAnchor = hoverAnchor; }
+                                break;
+                            }
                         }
                     }
                 }
@@ -216,7 +235,6 @@ namespace DrawingApp.Tools
                     
                     canvas.ActiveSnapPoint = null;
 
-                    // 拉伸的絕對鎖點
                     if (canvas.EnableObjectSnap)
                     {
                         PointF handlePt = GetHandlePoint(_initialBounds, _resizingHandle);
@@ -305,7 +323,10 @@ namespace DrawingApp.Tools
 
             if (_state == PointerState.Moving && movableShapes.Count > 0 && (_dragTotalDx != 0 || _dragTotalDy != 0))
             {
-                for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(-_dragTotalDx, -_dragTotalDy);
+                // 執行 Command 前，先把物件還原回一開始的位置，確保 Undo/Redo 也是絕對無誤差
+                for (int i = 0; i < movableShapes.Count; i++) {
+                    movableShapes[i].SetBounds(_initialBoundsList[i]);
+                }
                 canvas.CmdManager.ExecuteCommand(new MoveShapesCommand(movableShapes, _dragTotalDx, _dragTotalDy));
             }
             else if (_state == PointerState.Resizing && canvas.SelectedShapes.Count == 1 && !canvas.SelectedShapes[0].IsLocked)
