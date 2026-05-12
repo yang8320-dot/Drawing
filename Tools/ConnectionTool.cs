@@ -41,7 +41,7 @@ namespace DrawingApp.Tools
         {
             if (e.Button != MouseButtons.Left || _tempConn == null) 
             {
-                PointF hoverSnap = FindSnapPoint(canvas, realPt);
+                FindSnapPoint(canvas, realPt);
                 if (canvas.ActiveSnapPoint != null) canvas.Invalidate();
                 return;
             }
@@ -50,8 +50,10 @@ namespace DrawingApp.Tools
             
             canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
             
+            // 尋找對焦點
             PointF targetPt = FindSnapPoint(canvas, realPt, _tempConn);
 
+            // 正交約束
             if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift))
             {
                 targetPt = ApplyOrtho(_startRealPt, targetPt);
@@ -84,8 +86,11 @@ namespace DrawingApp.Tools
                 }
             }
 
+            // 確保綠色對焦點絕對精準
             if (snapTarget != null && snapAnchor != App_Shapes.AnchorPosition.Auto)
                 _tempConn.UpdateEndPoint(snapTarget.GetAnchorPoint(snapAnchor));
+            else if (canvas.ActiveSnapPoint != null)
+                _tempConn.UpdateEndPoint(canvas.ActiveSnapPoint.Value); // 強制使用綠色對焦點
             else if (snapTarget != null)
                 _tempConn.UpdateEndPoint(snapTarget.GetIntersection(targetPt));
             else
