@@ -1,3 +1,8 @@
+// ============================================================
+// FILE: Tools/ConnectionTool.cs
+// ============================================================
+
+using System;
 using System.Drawing;
 using System.Windows.Forms;
 
@@ -6,47 +11,62 @@ namespace DrawingApp.Tools
     public class ConnectionTool : ToolBase
     {
         private App_Shapes.ConnectorShape _tempConn;
+        private PointF _startRealPt;
 
         public override void OnMouseDown(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
         {
             if (e.Button != MouseButtons.Left) return;
 
+            PointF snapPt = FindSnapPoint(canvas, realPt);
+            _startRealPt = snapPt;
+
             bool isArrow = (canvas.CurrentShapeType == App_Shapes.ShapeType.ArrowLine || canvas.CurrentShapeType == App_Shapes.ShapeType.OrthogonalLine);
             bool isOrtho = (canvas.CurrentShapeType == App_Shapes.ShapeType.OrthogonalLine);
             
-            _tempConn = new App_Shapes.ConnectorShape(realPt, canvas.CurrentColor, isArrow, isOrtho);
-            
-            // 【修正3】: 新增連線時也要套用預設格式 (粗細/顏色/字型等)
+            _tempConn = new App_Shapes.ConnectorShape(snapPt, canvas.CurrentColor, isArrow, isOrtho);
             _tempConn.ApplyFormatFrom(canvas.DefaultFormatTemplate);
 
             canvas.SetTempShape(_tempConn);
             
-            var hitShape = canvas.GetShapeAtPoint(realPt);
+            var hitShape = canvas.GetShapeAtPoint(snapPt);
             if (hitShape != null)
             {
                 _tempConn.SourceId = hitShape.Id; 
-                _tempConn.SourceAnchor = DetectAnchor(hitShape, realPt);
+                _tempConn.SourceAnchor = DetectAnchor(hitShape, snapPt);
             }
+            canvas.Invalidate();
         }
 
         public override void OnMouseMove(App_CanvasControl canvas, MouseEventArgs e, PointF realPt)
         {
-            if (e.Button != MouseButtons.Left || _tempConn == null) return;
+            if (e.Button != MouseButtons.Left || _tempConn == null) 
+            {
+                PointF hoverSnap = FindSnapPoint(canvas, realPt);
+                if (canvas.ActiveSnapPoint != null) canvas.Invalidate();
+                return;
+            }
 
             RectangleF oldBounds = canvas.GetShapesAndConnectorsBounds(new System.Collections.Generic.List<App_Shapes.ShapeBase> { _tempConn });
             
             canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
-            var nearShapes = canvas.GetShapesInRect(new RectangleF(realPt.X - 15, realPt.Y - 15, 30, 30));
+            
+            PointF targetPt = FindSnapPoint(canvas, realPt, _tempConn);
+
+            if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift))
+            {
+                targetPt = ApplyOrtho(_startRealPt, targetPt);
+            }
+
+            var nearShapes = canvas.GetShapesInRect(new RectangleF(targetPt.X - 15, targetPt.Y - 15, 30, 30));
             
             App_Shapes.ShapeBase snapTarget = null;
             App_Shapes.AnchorPosition snapAnchor = App_Shapes.AnchorPosition.Auto;
 
-            // 【修正2】: 優化尋找錨點邏輯，優先判斷錨點，且不符合時不隨意磁吸整個物件邊框
             foreach (var other in nearShapes)
             {
                 if (other.Id != _tempConn.SourceId)
                 {
-                    App_Shapes.AnchorPosition tempAnchor = DetectAnchor(other, realPt);
+                    App_Shapes.AnchorPosition tempAnchor = DetectAnchor(other, targetPt);
                     if (tempAnchor != App_Shapes.AnchorPosition.Auto)
                     {
                         snapTarget = other;
@@ -54,7 +74,7 @@ namespace DrawingApp.Tools
                         canvas.SetHoveredConnectionTarget(snapTarget, snapAnchor);
                         break;
                     }
-                    else if (other.HitTest(realPt))
+                    else if (other.HitTest(targetPt))
                     {
                         snapTarget = other;
                         snapAnchor = App_Shapes.AnchorPosition.Auto;
@@ -65,17 +85,11 @@ namespace DrawingApp.Tools
             }
 
             if (snapTarget != null && snapAnchor != App_Shapes.AnchorPosition.Auto)
-            {
                 _tempConn.UpdateEndPoint(snapTarget.GetAnchorPoint(snapAnchor));
-            }
             else if (snapTarget != null)
-            {
-                _tempConn.UpdateEndPoint(snapTarget.GetIntersection(realPt));
-            }
+                _tempConn.UpdateEndPoint(snapTarget.GetIntersection(targetPt));
             else
-            {
-                _tempConn.UpdateEndPoint(realPt);
-            }
+                _tempConn.UpdateEndPoint(targetPt);
 
             RectangleF newBounds = canvas.GetShapesAndConnectorsBounds(new System.Collections.Generic.List<App_Shapes.ShapeBase> { _tempConn });
             canvas.InvalidateWorldRect(oldBounds);
@@ -98,6 +112,7 @@ namespace DrawingApp.Tools
             canvas.SetTempShape(null);
             _tempConn = null;
             canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
+            canvas.ActiveSnapPoint = null;
             
             canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
             canvas.Invalidate();
@@ -109,6 +124,7 @@ namespace DrawingApp.Tools
             {
                 if (_tempConn != null) { _tempConn.Dispose(); _tempConn = null; canvas.SetTempShape(null); }
                 canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
+                canvas.ActiveSnapPoint = null;
                 canvas.RequestToolChange(App_Shapes.ShapeType.Pointer);
                 canvas.Invalidate();
                 return true;
@@ -120,6 +136,7 @@ namespace DrawingApp.Tools
         {
             if (_tempConn != null) { _tempConn.Dispose(); _tempConn = null; canvas.SetTempShape(null); }
             canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
+            canvas.ActiveSnapPoint = null;
         }
     }
 }
