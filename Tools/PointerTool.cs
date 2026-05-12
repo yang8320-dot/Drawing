@@ -15,8 +15,7 @@ namespace DrawingApp.Tools
         private enum PointerState { Idle, Moving, Resizing, Rotating, BoxSelecting }
         private PointerState _state = PointerState.Idle;
 
-        private PointF _lastMouseRealPt;
-        private PointF _dragStartPt; // 記錄拖曳起始點，用於正交模式計算
+        private PointF _dragStartPt; 
         private float _dragTotalDx = 0;
         private float _dragTotalDy = 0;
 
@@ -34,7 +33,6 @@ namespace DrawingApp.Tools
         {
             if (e.Button != MouseButtons.Left) return;
             
-            _lastMouseRealPt = realPt;
             _dragStartPt = realPt;
             _dragTotalDx = 0; 
             _dragTotalDy = 0;
@@ -87,19 +85,13 @@ namespace DrawingApp.Tools
                         canvas.SelectedShapes.Add(hitShape);
                     }
                 }
-                
                 canvas.TriggerSelectionChanged();
-
-                if (canvas.SelectedShapes.Any(s => !s.IsLocked))
-                {
-                    _state = PointerState.Moving;
-                }
+                if (canvas.SelectedShapes.Any(s => !s.IsLocked)) _state = PointerState.Moving;
             }
             else
             {
                 canvas.ClearSelection();
                 canvas.TriggerSelectionChanged();
-                
                 _state = PointerState.BoxSelecting;
                 _boxSelectRect = new RectangleF(realPt.X, realPt.Y, 0, 0);
             }
@@ -109,150 +101,135 @@ namespace DrawingApp.Tools
         {
             if (e.Button != MouseButtons.Left) 
             {
-                // 空手移動尋找對焦點 (連線修改或拖拉端點用)
-                PointF hoverSnap = FindSnapPoint(canvas, realPt);
+                FindSnapPoint(canvas, realPt);
                 if (canvas.ActiveSnapPoint != null) canvas.Invalidate();
                 return;
             }
 
-            PointF targetPt = realPt;
-
             if (_state == PointerState.Moving)
             {
                 var movableShapes = canvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
-                RectangleF oldBounds = canvas.GetShapesAndConnectorsBounds(movableShapes);
+                
+                // 1. 還原到拖曳前的狀態 (完全消除浮點數累積誤差)
+                for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(-_dragTotalDx, -_dragTotalDy);
 
-                // 如果只有一個物件且啟用正交，套用正交限制
-                if (movableShapes.Count == 1 && (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift)))
-                {
-                    targetPt = ApplyOrtho(_dragStartPt, targetPt);
+                // 2. 計算絕對位移量
+                float totalDx = realPt.X - _dragStartPt.X;
+                float totalDy = realPt.Y - _dragStartPt.Y;
+
+                canvas.ClearSmartGuides();
+                canvas.ActiveSnapPoint = null;
+
+                // 3. 正交約束
+                if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift)) {
+                    PointF orthoPt = ApplyOrtho(_dragStartPt, realPt);
+                    totalDx = orthoPt.X - _dragStartPt.X;
+                    totalDy = orthoPt.Y - _dragStartPt.Y;
                 }
 
-                // 計算相對於上一個影格的移動量
-                float dx = targetPt.X - _lastMouseRealPt.X;
-                float dy = targetPt.Y - _lastMouseRealPt.Y;
-
-                if (movableShapes.Count == 1)
+                // 4. 精確鎖點
+                if (movableShapes.Count == 1 && canvas.EnableObjectSnap)
                 {
                     var me = movableShapes[0];
-                    float snapThreshold = 5.0f / canvas.ZoomFactor;
-                    float bestDx = dx, bestDy = dy;
-                    
-                    PointF myCenter = me.GetCenter();
-                    float futureCenterX = myCenter.X + dx;
-                    float futureCenterY = myCenter.Y + dy;
+                    float snapThreshold = 10.0f / canvas.ZoomFactor;
+                    var nearShapes = canvas.GetShapesInRect(new RectangleF(me.Bounds.X + totalDx - 200, me.Bounds.Y + totalDy - 200, 400, 400));
 
-                    var nearShapes = canvas.GetShapesInRect(new RectangleF(futureCenterX - 200, futureCenterY - 200, 400, 400));
-                    canvas.ClearSmartGuides();
-                    canvas.ActiveSnapPoint = null;
+                    PointF bestSnap = PointF.Empty;
+                    float minDistance = float.MaxValue;
+                    bool snapped = false;
+
+                    PointF[] myPoints = new PointF[] {
+                        me.GetCenter(), new PointF(me.Bounds.Left, me.Bounds.Top), new PointF(me.Bounds.Right, me.Bounds.Top),
+                        new PointF(me.Bounds.Left, me.Bounds.Bottom), new PointF(me.Bounds.Right, me.Bounds.Bottom)
+                    };
 
                     foreach (var other in nearShapes)
                     {
                         if (other == me || other is App_Shapes.ConnectorShape) continue;
 
-                        PointF otherCenter = other.GetCenter();
-                        
-                        if (Math.Abs(futureCenterX - otherCenter.X) < snapThreshold)
-                        {
-                            bestDx = otherCenter.X - myCenter.X;
-                            canvas.AddSmartGuide(new PointF(otherCenter.X, -10000), new PointF(otherCenter.X, 10000));
-                        }
-                        if (Math.Abs(futureCenterY - otherCenter.Y) < snapThreshold)
-                        {
-                            bestDy = otherCenter.Y - myCenter.Y;
-                            canvas.AddSmartGuide(new PointF(-10000, otherCenter.Y), new PointF(10000, otherCenter.Y));
-                        }
-
-                        // 捕捉對焦點邏輯 (綠點)
-                        PointF[] anchors = new PointF[] {
-                            other.GetAnchorPoint(App_Shapes.AnchorPosition.Top),
-                            other.GetAnchorPoint(App_Shapes.AnchorPosition.Bottom),
-                            other.GetAnchorPoint(App_Shapes.AnchorPosition.Left),
-                            other.GetAnchorPoint(App_Shapes.AnchorPosition.Right)
+                        PointF[] otherAnchors = new PointF[] {
+                            other.GetCenter(), other.GetAnchorPoint(App_Shapes.AnchorPosition.Top), other.GetAnchorPoint(App_Shapes.AnchorPosition.Bottom),
+                            other.GetAnchorPoint(App_Shapes.AnchorPosition.Left), other.GetAnchorPoint(App_Shapes.AnchorPosition.Right),
+                            new PointF(other.Bounds.Left, other.Bounds.Top), new PointF(other.Bounds.Right, other.Bounds.Top),
+                            new PointF(other.Bounds.Left, other.Bounds.Bottom), new PointF(other.Bounds.Right, other.Bounds.Bottom)
                         };
 
-                        foreach (var anchor in anchors)
+                        foreach (var myPt in myPoints)
                         {
-                            if (Distance(new PointF(futureCenterX, futureCenterY), anchor) < snapThreshold * 3)
+                            PointF futureMyPt = new PointF(myPt.X + totalDx, myPt.Y + totalDy);
+                            foreach (var otherPt in otherAnchors)
                             {
-                                bestDx = anchor.X - myCenter.X;
-                                bestDy = anchor.Y - myCenter.Y;
-                                canvas.ActiveSnapPoint = anchor;
-                                break;
+                                float d = Distance(futureMyPt, otherPt);
+                                if (d < snapThreshold && d < minDistance)
+                                {
+                                    minDistance = d; bestSnap = otherPt;
+                                    // 確保位移量能 100% 讓點對齊
+                                    totalDx = otherPt.X - myPt.X;
+                                    totalDy = otherPt.Y - myPt.Y;
+                                    snapped = true;
+                                }
                             }
                         }
                     }
-                    dx = bestDx;
-                    dy = bestDy;
+                    if (snapped) canvas.ActiveSnapPoint = bestSnap;
                 }
 
-                _dragTotalDx += dx;
-                _dragTotalDy += dy;
-                for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(dx, dy);
+                // 5. 套用全新的絕對位移
+                for (int i = 0; i < movableShapes.Count; i++) movableShapes[i].Move(totalDx, totalDy);
+                _dragTotalDx = totalDx;
+                _dragTotalDy = totalDy;
 
-                RectangleF newBounds = canvas.GetShapesAndConnectorsBounds(movableShapes);
-
-                if (newBounds.Right > canvas.PageSize.Width - 100) canvas.PageSize = new SizeF(Math.Max(canvas.PageSize.Width, newBounds.Right + 500), canvas.PageSize.Height);
-                if (newBounds.Bottom > canvas.PageSize.Height - 100) canvas.PageSize = new SizeF(canvas.PageSize.Width, Math.Max(canvas.PageSize.Height, newBounds.Bottom + 500));
-
-                _lastMouseRealPt = new PointF(_lastMouseRealPt.X + dx, _lastMouseRealPt.Y + dy); // 更新滑鼠位置基準
-                
-                canvas.Invalidate(); // 強制刷新綠色對焦點
+                canvas.Invalidate();
             }
-            else if (_state == PointerState.Resizing && canvas.SelectedShapes.Count == 1 && !canvas.SelectedShapes[0].IsLocked)
+            else if (_state == PointerState.Resizing)
             {
                 var shape = canvas.SelectedShapes[0];
-                RectangleF oldBounds = canvas.GetShapesAndConnectorsBounds(new List<App_Shapes.ShapeBase> { shape });
 
                 if (shape is App_Shapes.ConnectorShape conn)
                 {
-                    // 連線端點拖曳時啟動對焦點
-                    targetPt = FindSnapPoint(canvas, realPt, conn);
-                    if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift)) targetPt = ApplyOrtho(_dragStartPt, targetPt);
+                    PointF targetPt = realPt;
+                    targetPt = FindSnapPoint(canvas, targetPt, conn); // 抓對焦點
+                    
+                    if (canvas.EnableOrthoMode || Control.ModifierKeys.HasFlag(Keys.Shift)) 
+                        targetPt = ApplyOrtho(_dragStartPt, targetPt);
 
                     canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
 
-                    if (_resizingHandle == App_Shapes.HandlePosition.StartPoint)
-                    {
-                        conn.StartPt = targetPt;
-                        conn.SourceId = Guid.Empty;
-                    }
-                    else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint)
-                    {
-                        conn.EndPt = targetPt;
-                        conn.TargetId = Guid.Empty;
-                    }
+                    if (_resizingHandle == App_Shapes.HandlePosition.StartPoint) { conn.StartPt = targetPt; conn.SourceId = Guid.Empty; } 
+                    else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint) { conn.EndPt = targetPt; conn.TargetId = Guid.Empty; }
 
                     var nearShapes = canvas.GetShapesInRect(new RectangleF(targetPt.X - 5, targetPt.Y - 5, 10, 10));
-
-                    foreach (var other in nearShapes)
-                    {
-                        if (other != conn && other.HitTest(targetPt))
-                        {
+                    foreach (var other in nearShapes) {
+                        if (other != conn && other.HitTest(targetPt)) {
                             var hoverAnchor = DetectAnchor(other, targetPt);
                             canvas.SetHoveredConnectionTarget(other, hoverAnchor);
-
-                            if (_resizingHandle == App_Shapes.HandlePosition.StartPoint)
-                            {
-                                conn.SourceId = other.Id;
-                                conn.SourceAnchor = hoverAnchor;
-                            }
-                            else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint)
-                            {
-                                conn.TargetId = other.Id;
-                                conn.TargetAnchor = hoverAnchor;
-                            }
+                            if (_resizingHandle == App_Shapes.HandlePosition.StartPoint) { conn.SourceId = other.Id; conn.SourceAnchor = hoverAnchor; } 
+                            else if (_resizingHandle == App_Shapes.HandlePosition.EndPoint) { conn.TargetId = other.Id; conn.TargetAnchor = hoverAnchor; }
                             break;
                         }
                     }
                 }
-                else 
+                else
                 {
-                    // 一般物件拉伸
-                    float ldx = targetPt.X - _lastMouseRealPt.X;
-                    float ldy = targetPt.Y - _lastMouseRealPt.Y;
+                    float totalDx = realPt.X - _dragStartPt.X;
+                    float totalDy = realPt.Y - _dragStartPt.Y;
+                    
+                    canvas.ActiveSnapPoint = null;
 
-                    RectangleF b = shape.Bounds;
+                    // 拉伸的絕對鎖點
+                    if (canvas.EnableObjectSnap)
+                    {
+                        PointF handlePt = GetHandlePoint(_initialBounds, _resizingHandle);
+                        PointF futureHandle = new PointF(handlePt.X + totalDx, handlePt.Y + totalDy);
+                        PointF snappedHandle = FindSnapPoint(canvas, futureHandle, shape);
+                        
+                        if (canvas.ActiveSnapPoint != null) {
+                            totalDx = snappedHandle.X - handlePt.X;
+                            totalDy = snappedHandle.Y - handlePt.Y;
+                        }
+                    }
+
+                    RectangleF b = _initialBounds;
                     bool keepRatio = Control.ModifierKeys.HasFlag(Keys.Shift);
                     float ratio = 1.0f;
                     if (keepRatio && _initialBounds.Height != 0) ratio = _initialBounds.Width / _initialBounds.Height;
@@ -260,86 +237,59 @@ namespace DrawingApp.Tools
                     switch (_resizingHandle)
                     {
                         case App_Shapes.HandlePosition.NW: 
-                            float newW_NW = b.Width - ldx; float newH_NW = b.Height - ldy;
-                            if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_NW = newW_NW / ratio; else newW_NW = newH_NW * ratio; }
-                            b = new RectangleF(b.Right - newW_NW, b.Bottom - newH_NW, newW_NW, newH_NW);
-                            break;
+                            float newW_NW = b.Width - totalDx; float newH_NW = b.Height - totalDy;
+                            if (keepRatio) { if (Math.Abs(totalDx) > Math.Abs(totalDy)) newH_NW = newW_NW / ratio; else newW_NW = newH_NW * ratio; }
+                            b = new RectangleF(b.Right - newW_NW, b.Bottom - newH_NW, newW_NW, newH_NW); break;
                         case App_Shapes.HandlePosition.N:  
-                            b = new RectangleF(b.X, b.Y + ldy, b.Width, b.Height - ldy); 
-                            break;
+                            b = new RectangleF(b.X, b.Y + totalDy, b.Width, b.Height - totalDy); break;
                         case App_Shapes.HandlePosition.NE: 
-                            float newW_NE = b.Width + ldx; float newH_NE = b.Height - ldy;
-                            if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_NE = newW_NE / ratio; else newW_NE = newH_NE * ratio; }
-                            b = new RectangleF(b.X, b.Bottom - newH_NE, newW_NE, newH_NE);
-                            break;
+                            float newW_NE = b.Width + totalDx; float newH_NE = b.Height - totalDy;
+                            if (keepRatio) { if (Math.Abs(totalDx) > Math.Abs(totalDy)) newH_NE = newW_NE / ratio; else newW_NE = newH_NE * ratio; }
+                            b = new RectangleF(b.X, b.Bottom - newH_NE, newW_NE, newH_NE); break;
                         case App_Shapes.HandlePosition.E:  
-                            b = new RectangleF(b.X, b.Y, b.Width + ldx, b.Height); 
-                            break;
+                            b = new RectangleF(b.X, b.Y, b.Width + totalDx, b.Height); break;
                         case App_Shapes.HandlePosition.SE: 
-                            float newW_SE = b.Width + ldx; float newH_SE = b.Height + ldy;
-                            if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_SE = newW_SE / ratio; else newW_SE = newH_SE * ratio; }
-                            b = new RectangleF(b.X, b.Y, newW_SE, newH_SE);
-                            break;
+                            float newW_SE = b.Width + totalDx; float newH_SE = b.Height + totalDy;
+                            if (keepRatio) { if (Math.Abs(totalDx) > Math.Abs(totalDy)) newH_SE = newW_SE / ratio; else newW_SE = newH_SE * ratio; }
+                            b = new RectangleF(b.X, b.Y, newW_SE, newH_SE); break;
                         case App_Shapes.HandlePosition.S:  
-                            b = new RectangleF(b.X, b.Y, b.Width, b.Height + ldy); 
-                            break;
+                            b = new RectangleF(b.X, b.Y, b.Width, b.Height + totalDy); break;
                         case App_Shapes.HandlePosition.SW: 
-                            float newW_SW = b.Width - ldx; float newH_SW = b.Height + ldy;
-                            if (keepRatio) { if (Math.Abs(ldx) > Math.Abs(ldy)) newH_SW = newW_SW / ratio; else newW_SW = newH_SW * ratio; }
-                            b = new RectangleF(b.Right - newW_SW, b.Y, newW_SW, newH_SW);
-                            break;
+                            float newW_SW = b.Width - totalDx; float newH_SW = b.Height + totalDy;
+                            if (keepRatio) { if (Math.Abs(totalDx) > Math.Abs(totalDy)) newH_SW = newW_SW / ratio; else newW_SW = newH_SW * ratio; }
+                            b = new RectangleF(b.Right - newW_SW, b.Y, newW_SW, newH_SW); break;
                         case App_Shapes.HandlePosition.W:  
-                            b = new RectangleF(b.X + ldx, b.Y, b.Width - ldx, b.Height); 
-                            break;
+                            b = new RectangleF(b.X + totalDx, b.Y, b.Width - totalDx, b.Height); break;
                     }
                     if (b.Width > 5 && b.Height > 5) shape.SetBounds(b);
                 }
-
-                _lastMouseRealPt = targetPt;
                 canvas.Invalidate();
             }
-            // (其餘 Rotating 與 BoxSelecting 邏輯無關位置鎖定，省略贅述維持原樣)
-            else if (_state == PointerState.Rotating && canvas.SelectedShapes.Count == 1 && !canvas.SelectedShapes[0].IsLocked)
+            else if (_state == PointerState.Rotating)
             {
                 var me = canvas.SelectedShapes[0];
-                RectangleF oldBounds = me.Bounds;
                 PointF center = me.GetCenter();
                 float angle = (float)(Math.Atan2(realPt.Y - center.Y, realPt.X - center.X) * 180 / Math.PI) + 90;
                 me.RotationAngle = canvas.SnapAngle(angle, 15f); 
-                
-                canvas.InvalidateWorldRect(oldBounds);
-                canvas.InvalidateWorldRect(me.Bounds);
-                _lastMouseRealPt = realPt;
+                canvas.Invalidate();
             }
             else if (_state == PointerState.BoxSelecting)
             {
-                RectangleF oldBox = _boxSelectRect;
                 _boxSelectRect = new RectangleF(
-                    Math.Min(_boxSelectRect.X, realPt.X),
-                    Math.Min(_boxSelectRect.Y, realPt.Y),
-                    Math.Abs(realPt.X - _boxSelectRect.X),
-                    Math.Abs(realPt.Y - _boxSelectRect.Y)
+                    Math.Min(_boxSelectRect.X, realPt.X), Math.Min(_boxSelectRect.Y, realPt.Y),
+                    Math.Abs(realPt.X - _boxSelectRect.X), Math.Abs(realPt.Y - _boxSelectRect.Y)
                 );
                 
-                bool isMultiSelectKey = (Control.ModifierKeys == Keys.Control || Control.ModifierKeys == Keys.Shift);
-                if (!isMultiSelectKey) canvas.ClearSelection();
+                if (!Control.ModifierKeys.HasFlag(Keys.Control) && !Control.ModifierKeys.HasFlag(Keys.Shift)) canvas.ClearSelection();
 
                 var nearShapes = canvas.GetShapesInRect(_boxSelectRect);
-                foreach (var s in nearShapes)
-                {
-                    if (s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds))
-                    {
-                        if (!canvas.SelectedShapes.Contains(s))
-                        {
-                            s.IsSelected = true;
-                            canvas.SelectedShapes.Add(s);
-                        }
+                foreach (var s in nearShapes) {
+                    if (s.HitTest(new PointF(_boxSelectRect.X + _boxSelectRect.Width/2, _boxSelectRect.Y + _boxSelectRect.Height/2)) || _boxSelectRect.IntersectsWith(s.Bounds)) {
+                        if (!canvas.SelectedShapes.Contains(s)) { s.IsSelected = true; canvas.SelectedShapes.Add(s); }
                     }
                 }
                 canvas.TriggerSelectionChanged();
-                canvas.InvalidateWorldRect(oldBox);
-                canvas.InvalidateWorldRect(_boxSelectRect);
-                _lastMouseRealPt = realPt;
+                canvas.Invalidate();
             }
         }
 
@@ -348,7 +298,7 @@ namespace DrawingApp.Tools
             if (e.Button != MouseButtons.Left) return;
 
             canvas.ClearSmartGuides();
-            canvas.ActiveSnapPoint = null; // 清除對焦點視覺
+            canvas.ActiveSnapPoint = null; 
             canvas.SetHoveredConnectionTarget(null, App_Shapes.AnchorPosition.Auto);
 
             var movableShapes = canvas.SelectedShapes.Where(s => !s.IsLocked).ToList();
@@ -363,8 +313,7 @@ namespace DrawingApp.Tools
                 if (canvas.SelectedShapes[0] is App_Shapes.ConnectorShape conn)
                 {
                     canvas.CmdManager.ExecuteCommand(new AdjustConnectorCommand(
-                        conn, 
-                        _oldSrcId, _oldTgtId, _oldSA, _oldTA, _oldStart, _oldEnd,
+                        conn, _oldSrcId, _oldTgtId, _oldSA, _oldTA, _oldStart, _oldEnd,
                         conn.SourceId, conn.TargetId, conn.SourceAnchor, conn.TargetAnchor, conn.StartPt, conn.EndPt));
                 }
                 else
@@ -399,6 +348,21 @@ namespace DrawingApp.Tools
             _state = PointerState.Idle;
             canvas.ClearSmartGuides();
             canvas.ActiveSnapPoint = null;
+        }
+
+        private PointF GetHandlePoint(RectangleF b, App_Shapes.HandlePosition handle) 
+        {
+            switch (handle) {
+                case App_Shapes.HandlePosition.NW: return new PointF(b.Left, b.Top);
+                case App_Shapes.HandlePosition.N: return new PointF(b.Left + b.Width/2, b.Top);
+                case App_Shapes.HandlePosition.NE: return new PointF(b.Right, b.Top);
+                case App_Shapes.HandlePosition.W: return new PointF(b.Left, b.Top + b.Height/2);
+                case App_Shapes.HandlePosition.E: return new PointF(b.Right, b.Top + b.Height/2);
+                case App_Shapes.HandlePosition.SW: return new PointF(b.Left, b.Bottom);
+                case App_Shapes.HandlePosition.S: return new PointF(b.Left + b.Width/2, b.Bottom);
+                case App_Shapes.HandlePosition.SE: return new PointF(b.Right, b.Bottom);
+                default: return new PointF(b.Left, b.Top);
+            }
         }
     }
 }
