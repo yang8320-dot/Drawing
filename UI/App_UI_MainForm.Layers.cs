@@ -10,26 +10,13 @@ using System.Windows.Forms;
 
 namespace DrawingApp
 {
-    // --- 負責圖層管理與支援拖曳排序 ---
+    // --- 負責圖層管理與支援拖曳排序 (已整合進右側收合面板) ---
     public partial class App_UI_MainForm
     {
-        private void BuildLayerPanel(SplitContainer scContainer)
+        // 回傳 TreeView，交由 Properties.cs 統一包裝成收合面板
+        private Control BuildLayerPanelContent()
         {
-            var parent = scContainer.Panel2;
-
-            // 取代原本的 Label，改用 Button 作為抽屜開關
-            Button btnToggleLayers = new Button
-            {
-                Text = "▶ 圖層管理",
-                Dock = DockStyle.Top,
-                Height = 30,
-                Font = new Font("Arial", 9, FontStyle.Bold),
-                TextAlign = ContentAlignment.MiddleLeft,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(220, 220, 220)
-            };
-            btnToggleLayers.FlatAppearance.BorderSize = 0;
+            Panel container = new Panel { Width = 265, Height = 250, Padding = new Padding(5, 10, 5, 10) };
 
             _tvLayers = new TreeView 
             { 
@@ -39,32 +26,9 @@ namespace DrawingApp
                 ItemHeight = 22,
                 Font = new Font("微軟正黑體", 9),
                 AllowDrop = true,
-                Visible = false // 預設隱藏 TreeView 內容
+                BorderStyle = BorderStyle.None
             };
 
-            // 點擊按鈕時展開/收合 SplitContainer 的高度
-            btnToggleLayers.Click += (s, e) =>
-            {
-                if (_tvLayers.Visible)
-                {
-                    // 收合
-                    _tvLayers.Visible = false;
-                    btnToggleLayers.Text = "▶ 圖層管理";
-                    scContainer.IsSplitterFixed = true;
-                    if (scContainer.Height > 35)
-                        scContainer.SplitterDistance = scContainer.Height - 30; 
-                }
-                else
-                {
-                    // 展開
-                    _tvLayers.Visible = true;
-                    btnToggleLayers.Text = "▼ 圖層管理";
-                    scContainer.IsSplitterFixed = false;
-                    if (scContainer.Height > 250)
-                        scContainer.SplitterDistance = scContainer.Height - 250;
-                }
-            };
-            
             _tvLayers.AfterSelect += TvLayers_AfterSelect;
             _tvLayers.ItemDrag += TvLayers_ItemDrag;
             _tvLayers.DragEnter += TvLayers_DragEnter;
@@ -95,22 +59,8 @@ namespace DrawingApp
                 }
             };
 
-            parent.Controls.Add(_tvLayers);
-            parent.Controls.Add(btnToggleLayers);
-
-            // 確保視窗載入或縮放時，圖層管理面板的收合高度永遠鎖定在 30px (只顯示按鈕)
-            this.Load += (s, e) => {
-                scContainer.IsSplitterFixed = true;
-                if (scContainer.Height > 35)
-                    scContainer.SplitterDistance = scContainer.Height - 30;
-            };
-
-            scContainer.Resize += (s, e) => {
-                if (!_tvLayers.Visible && scContainer.Height > 35)
-                {
-                    scContainer.SplitterDistance = scContainer.Height - 30;
-                }
-            };
+            container.Controls.Add(_tvLayers);
+            return container;
         }
 
         private void TvLayers_ItemDrag(object sender, ItemDragEventArgs e)
@@ -157,7 +107,7 @@ namespace DrawingApp
 
         private void RefreshLayerTree()
         {
-            if (CurrentCanvas == null) return;
+            if (CurrentCanvas == null || _tvLayers == null) return;
             
             _isSyncingTree = true;
             _tvLayers.Nodes.Clear();
@@ -229,7 +179,7 @@ namespace DrawingApp
 
         private void SyncLayerTreeSelection()
         {
-            if (_isSyncingTree || CurrentCanvas == null) return;
+            if (_isSyncingTree || CurrentCanvas == null || _tvLayers == null) return;
             
             _isSyncingTree = true;
             _tvLayers.SelectedNode = null;
