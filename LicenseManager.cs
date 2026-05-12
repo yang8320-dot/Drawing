@@ -7,7 +7,7 @@ namespace DrawingApp
         private static readonly DateTime ExpirationDate = new DateTime(2050, 12, 31);
 
         // 您指定的授權名單
-        public static readonly string[] DefaultUsers = { "黃忠揚", "TJ700657", "TJ700228", "TJ700533", "TJ204159" };
+        public static readonly string[] DefaultUsers = { "黃忠揚", "TJ7006571", "TJ700228", "TJ700533", "TJ204159" };
 
         public static bool VerifyLicense()
         {
